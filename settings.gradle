@@ -1,0 +1,6 @@
+rootProject.name = 'hytale-voice-chat'
+
+include 'common'
+include 'voice-server'
+include 'voice-client'
+include 'hytale-plugin'

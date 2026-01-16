@@ -1,0 +1,11 @@
+plugins {
+    id 'java-library'
+}
+
+dependencies {
+    // Networking
+    api "io.netty:netty-all:${netty_version}"
+    
+    // JSON
+    api "com.google.code.gson:gson:${gson_version}"
+}

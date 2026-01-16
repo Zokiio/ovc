@@ -1,0 +1,22 @@
+dependencies {
+    implementation project(':common')
+    
+    // Hytale API (placeholder - update when official API is available)
+    // compileOnly "com.hypixel.hytale:hytale-api:${hytale_api_version}"
+    
+    // JSON processing
+    implementation "com.google.code.gson:gson:${gson_version}"
+    
+    // HTTP client for REST API communication
+    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+}
+
+tasks.register('copyToHytale', Copy) {
+    dependsOn jar
+    from jar.archiveFile
+    into '/Users/zoki/hytale/server/mods'
+}
+
+tasks.build {
+    finalizedBy copyToHytale
+}
