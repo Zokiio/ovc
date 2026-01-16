@@ -1,8 +1,9 @@
 dependencies {
     implementation project(':common')
     
-    // Hytale API (placeholder - update when official API is available)
-    // compileOnly "com.hypixel.hytale:hytale-api:${hytale_api_version}"
+    // Hytale API - using official HytaleServer.jar
+    compileOnly files('hytalefiles/HytaleServer.jar')
+    runtimeOnly files('hytalefiles/HytaleServer.jar')
     
     // JSON processing
     implementation "com.google.code.gson:gson:${gson_version}"
