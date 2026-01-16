@@ -18,6 +18,10 @@ bin/
 .DS_Store
 Thumbs.db
 
+# Hytale API files (too large, add locally)
+hytale-plugin/hytalefiles/
+
+
 # Java
 *.class
 *.jar
