@@ -1,36 +1,23 @@
 package com.hytale.voicechat.plugin.tracker;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
-import com.hytale.voicechat.plugin.api.VoiceServerAPIClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Tracks player positions and sends updates to the voice server
+ * Tracks player positions for proximity-based voice routing
  */
 public class PlayerPositionTracker {
     private static final Logger logger = LoggerFactory.getLogger(PlayerPositionTracker.class);
-    private static final long UPDATE_INTERVAL_MS = 50; // 20 updates per second
     
     private final Map<UUID, PlayerPosition> playerPositions;
-    private final VoiceServerAPIClient apiClient;
-    private final ScheduledExecutorService scheduler;
     private volatile boolean running;
 
-    public PlayerPositionTracker(VoiceServerAPIClient apiClient) {
-        this.apiClient = apiClient;
+    public PlayerPositionTracker() {
         this.playerPositions = new ConcurrentHashMap<>();
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread thread = new Thread(r, "Position-Tracker");
-            thread.setDaemon(true);
-            return thread;
-        });
         this.running = false;
     }
 
@@ -41,13 +28,6 @@ public class PlayerPositionTracker {
         }
 
         running = true;
-        scheduler.scheduleAtFixedRate(
-                this::sendPositionUpdates,
-                0,
-                UPDATE_INTERVAL_MS,
-                TimeUnit.MILLISECONDS
-        );
-        
         logger.info("Player position tracker started");
     }
 
@@ -57,16 +37,6 @@ public class PlayerPositionTracker {
         }
 
         running = false;
-        scheduler.shutdown();
-        try {
-            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            scheduler.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-        
         logger.info("Player position tracker stopped");
     }
 
@@ -83,7 +53,6 @@ public class PlayerPositionTracker {
      */
     public void removePlayer(UUID playerId) {
         playerPositions.remove(playerId);
-        apiClient.playerLeft(playerId.toString());
     }
 
     /**
@@ -91,23 +60,19 @@ public class PlayerPositionTracker {
      */
     public void addPlayer(PlayerPosition position) {
         playerPositions.put(position.getPlayerId(), position);
-        apiClient.playerJoined(position);
     }
 
-    private void sendPositionUpdates() {
-        if (playerPositions.isEmpty()) {
-            return;
-        }
-
-        try {
-            List<PlayerPosition> positions = new ArrayList<>(playerPositions.values());
-            apiClient.updatePlayerPositions(positions);
-        } catch (Exception e) {
-            logger.error("Error sending position updates", e);
-        }
-    }
-
+    /**
+     * Get all player positions
+     */
     public Map<UUID, PlayerPosition> getPlayerPositions() {
         return Collections.unmodifiableMap(playerPositions);
+    }
+    
+    /**
+     * Get a specific player's position
+     */
+    public PlayerPosition getPlayerPosition(UUID playerId) {
+        return playerPositions.get(playerId);
     }
 }

@@ -2,7 +2,8 @@ package com.hytale.voicechat.plugin;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
-import com.hytale.voicechat.plugin.api.VoiceServerAPIClient;
+import com.hytale.voicechat.plugin.audio.OpusCodec;
+import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,23 +12,21 @@ import java.util.UUID;
 
 /**
  * Hytale Plugin for Voice Chat
- * Tracks player positions and sends proximity data to voice server
+ * Tracks player positions and handles voice data routing
  * 
- * This plugin acts as a bridge between Hytale and the voice server,
- * providing real-time player position updates for proximity-based voice chat.
+ * This plugin combines position tracking with voice server functionality
+ * for proximity-based voice chat.
  */
 public class HytaleVoiceChatPlugin {
     private static final Logger logger = LoggerFactory.getLogger(HytaleVoiceChatPlugin.class);
     
-    private VoiceServerAPIClient apiClient;
+    private UDPSocketManager udpServer;
+    private OpusCodec opusCodec;
     private PlayerPositionTracker positionTracker;
-    private String voiceServerHost;
-    private int voiceServerApiPort;
+    private int voicePort;
 
     public HytaleVoiceChatPlugin() {
-        // Default configuration
-        this.voiceServerHost = "localhost";
-        this.voiceServerApiPort = NetworkConfig.DEFAULT_API_PORT;
+        this.voicePort = NetworkConfig.DEFAULT_VOICE_PORT;
     }
 
     /**
@@ -37,17 +36,24 @@ public class HytaleVoiceChatPlugin {
         logger.info("Hytale Voice Chat Plugin enabling...");
         
         try {
-            // Initialize API client
-            apiClient = new VoiceServerAPIClient(voiceServerHost, voiceServerApiPort);
+            // Initialize Opus codec
+            opusCodec = new OpusCodec();
             
             // Initialize position tracker
-            positionTracker = new PlayerPositionTracker(apiClient);
+            positionTracker = new PlayerPositionTracker();
+            
+            // Initialize and start UDP voice server
+            udpServer = new UDPSocketManager(voicePort);
+            udpServer.setPositionTracker(positionTracker);
+            udpServer.start();
+            
+            // Start position tracking
             positionTracker.start();
             
             // TODO: Register Hytale event listeners when API is available
             // registerEventListeners();
             
-            logger.info("Hytale Voice Chat Plugin enabled successfully");
+            logger.info("Hytale Voice Chat Plugin enabled on port {}", voicePort);
         } catch (Exception e) {
             logger.error("Failed to enable Hytale Voice Chat Plugin", e);
         }
@@ -63,8 +69,8 @@ public class HytaleVoiceChatPlugin {
             positionTracker.stop();
         }
         
-        if (apiClient != null) {
-            apiClient.close();
+        if (udpServer != null) {
+            udpServer.stop();
         }
         
         logger.info("Hytale Voice Chat Plugin disabled");
@@ -101,11 +107,10 @@ public class HytaleVoiceChatPlugin {
     }
 
     /**
-     * Configure the voice server connection
+     * Configure the voice server port
      */
-    public void configure(String host, int apiPort) {
-        this.voiceServerHost = host;
-        this.voiceServerApiPort = apiPort;
+    public void configure(int voicePort) {
+        this.voicePort = voicePort;
     }
 
     // TODO: Register Hytale event listeners when API becomes available

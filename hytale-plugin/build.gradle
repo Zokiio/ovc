@@ -5,11 +5,15 @@ dependencies {
     compileOnly files('hytalefiles/HytaleServer.jar')
     runtimeOnly files('hytalefiles/HytaleServer.jar')
     
+    // Voice server dependencies
+    implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
+    implementation "io.netty:netty-all:${netty_version}"
+    
     // JSON processing
     implementation "com.google.code.gson:gson:${gson_version}"
     
-    // HTTP client for REST API communication
-    implementation "com.squareup.okhttp3:okhttp:4.12.0"
+    // HTTP client (removed - no longer needed)
+    // implementation "com.squareup.okhttp3:okhttp:4.12.0"
 }
 
 tasks.register('copyToHytale', Copy) {

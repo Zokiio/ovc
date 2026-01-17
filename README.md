@@ -1,44 +1,39 @@
 # Hytale Voice Chat - Hybrid System
 
-A hybrid proximity-based voice chat system for Hytale consisting of a dedicated voice server, desktop client, and Hytale plugin.
+A hybrid proximity-based voice chat system for Hytale consisting of a desktop client and Hytale plugin with integrated voice server.
 
 ## Architecture
 
-### Four Components:
+### Three Components:
 
 1. **Common Module** (`common/`)
    - Shared data models (PlayerPosition, etc.)
    - Network packets (AudioPacket, VoicePacket)
    - Configuration constants
-   - Used by all other modules
+   - Used by both client and plugin
 
-2. **Voice Server** (`voice-server/`)
-   - Standalone UDP server handling voice data relay
-   - Player management and proximity-based routing
-   - Opus audio codec compression/decompression
-   - REST API for receiving player positions from Hytale plugin
-   - Port: 24454 (UDP), 24455 (HTTP API)
-
-3. **Voice Client** (`voice-client/`)
+2. **Voice Client** (`voice-client/`)
    - Desktop JavaFX application
    - Microphone capture (Java Sound API)
    - Speaker output (OpenAL for 3D positioning)
    - Opus codec support
    - Real-time audio transmission to voice server
 
-4. **Hytale Plugin** (`hytale-plugin/`)
-   - Tracks player positions in-game
-   - Sends proximity data to voice server via REST API
+3. **Hytale Plugin** (`hytale-plugin/`)
+   - Integrated UDP voice server on port 24454
+   - Player position tracking in-game
+   - Proximity-based audio routing (30 block range)
+   - Opus audio codec compression/decompression
    - Integrates with Hytale event system
    - Manages player joins/quits
 
 ## Technology Stack
 
 - **Language**: Java 17+
-- **Build System**: Gradle 8.x with Java Toolchain
+- **Build System**: Gradle 9.x with Java Toolchain
 - **Audio Codecs**: Opus (de.maxhenkel.opus4j)
 - **Audio I/O**: Java Sound API (input), LWJGL OpenAL (3D output)
-- **Networking**: Netty (UDP), OkHttp (REST API)
+- **Networking**: Netty (UDP)
 - **GUI**: JavaFX 21
 - **JSON**: Gson
 - **Logging**: SLF4J + Logback
@@ -53,20 +48,16 @@ hytale-voice-chat/
 │           ├── model/      # PlayerPosition
 │           ├── packet/     # AudioPacket, VoicePacket
 │           └── network/    # NetworkConfig
-├── voice-server/           # Main voice relay server
-│   └── src/main/java/
-│       └── com/hytale/voicechat/server/
-│           ├── audio/      # OpusCodec
-│           └── network/    # UDPSocketManager
 ├── voice-client/           # Desktop client application
 │   └── src/main/java/
 │       └── com/hytale/voicechat/client/
 │           ├── audio/      # MicrophoneManager, SpeakerManager
 │           └── gui/        # VoiceChatGUI
-├── hytale-plugin/          # In-game Hytale plugin
+├── hytale-plugin/          # Hytale plugin with integrated voice server
 │   └── src/main/java/
 │       └── com/hytale/voicechat/plugin/
-│           ├── api/        # VoiceServerAPIClient
+│           ├── audio/      # OpusCodec
+│           ├── network/    # UDPSocketManager
 │           └── tracker/    # PlayerPositionTracker
 ├── build.gradle            # Root Gradle config
 ├── settings.gradle         # Module definitions
@@ -80,7 +71,6 @@ hytale-voice-chat/
 ./gradlew build
 
 # Build specific module
-./gradlew :voice-server:build
 ./gradlew :voice-client:build
 ./gradlew :hytale-plugin:build
 ./gradlew :common:build
@@ -92,14 +82,6 @@ hytale-voice-chat/
 
 ## Running
 
-### Start Voice Server:
-```bash
-./gradlew :voice-server:run
-
-# Or with custom port
-java -jar voice-server/build/libs/voice-server-1.0.0-SNAPSHOT.jar 24454
-```
-
 ### Start Voice Client:
 ```bash
 ./gradlew :voice-client:run
@@ -110,23 +92,24 @@ java -jar voice-client/build/libs/voice-client-1.0.0-SNAPSHOT.jar
 
 ### Install Hytale Plugin:
 ```bash
-# Build the plugin
+# Build and auto-copy to Hytale server mods folder
 ./gradlew :hytale-plugin:build
 
-# Copy to Hytale plugins directory (update path as needed)
-cp hytale-plugin/build/libs/hytale-plugin-1.0.0-SNAPSHOT.jar /path/to/hytale/plugins/
+# The plugin is automatically copied to /Users/zoki/hytale/server/mods/
+# Then restart your Hytale server
 ```
 
 ## How It Works
 
-1. **Voice Server** runs continuously:
-   - Listens on UDP port 24454 for voice data
-   - Exposes REST API on port 24455 for position updates
+1. **Hytale Plugin** with integrated voice server:
+   - Tracks player positions in-game
+   - Starts UDP server on port 24454
+   - Routes audio packets based on proximity (30 block range)
 
-2. **Voice Clients** connect to server:
+2. **Voice Clients** connect to plugin server:
    - Authenticate with unique client ID
    - Stream microphone audio (encoded with Opus)
-   - Receive and play audio from other clients
+   - Receive and play audio from nearby players only
 
 3. **Hytale Plugin** tracks players:
    - Monitors player movement events
@@ -134,12 +117,13 @@ cp hytale-plugin/build/libs/hytale-plugin-1.0.0-SNAPSHOT.jar /path/to/hytale/plu
    - Notifies server of player joins/quits
 
 4. **Server routes audio**:
-   - Receives encoded audio packets from clients
-   - Calculates which players are in proximity (default 30 blocks)
+3. **Plugin processes audio**:
+   - Receives audio packets from clients via UDP
+   - Calculates which players are in proximity (30 block range)
    - Routes packets only to nearby players
-   - Uses 3D distance for volume attenuation
+   - Uses 3D distance calculation for filtering
 
-5. **Clients render audio**:
+4. **Clients render audio**:
    - Decode Opus audio streams
    - Use OpenAL for 3D positional audio
    - Apply volume based on distance
@@ -147,8 +131,7 @@ cp hytale-plugin/build/libs/hytale-plugin-1.0.0-SNAPSHOT.jar /path/to/hytale/plu
 ## Configuration
 
 ### Network Ports
-- Voice UDP: `24454` (default)
-- API HTTP: `24455` (default)
+- Voice UDP: `24454` (integrated in plugin)
 
 ### Audio Settings
 - Sample Rate: `48000 Hz`
@@ -169,11 +152,6 @@ cp hytale-plugin/build/libs/hytale-plugin-1.0.0-SNAPSHOT.jar /path/to/hytale/plu
 - `AudioPacket` - Encoded audio data packet
 - `NetworkConfig` - Shared constants
 
-**Voice Server:**
-- `VoiceServer` - Main server class
-- `UDPSocketManager` - Netty UDP handler
-- `OpusCodec` - Audio encoding/decoding
-
 **Voice Client:**
 - `VoiceChatClient` - Main client class
 - `MicrophoneManager` - Audio capture
@@ -182,8 +160,9 @@ cp hytale-plugin/build/libs/hytale-plugin-1.0.0-SNAPSHOT.jar /path/to/hytale/plu
 
 **Hytale Plugin:**
 - `HytaleVoiceChatPlugin` - Main plugin class
-- `VoiceServerAPIClient` - REST API client
-- `PlayerPositionTracker` - Position update scheduler
+- `UDPSocketManager` - Netty UDP server with proximity routing
+- `OpusCodec` - Audio encoding/decoding
+- `PlayerPositionTracker` - In-memory position tracking
 
 ## Next Steps
 
@@ -192,9 +171,10 @@ cp hytale-plugin/build/libs/hytale-plugin-1.0.0-SNAPSHOT.jar /path/to/hytale/plu
 - [x] Implement basic UDP voice server with Opus
 - [x] Create JavaFX client with microphone capture
 - [x] Implement Hytale plugin with position tracking
-- [ ] Add REST API endpoint to voice server
-- [ ] Implement proximity-based routing logic
+- [x] Integrate voice server into plugin (combined deployment)
+- [x] Implement proximity-based routing logic (30 block range)
 - [ ] Connect microphone to UDP transmission
+- [ ] Wire Opus encoding/decoding to audio pipeline
 - [ ] Implement OpenAL 3D audio playback
 - [ ] Add encryption for voice data (AES)
 - [ ] Implement voice activity detection (VAD)
