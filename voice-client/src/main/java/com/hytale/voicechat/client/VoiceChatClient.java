@@ -114,8 +114,8 @@ public class VoiceChatClient {
         
         while (connected && !Thread.interrupted()) {
             try {
-                // Capture audio frame from microphone
-                short[] audioSamples = microphoneManager.captureFrame();
+                // Capture audio frame from microphone (blocking with timeout)
+                short[] audioSamples = microphoneManager.captureFrameBlocking();
                 
                 if (audioSamples != null && audioSamples.length > 0) {
                     // Convert samples to bytes (for transmission)
@@ -139,15 +139,13 @@ public class VoiceChatClient {
                     
                     socket.send(udpPacket);
                 }
+                // No sleep needed - blocking call naturally paces transmission
                 
-                // Small sleep to avoid busy-waiting
-                Thread.sleep(5);
-                
-            } catch (InterruptedException e) {
-                break;
             } catch (Exception e) {
-                if (connected) {
+                if (connected && !Thread.interrupted()) {
                     logger.error("Error transmitting audio", e);
+                } else {
+                    break; // Thread interrupted, exit loop
                 }
             }
         }

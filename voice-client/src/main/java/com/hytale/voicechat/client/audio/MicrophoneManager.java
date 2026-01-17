@@ -27,7 +27,7 @@ public class MicrophoneManager {
     private final BlockingQueue<short[]> audioQueue;
     
     public MicrophoneManager() {
-        this.audioQueue = new LinkedBlockingQueue<>(10); // Buffer 10 frames
+        this.audioQueue = new LinkedBlockingQueue<>(50); // Buffer 50 frames (1 second)
         this.capturing = false;
     }
     
@@ -128,6 +128,20 @@ public class MicrophoneManager {
      */
     public short[] captureFrame() {
         return audioQueue.poll();
+    }
+    
+    /**
+     * Get next captured audio frame (blocking)
+     * Waits for up to 100ms for a frame to become available
+     * @return PCM samples or null if timeout
+     */
+    public short[] captureFrameBlocking() {
+        try {
+            return audioQueue.poll(100, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
     }
     
     /**

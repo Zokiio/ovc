@@ -70,7 +70,12 @@ public class UDPSocketManager {
                 });
 
         channel = bootstrap.bind(port).sync().channel();
-        logger.info("UDP socket listening on port {}", port);
+        logger.info("═══════════════════════════════════════════════════════════════");
+        logger.info("  VOICE SERVER STARTED");
+        logger.info("  UDP Port: {}", port);
+        logger.info("  Proximity Range: 30 blocks");
+        logger.info("  Ready for connections...");
+        logger.info("═══════════════════════════════════════════════════════════════");
     }
 
     public void stop() {
@@ -80,7 +85,12 @@ public class UDPSocketManager {
         if (group != null) {
             group.shutdownGracefully();
         }
-        logger.info("UDP socket stopped");
+        
+        int connectedClients = clients.size();
+        logger.info("═══════════════════════════════════════════════════════════════");
+        logger.info("  VOICE SERVER STOPPED");
+        logger.info("  Disconnected {} client(s)", connectedClients);
+        logger.info("═══════════════════════════════════════════════════════════════");
     }
 
     private static class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
@@ -148,14 +158,32 @@ public class UDPSocketManager {
                     UUID playerUUID = eventListener.getPlayerUUID(username);
                     if (playerUUID != null) {
                         clientToPlayerUUID.put(clientId, playerUUID);
-                        logger.info("Client authenticated: {} (client UUID: {}, player UUID: {}) from {}", 
-                            username, clientId, playerUUID, sender);
+                        logger.info("╔══════════════════════════════════════════════════════════════");
+                        logger.info("║ VOICE CLIENT CONNECTED");
+                        logger.info("║ Username: {}", username);
+                        logger.info("║ Client UUID: {}", clientId);
+                        logger.info("║ Player UUID: {}", playerUUID);
+                        logger.info("║ Address: {}", sender);
+                        logger.info("║ Total clients: {}", clients.size());
+                        logger.info("╚══════════════════════════════════════════════════════════════");
                     } else {
-                        logger.warn("Client authenticated: {} (client UUID: {}) from {} - Player not in game!", 
-                            username, clientId, sender);
+                        logger.warn("╔══════════════════════════════════════════════════════════════");
+                        logger.warn("║ VOICE CLIENT CONNECTED (Player not in game)");
+                        logger.warn("║ Username: {}", username);
+                        logger.warn("║ Client UUID: {}", clientId);
+                        logger.warn("║ Address: {}", sender);
+                        logger.warn("║ Status: Player '{}' not found on server", username);
+                        logger.warn("║ Total clients: {}", clients.size());
+                        logger.warn("╚══════════════════════════════════════════════════════════════");
                     }
                 } else {
-                    logger.info("Client authenticated: {} (UUID: {}) from {}", username, clientId, sender);
+                    logger.info("╔══════════════════════════════════════════════════════════════");
+                    logger.info("║ VOICE CLIENT CONNECTED");
+                    logger.info("║ Username: {}", username);
+                    logger.info("║ Client UUID: {}", clientId);
+                    logger.info("║ Address: {}", sender);
+                    logger.info("║ Total clients: {}", clients.size());
+                    logger.info("╚══════════════════════════════════════════════════════════════");
                 }
                 
                 // TODO: Send acknowledgment packet back to client
@@ -238,7 +266,11 @@ public class UDPSocketManager {
                 }
             }
             
-            logger.debug("Routed audio from {} to {} nearby players", senderPos.getPlayerName(), routedCount);
+            if (routedCount > 0) {
+                logger.debug("▶ Audio routed from {} to {} nearby player(s)", 
+                    senderPos.getPlayerName(), routedCount);
+            }
+            
             buf.release();
         }
         
