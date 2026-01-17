@@ -78,6 +78,9 @@ public class VoiceChatClient {
             microphoneManager.start();
             speakerManager.start();
             
+            // Mark as connected BEFORE starting threads (so they can loop)
+            connected = true;
+            
             // Start transmit thread (send microphone data)
             transmitThread = new Thread(this::transmitLoop, "Audio-Transmit");
             transmitThread.setDaemon(true);
@@ -88,7 +91,6 @@ public class VoiceChatClient {
             receiveThread.setDaemon(true);
             receiveThread.start();
             
-            connected = true;
             logger.info("Connected to voice server successfully");
         } catch (Exception e) {
             logger.error("Failed to connect to voice server", e);
