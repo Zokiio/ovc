@@ -2,6 +2,7 @@ package com.hytale.voicechat.plugin.network;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.packet.AudioPacket;
+import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -25,6 +26,7 @@ public class UDPSocketManager {
     
     private final int port;
     private final Map<UUID, InetSocketAddress> clients;
+    private final Map<String, UUID> usernameToUUID; // username -> client UUID mapping
     private PlayerPositionTracker positionTracker;
     private EventLoopGroup group;
     private Channel channel;
@@ -32,6 +34,7 @@ public class UDPSocketManager {
     public UDPSocketManager(int port) {
         this.port = port;
         this.clients = new ConcurrentHashMap<>();
+        this.usernameToUUID = new ConcurrentHashMap<>();
     }
     
     public void setPositionTracker(PlayerPositionTracker tracker) {
@@ -48,7 +51,7 @@ public class UDPSocketManager {
                 .handler(new ChannelInitializer<NioDatagramChannel>() {
                     @Override
                     protected void initChannel(NioDatagramChannel ch) {
-                        ch.pipeline().addLast(new VoicePacketHandler(clients, positionTracker));
+                        ch.pipeline().addLast(new VoicePacketHandler(clients, usernameToUUID, positionTracker));
                     }
                 });
 
@@ -67,11 +70,16 @@ public class UDPSocketManager {
     }
 
     private static class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
+        private static final Logger logger = LoggerFactory.getLogger(VoicePacketHandler.class);
         private final Map<UUID, InetSocketAddress> clients;
+        private final Map<String, UUID> usernameToUUID;
         private final PlayerPositionTracker positionTracker;
 
-        public VoicePacketHandler(Map<UUID, InetSocketAddress> clients, PlayerPositionTracker positionTracker) {
+        public VoicePacketHandler(Map<UUID, InetSocketAddress> clients, 
+                                  Map<String, UUID> usernameToUUID,
+                                  PlayerPositionTracker positionTracker) {
             this.clients = clients;
+            this.usernameToUUID = usernameToUUID;
             this.positionTracker = positionTracker;
         }
 
@@ -82,17 +90,64 @@ public class UDPSocketManager {
             buf.readBytes(data);
 
             try {
-                AudioPacket audioPacket = AudioPacket.deserialize(data);
-                UUID senderId = audioPacket.getSenderId();
+                // Check packet type (first byte)
+                if (data.length < 1) {
+                    return;
+                }
                 
-                // Register client address
-                clients.put(senderId, packet.sender());
+                byte packetType = data[0];
                 
-                // Route packet based on proximity
-                routePacket(ctx, audioPacket, packet.sender());
+                switch (packetType) {
+                    case 0x01: // Authentication packet
+                        handleAuthentication(ctx, data, packet.sender());
+                        break;
+                    case 0x02: // Audio packet
+                        handleAudio(ctx, data, packet.sender());
+                        break;
+                    default:
+                        logger.warn("Unknown packet type: {}", packetType);
+                }
                 
             } catch (Exception e) {
                 logger.error("Error processing voice packet", e);
+            }
+        }
+        
+        private void handleAuthentication(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+            try {
+                AuthenticationPacket authPacket = AuthenticationPacket.deserialize(data);
+                UUID clientId = authPacket.getSenderId();
+                String username = authPacket.getUsername();
+                
+                // Register client
+                clients.put(clientId, sender);
+                usernameToUUID.put(username, clientId);
+                
+                logger.info("Client authenticated: {} (UUID: {}) from {}", username, clientId, sender);
+                
+                // TODO: Send acknowledgment packet back to client
+                
+            } catch (Exception e) {
+                logger.error("Error handling authentication", e);
+            }
+        }
+        
+        private void handleAudio(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+            try {
+                AudioPacket audioPacket = AudioPacket.deserialize(data);
+                UUID senderId = audioPacket.getSenderId();
+                
+                // Verify client is registered
+                if (!clients.containsKey(senderId)) {
+                    logger.warn("Received audio from unregistered client: {}", senderId);
+                    return;
+                }
+                
+                // Route packet based on proximity
+                routePacket(ctx, audioPacket, sender);
+                
+            } catch (Exception e) {
+                logger.error("Error handling audio packet", e);
             }
         }
 

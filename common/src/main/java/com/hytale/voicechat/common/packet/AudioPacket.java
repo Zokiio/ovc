@@ -26,7 +26,8 @@ public class AudioPacket extends VoicePacket {
 
     @Override
     public byte[] serialize() {
-        ByteBuffer buffer = ByteBuffer.allocate(20 + 4 + 4 + audioData.length);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 20 + 4 + 4 + audioData.length);
+        buffer.put((byte) 0x02); // Packet type: AUDIO
         buffer.putLong(getSenderId().getMostSignificantBits());
         buffer.putLong(getSenderId().getLeastSignificantBits());
         buffer.putInt(sequenceNumber);
@@ -37,6 +38,10 @@ public class AudioPacket extends VoicePacket {
 
     public static AudioPacket deserialize(byte[] data) {
         ByteBuffer buffer = ByteBuffer.wrap(data);
+        byte packetType = buffer.get(); // Should be 0x02
+        if (packetType != 0x02) {
+            throw new IllegalArgumentException("Invalid packet type for AudioPacket: " + packetType);
+        }
         long mostSig = buffer.getLong();
         long leastSig = buffer.getLong();
         UUID senderId = new UUID(mostSig, leastSig);

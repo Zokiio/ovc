@@ -16,6 +16,7 @@ import javafx.stage.Stage;
  */
 public class VoiceChatGUI extends Application {
     private VoiceChatClient client;
+    private TextField usernameField;
     private TextField serverAddressField;
     private TextField serverPortField;
     private Button connectButton;
@@ -47,6 +48,10 @@ public class VoiceChatGUI extends Application {
         connectionPanel.setVgap(10);
         connectionPanel.setAlignment(Pos.CENTER);
 
+        Label usernameLabel = new Label("Username:");
+        usernameField = new TextField(System.getProperty("user.name"));
+        usernameField.setPrefWidth(200);
+
         Label addressLabel = new Label("Server Address:");
         serverAddressField = new TextField("localhost");
         serverAddressField.setPrefWidth(200);
@@ -58,11 +63,13 @@ public class VoiceChatGUI extends Application {
         connectButton = new Button("Connect");
         connectButton.setOnAction(e -> handleConnect());
 
-        connectionPanel.add(addressLabel, 0, 0);
-        connectionPanel.add(serverAddressField, 1, 0);
-        connectionPanel.add(portLabel, 0, 1);
-        connectionPanel.add(serverPortField, 1, 1);
-        connectionPanel.add(connectButton, 1, 2);
+        connectionPanel.add(usernameLabel, 0, 0);
+        connectionPanel.add(usernameField, 1, 0);
+        connectionPanel.add(addressLabel, 0, 1);
+        connectionPanel.add(serverAddressField, 1, 1);
+        connectionPanel.add(portLabel, 0, 2);
+        connectionPanel.add(serverPortField, 1, 2);
+        connectionPanel.add(connectButton, 1, 3);
 
         // Status panel
         statusLabel = new Label("Disconnected");
@@ -102,18 +109,27 @@ public class VoiceChatGUI extends Application {
             connectButton.setText("Connect");
             statusLabel.setText("Disconnected");
             statusLabel.setStyle("-fx-font-weight: bold;");
+            usernameField.setDisable(false);
             serverAddressField.setDisable(false);
             serverPortField.setDisable(false);
         } else {
             try {
+                String username = usernameField.getText().trim();
+                if (username.isEmpty()) {
+                    showError("Username cannot be empty");
+                    return;
+                }
+                
                 String address = serverAddressField.getText();
                 int port = Integer.parseInt(serverPortField.getText());
                 
+                client.setUsername(username);
                 client.connect(address, port);
                 
                 connectButton.setText("Disconnect");
-                statusLabel.setText("Connected to " + address + ":" + port);
+                statusLabel.setText("Connected as " + username + " to " + address + ":" + port);
                 statusLabel.setStyle("-fx-text-fill: green; -fx-font-weight: bold;");
+                usernameField.setDisable(true);
                 serverAddressField.setDisable(true);
                 serverPortField.setDisable(true);
             } catch (NumberFormatException e) {
