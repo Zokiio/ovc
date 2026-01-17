@@ -72,7 +72,7 @@ public class UDPSocketManager {
         channel = bootstrap.bind(port).sync().channel();
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
         logger.atInfo().log("  VOICE SERVER STARTED");
-        logger.atInfo().log("  UDP Port: {}", port);
+        logger.atInfo().log("  UDP Port: " + port);
         logger.atInfo().log("  Proximity Range: 30 blocks");
         logger.atInfo().log("  Ready for connections...");
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
@@ -89,7 +89,7 @@ public class UDPSocketManager {
         int connectedClients = clients.size();
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
         logger.atInfo().log("  VOICE SERVER STOPPED");
-        logger.atInfo().log("  Disconnected {} client(s)", connectedClients);
+        logger.atInfo().log("  Disconnected " + connectedClients + " client(s)");
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
 
@@ -135,7 +135,7 @@ public class UDPSocketManager {
                         handleAudio(ctx, data, packet.sender());
                         break;
                     default:
-                        logger.atWarning().log("Unknown packet type: {}", packetType);
+                        logger.atWarning().log("Unknown packet type: " + packetType);
                 }
                 
             } catch (Exception e) {
