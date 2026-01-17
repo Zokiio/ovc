@@ -1,8 +1,7 @@
 package com.hytale.voicechat.plugin.tracker;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.hypixel.hytale.logger.HytaleLogger;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -11,7 +10,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Tracks player positions for proximity-based voice routing
  */
 public class PlayerPositionTracker {
-    private static final Logger logger = LoggerFactory.getLogger(PlayerPositionTracker.class);
+    private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final Map<UUID, PlayerPosition> playerPositions;
     private volatile boolean running;
@@ -23,12 +22,12 @@ public class PlayerPositionTracker {
 
     public void start() {
         if (running) {
-            logger.warn("Position tracker already running");
+            logger.atWarning().log("Position tracker already running");
             return;
         }
 
         running = true;
-        logger.info("Player position tracker started");
+        logger.atInfo().log("Position tracker started");
     }
 
     public void stop() {
@@ -37,7 +36,7 @@ public class PlayerPositionTracker {
         }
 
         running = false;
-        logger.info("Player position tracker stopped");
+        logger.atInfo().log("Player position tracker stopped");
     }
 
     /**

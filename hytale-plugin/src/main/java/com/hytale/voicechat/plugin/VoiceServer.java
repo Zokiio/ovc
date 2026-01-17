@@ -1,14 +1,14 @@
 package com.hytale.voicechat.server;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.hypixel.hytale.logger.HytaleLogger;
+
 
 /**
  * Main Voice Server application
  * Handles UDP audio streaming, player management, and proximity-based voice channels
  */
 public class VoiceServer {
-    private static final Logger logger = LoggerFactory.getLogger(VoiceServer.class);
+    private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final int port;
     
@@ -17,14 +17,14 @@ public class VoiceServer {
     }
     
     public void start() {
-        logger.info("Starting Voice Server on port {}", port);
+        logger.atInfo().log("Starting Voice Server on port {}", port);
         // TODO: Initialize UDP server
         // TODO: Initialize player manager
         // TODO: Initialize voice channel manager
     }
     
     public void stop() {
-        logger.info("Stopping Voice Server");
+        logger.atInfo().log("Stopping Voice Server");
         // TODO: Cleanup resources
     }
     

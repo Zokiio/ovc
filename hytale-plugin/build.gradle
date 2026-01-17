@@ -1,9 +1,8 @@
 dependencies {
     implementation project(':common')
     
-    // Hytale API - using official HytaleServer.jar
-    compileOnly files('hytalefiles/HytaleServer.jar')
-    runtimeOnly files('hytalefiles/HytaleServer.jar')
+    // Hytale API - using official HytaleServer.jar from Hytale installation
+    compileOnly files('/Users/zoki/hytale/server/HytaleServer.jar')
     
     // Voice server dependencies
     implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"

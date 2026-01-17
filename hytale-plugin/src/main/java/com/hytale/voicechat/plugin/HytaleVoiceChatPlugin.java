@@ -1,14 +1,16 @@
 package com.hytale.voicechat.plugin;
 
+import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.plugin.JavaPlugin;
+import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nonnull;
 import java.util.UUID;
 
 /**
@@ -18,10 +20,8 @@ import java.util.UUID;
  * This plugin combines position tracking with voice server functionality
  * for proximity-based voice chat.
  */
-public class HytaleVoiceChatPlugin {
-    private static final Logger logger = LoggerFactory.getLogger(HytaleVoiceChatPlugin.class);
-    private static final String PLUGIN_NAME = "HytaleVoiceChat";
-    private static final String PLUGIN_VERSION = "1.0.0";
+public class HytaleVoiceChatPlugin extends JavaPlugin {
+    private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private UDPSocketManager udpServer;
     private OpusCodec opusCodec;
@@ -29,16 +29,18 @@ public class HytaleVoiceChatPlugin {
     private PlayerEventListener eventListener;
     private int voicePort;
 
-    public HytaleVoiceChatPlugin() {
+    public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
+        super(init);
         this.voicePort = NetworkConfig.DEFAULT_VOICE_PORT;
-        logger.info("Hytale Voice Chat Plugin {} initialized", PLUGIN_VERSION);
+        logger.atInfo().log("Hytale Voice Chat Plugin initialized - version " + this.getManifest().getVersion());
     }
 
     /**
      * Setup method called when the plugin is enabled
      */
-    public void setup() {
-        logger.info("Setting up Hytale Voice Chat Plugin...");
+    @Override
+    protected void setup() {
+        logger.atInfo().log("Setting up Hytale Voice Chat Plugin...");
         
         try {
             // Initialize Opus codec
@@ -53,26 +55,25 @@ public class HytaleVoiceChatPlugin {
             // Initialize and start UDP voice server
             udpServer = new UDPSocketManager(voicePort);
             udpServer.setPositionTracker(positionTracker);
-            udpServer.setEventListener(eventListener); // Link event listener to server
+            udpServer.setEventListener(eventListener);
             udpServer.start();
             
             // Start position tracking
             positionTracker.start();
             
-            // TODO: Register Hytale event listeners when API is available
-            // registerEventListeners();
-            
-            logger.info("Hytale Voice Chat Plugin setup complete - listening on port {}", voicePort);
+            logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort);
         } catch (Exception e) {
-            logger.error("Failed to setup Hytale Voice Chat Plugin", e);
+            logger.atSevere().log("Failed to setup Hytale Voice Chat Plugin: " + e.getMessage());
+            e.printStackTrace();
         }
     }
     
     /**
-     * Cleanup method called when the plugin is disabled
+     * Cleanup when plugin is disabled
      */
-    public void shutdown() {
-        logger.info("Shutting down Hytale Voice Chat Plugin...");
+    @Override
+    protected void shutdown() {
+        logger.atInfo().log("Shutting down Hytale Voice Chat Plugin...");
         
         if (positionTracker != null) {
             positionTracker.stop();
@@ -82,7 +83,7 @@ public class HytaleVoiceChatPlugin {
             udpServer.stop();
         }
         
-        logger.info("Hytale Voice Chat Plugin shutdown complete");
+        logger.atInfo().log("Hytale Voice Chat Plugin shutdown complete");
     }
     
     /**

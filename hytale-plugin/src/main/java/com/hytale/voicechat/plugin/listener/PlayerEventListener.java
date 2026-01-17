@@ -1,8 +1,8 @@
 package com.hytale.voicechat.plugin.listener;
 
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.hypixel.hytale.logger.HytaleLogger;
+
 
 import java.util.Map;
 import java.util.UUID;
@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - PlayerTeleportEvent
  */
 public class PlayerEventListener {
-    private static final Logger logger = LoggerFactory.getLogger(PlayerEventListener.class);
+    private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final PlayerPositionTracker positionTracker;
     private final Map<String, UUID> usernameToPlayerUUID; // username -> Hytale player UUID
@@ -33,7 +33,7 @@ public class PlayerEventListener {
      * TODO: Hook to Hytale PlayerJoinEvent
      */
     public void onPlayerJoin(UUID playerUUID, String username, double x, double y, double z, String worldId) {
-        logger.info("Player joined: {} (UUID: {})", username, playerUUID);
+        logger.atInfo().log("Player joined: {} (UUID: {})", username, playerUUID);
         
         // Map username to Hytale player UUID
         usernameToPlayerUUID.put(username, playerUUID);
@@ -47,7 +47,7 @@ public class PlayerEventListener {
      * TODO: Hook to Hytale PlayerQuitEvent
      */
     public void onPlayerQuit(UUID playerUUID, String username) {
-        logger.info("Player quit: {} (UUID: {})", username, playerUUID);
+        logger.atInfo().log("Player quit: {} (UUID: {})", username, playerUUID);
         
         // Remove from tracking
         usernameToPlayerUUID.remove(username);
@@ -70,7 +70,7 @@ public class PlayerEventListener {
      * TODO: Hook to Hytale PlayerTeleportEvent
      */
     public void onPlayerTeleport(UUID playerUUID, String username, double x, double y, double z, String worldId) {
-        logger.debug("Player teleported: {} to ({}, {}, {}) in {}", username, x, y, z, worldId);
+        logger.atFine().log("Player teleported: {} to ({}, {}, {}) in {}", username, x, y, z, worldId);
         positionTracker.updatePosition(playerUUID, username, x, y, z, worldId);
     }
     

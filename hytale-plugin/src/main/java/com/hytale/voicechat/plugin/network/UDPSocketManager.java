@@ -6,14 +6,13 @@ import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
+import com.hypixel.hytale.logger.HytaleLogger;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.nio.NioDatagramChannel;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.util.Map;
@@ -24,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Manages UDP socket connections for voice data
  */
 public class UDPSocketManager {
-    private static final Logger logger = LoggerFactory.getLogger(UDPSocketManager.class);
+    private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final int port;
     private final Map<UUID, InetSocketAddress> clients;
@@ -71,12 +70,12 @@ public class UDPSocketManager {
                 });
 
         channel = bootstrap.bind(port).sync().channel();
-        logger.info("═══════════════════════════════════════════════════════════════");
-        logger.info("  VOICE SERVER STARTED");
-        logger.info("  UDP Port: {}", port);
-        logger.info("  Proximity Range: 30 blocks");
-        logger.info("  Ready for connections...");
-        logger.info("═══════════════════════════════════════════════════════════════");
+        logger.atInfo().log("═══════════════════════════════════════════════════════════════");
+        logger.atInfo().log("  VOICE SERVER STARTED");
+        logger.atInfo().log("  UDP Port: {}", port);
+        logger.atInfo().log("  Proximity Range: 30 blocks");
+        logger.atInfo().log("  Ready for connections...");
+        logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
 
     public void stop() {
@@ -88,14 +87,14 @@ public class UDPSocketManager {
         }
         
         int connectedClients = clients.size();
-        logger.info("═══════════════════════════════════════════════════════════════");
-        logger.info("  VOICE SERVER STOPPED");
-        logger.info("  Disconnected {} client(s)", connectedClients);
-        logger.info("═══════════════════════════════════════════════════════════════");
+        logger.atInfo().log("═══════════════════════════════════════════════════════════════");
+        logger.atInfo().log("  VOICE SERVER STOPPED");
+        logger.atInfo().log("  Disconnected {} client(s)", connectedClients);
+        logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
 
     private static class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
-        private static final Logger logger = LoggerFactory.getLogger(VoicePacketHandler.class);
+        private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
         private final Map<UUID, InetSocketAddress> clients;
         private final Map<String, UUID> usernameToClientUUID;
         private final Map<UUID, UUID> clientToPlayerUUID;
@@ -136,11 +135,11 @@ public class UDPSocketManager {
                         handleAudio(ctx, data, packet.sender());
                         break;
                     default:
-                        logger.warn("Unknown packet type: {}", packetType);
+                        logger.atWarning().log("Unknown packet type: {}", packetType);
                 }
                 
             } catch (Exception e) {
-                logger.error("Error processing voice packet", e);
+                logger.atSevere().log("Error processing voice packet", e);
             }
         }
         
@@ -159,39 +158,39 @@ public class UDPSocketManager {
                     UUID playerUUID = eventListener.getPlayerUUID(username);
                     if (playerUUID != null) {
                         clientToPlayerUUID.put(clientId, playerUUID);
-                        logger.info("╔══════════════════════════════════════════════════════════════");
-                        logger.info("║ VOICE CLIENT CONNECTED");
-                        logger.info("║ Username: {}", username);
-                        logger.info("║ Client UUID: {}", clientId);
-                        logger.info("║ Player UUID: {}", playerUUID);
-                        logger.info("║ Address: {}", sender);
-                        logger.info("║ Total clients: {}", clients.size());
-                        logger.info("╚══════════════════════════════════════════════════════════════");
+                        logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
+                        logger.atInfo().log("║ VOICE CLIENT CONNECTED");
+                        logger.atInfo().log("║ Username: {}", username);
+                        logger.atInfo().log("║ Client UUID: {}", clientId);
+                        logger.atInfo().log("║ Player UUID: {}", playerUUID);
+                        logger.atInfo().log("║ Address: {}", sender);
+                        logger.atInfo().log("║ Total clients: {}", clients.size());
+                        logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
                     } else {
-                        logger.warn("╔══════════════════════════════════════════════════════════════");
-                        logger.warn("║ VOICE CLIENT CONNECTED (Player not in game)");
-                        logger.warn("║ Username: {}", username);
-                        logger.warn("║ Client UUID: {}", clientId);
-                        logger.warn("║ Address: {}", sender);
-                        logger.warn("║ Status: Player '{}' not found on server", username);
-                        logger.warn("║ Total clients: {}", clients.size());
-                        logger.warn("╚══════════════════════════════════════════════════════════════");
+                        logger.atWarning().log("╔══════════════════════════════════════════════════════════════");
+                        logger.atWarning().log("║ VOICE CLIENT CONNECTED (Player not in game)");
+                        logger.atWarning().log("║ Username: {}", username);
+                        logger.atWarning().log("║ Client UUID: {}", clientId);
+                        logger.atWarning().log("║ Address: {}", sender);
+                        logger.atWarning().log("║ Status: Player '{}' not found on server", username);
+                        logger.atWarning().log("║ Total clients: {}", clients.size());
+                        logger.atWarning().log("╚══════════════════════════════════════════════════════════════");
                     }
                 } else {
-                    logger.info("╔══════════════════════════════════════════════════════════════");
-                    logger.info("║ VOICE CLIENT CONNECTED");
-                    logger.info("║ Username: {}", username);
-                    logger.info("║ Client UUID: {}", clientId);
-                    logger.info("║ Address: {}", sender);
-                    logger.info("║ Total clients: {}", clients.size());
-                    logger.info("╚══════════════════════════════════════════════════════════════");
+                    logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
+                    logger.atInfo().log("║ VOICE CLIENT CONNECTED");
+                    logger.atInfo().log("║ Username: {}", username);
+                    logger.atInfo().log("║ Client UUID: {}", clientId);
+                    logger.atInfo().log("║ Address: {}", sender);
+                    logger.atInfo().log("║ Total clients: {}", clients.size());
+                    logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
                 }
                 
                 // Send acknowledgment packet back to client
                 sendAuthAck(ctx, clientId, sender, true, "Authentication accepted");
                 
             } catch (Exception e) {
-                logger.error("Error handling authentication", e);
+                logger.atSevere().log("Error handling authentication", e);
             }
         }
         
@@ -202,7 +201,7 @@ public class UDPSocketManager {
                 
                 // Verify client is registered
                 if (!clients.containsKey(senderId)) {
-                    logger.warn("Received audio from unregistered client: {}", senderId);
+                    logger.atWarning().log("Received audio from unregistered client: {}", senderId);
                     return;
                 }
                 
@@ -210,7 +209,7 @@ public class UDPSocketManager {
                 routePacket(ctx, audioPacket, sender);
                 
             } catch (Exception e) {
-                logger.error("Error handling audio packet", e);
+                logger.atSevere().log("Error handling audio packet", e);
             }
         }
 
@@ -226,7 +225,7 @@ public class UDPSocketManager {
             // Get Hytale player UUID from voice client UUID
             UUID playerUUID = clientToPlayerUUID.get(clientId);
             if (playerUUID == null) {
-                logger.debug("Voice client {} not linked to player - broadcasting to all", clientId);
+                logger.atFine().log("Voice client {} not linked to player - broadcasting to all", clientId);
                 broadcastToAll(ctx, packet, sender);
                 return;
             }
@@ -234,7 +233,7 @@ public class UDPSocketManager {
             // Get sender's position
             PlayerPosition senderPos = positionTracker.getPlayerPosition(playerUUID);
             if (senderPos == null) {
-                logger.debug("Player {} position not found", playerUUID);
+                logger.atFine().log("Player {} position not found", playerUUID);
                 return; // Sender not in game
             }
             
@@ -269,7 +268,7 @@ public class UDPSocketManager {
             }
             
             if (routedCount > 0) {
-                logger.debug("▶ Audio routed from {} to {} nearby player(s)", 
+                logger.atFine().log("▶ Audio routed from {} to {} nearby player(s)", 
                     senderPos.getPlayerName(), routedCount);
             }
             
@@ -307,9 +306,9 @@ public class UDPSocketManager {
                 ByteBuf buf = ctx.alloc().buffer(data.length);
                 buf.writeBytes(data);
                 ctx.writeAndFlush(new DatagramPacket(buf, address));
-                logger.debug("Sent authentication acknowledgment to {}", address);
+                logger.atFine().log("Sent authentication acknowledgment to {}", address);
             } catch (Exception e) {
-                logger.error("Error sending authentication acknowledgment", e);
+                logger.atSevere().log("Error sending authentication acknowledgment", e);
             }
         }
     }
