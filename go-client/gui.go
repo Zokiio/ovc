@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strconv"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -22,7 +23,9 @@ type GUI struct {
 	serverInput   *widget.Entry
 	portInput     *widget.Entry
 	usernameInput *widget.Entry
+	micSelect     *widget.Select
 	connectBtn    *widget.Button
+	testToneBtn   *widget.Button
 	statusLabel   *widget.Label
 	volumeSlider  *widget.Slider
 }
@@ -61,19 +64,32 @@ func (gui *GUI) setupUI() {
 	// Port input
 	gui.portInput = widget.NewEntry()
 	gui.portInput.SetPlaceHolder("Port")
-	gui.portInput.SetText("25566")
+	gui.portInput.SetText("24454")
 
 	// Username input
 	gui.usernameInput = widget.NewEntry()
 	gui.usernameInput.SetPlaceHolder("Username")
 	gui.usernameInput.SetText("Player")
 
+	// Microphone selection
+	micOptions, err := ListInputDevices()
+	if err != nil {
+		micOptions = []string{DefaultDeviceLabel}
+		gui.statusLabel = widget.NewLabel("Audio devices unavailable")
+	} else {
+		gui.statusLabel = widget.NewLabel("Disconnected")
+	}
+	gui.micSelect = widget.NewSelect(micOptions, nil)
+	gui.micSelect.SetSelected(DefaultDeviceLabel)
+
 	// Status label
-	gui.statusLabel = widget.NewLabel("Disconnected")
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
 
 	// Connect button
 	gui.connectBtn = widget.NewButton("Connect", gui.onConnectClicked)
+
+	// Test tone button
+	gui.testToneBtn = widget.NewButton("Send Test Tone", gui.onTestToneClicked)
 
 	// Volume slider
 	volumeLabel := widget.NewLabel("Volume:")
@@ -91,6 +107,8 @@ func (gui *GUI) setupUI() {
 		gui.portInput,
 		widget.NewLabel("Username:"),
 		gui.usernameInput,
+		widget.NewLabel("Microphone:"),
+		gui.micSelect,
 	)
 
 	volumeBox := container.NewBorder(nil, nil, volumeLabel, nil, gui.volumeSlider)
@@ -101,6 +119,7 @@ func (gui *GUI) setupUI() {
 		form,
 		widget.NewSeparator(),
 		gui.connectBtn,
+		gui.testToneBtn,
 		gui.statusLabel,
 		widget.NewSeparator(),
 		volumeBox,
@@ -131,7 +150,8 @@ func (gui *GUI) onConnectClicked() {
 	gui.connectBtn.Disable()
 
 	go func() {
-		err := gui.voiceClient.Connect(server, port, username)
+		selectedMic := gui.micSelect.Selected
+		err := gui.voiceClient.Connect(server, port, username, selectedMic)
 		if err != nil {
 			gui.statusLabel.SetText(fmt.Sprintf("Error: %v", err))
 			gui.connectBtn.Enable()
@@ -141,5 +161,25 @@ func (gui *GUI) onConnectClicked() {
 		gui.statusLabel.SetText(fmt.Sprintf("Connected as %s", username))
 		gui.connectBtn.SetText("Disconnect")
 		gui.connectBtn.Enable()
+	}()
+}
+
+func (gui *GUI) onTestToneClicked() {
+	if !gui.voiceClient.connected.Load() {
+		gui.statusLabel.SetText("Connect first to send test tone")
+		return
+	}
+
+	gui.testToneBtn.Disable()
+	gui.statusLabel.SetText("Sending test tone...")
+
+	go func() {
+		err := gui.voiceClient.SendTestTone(1 * time.Second)
+		if err != nil {
+			gui.statusLabel.SetText(fmt.Sprintf("Test tone error: %v", err))
+		} else {
+			gui.statusLabel.SetText("Test tone sent")
+		}
+		gui.testToneBtn.Enable()
 	}()
 }
