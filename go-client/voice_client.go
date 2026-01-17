@@ -205,6 +205,7 @@ func (vc *VoiceClient) receiveLoop() {
 	defer func() { vc.rxDone <- struct{}{} }()
 
 	buffer := make([]byte, 4096)
+	packetCount := 0
 
 	for vc.connected.Load() {
 		n, _, err := vc.socket.ReadFromUDP(buffer)
@@ -228,6 +229,11 @@ func (vc *VoiceClient) receiveLoop() {
 			continue
 		}
 
+		packetCount++
+		if packetCount%100 == 1 {
+			log.Printf("Received audio packet #%d, size=%d bytes", packetCount, len(audioData))
+		}
+
 		if vc.audioManager != nil {
 			samples, err := vc.audioManager.DecodeAudio(audioData)
 			if err != nil {
@@ -238,6 +244,9 @@ func (vc *VoiceClient) receiveLoop() {
 			select {
 			case vc.audioManager.GetOutputChannel() <- samples:
 			default:
+				if packetCount%100 == 1 {
+					log.Printf("Output channel full, dropping packet")
+				}
 			}
 		}
 	}

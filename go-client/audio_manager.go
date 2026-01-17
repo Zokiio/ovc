@@ -253,6 +253,8 @@ func (am *SimpleAudioManager) openStream() (*portaudio.Stream, string, error) {
 	return stream, inputLabel, nil
 }
 
+var outputPacketCount int
+
 func (am *SimpleAudioManager) processAudio(in, out []int16) {
 	if len(in) > 0 {
 		samples := make([]int16, len(in))
@@ -265,6 +267,10 @@ func (am *SimpleAudioManager) processAudio(in, out []int16) {
 
 	select {
 	case samples := <-am.outputChan:
+		outputPacketCount++
+		if outputPacketCount%100 == 1 {
+			log.Printf("Playing audio packet #%d, samples=%d", outputPacketCount, len(samples))
+		}
 		copy(out, samples)
 		if len(samples) < len(out) {
 			for i := len(samples); i < len(out); i++ {
