@@ -5,8 +5,10 @@ import com.hytale.voicechat.client.audio.SpeakerManager;
 import com.hytale.voicechat.client.gui.VoiceChatGUI;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.common.packet.AudioPacket;
+import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import javafx.application.Application;
+import de.maxhenkel.opus4j.OpusEncoder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class VoiceChatClient {
     private static final Logger logger = LoggerFactory.getLogger(VoiceChatClient.class);
+    private static final int OPUS_SAMPLE_RATE = 48000;
+    private static final int OPUS_CHANNELS = 1;
     
     private final UUID clientId;
     private final MicrophoneManager microphoneManager;
@@ -35,6 +39,7 @@ public class VoiceChatClient {
     private Thread transmitThread;
     private Thread receiveThread;
     private final AtomicInteger sequenceNumber;
+    private OpusEncoder opusEncoder;
 
     public VoiceChatClient() {
         this.clientId = UUID.randomUUID();
@@ -69,14 +74,29 @@ public class VoiceChatClient {
         try {
             // Create UDP socket
             socket = new DatagramSocket();
+            socket.setSoTimeout(5000); // 5 second timeout for waiting for acknowledgment
             serverInetAddress = InetAddress.getByName(serverAddress);
+            opusEncoder = new OpusEncoder(OPUS_SAMPLE_RATE, OPUS_CHANNELS, OpusEncoder.Application.VOIP);
             
             // Send authentication packet
             sendAuthentication();
             
+            // Wait for server acknowledgment (5 second timeout)
+            boolean acknowledged = waitForAckowledgment();
+            if (!acknowledged) {
+                logger.error("Server did not respond to authentication request. Connection failed.");
+                disconnect();
+                return;
+            }
+            
+            logger.info("Server acknowledged connection");
+            
             // Start audio managers
             microphoneManager.start();
             speakerManager.start();
+            
+            // Reset socket timeout for normal receive loop (no timeout)
+            socket.setSoTimeout(0);
             
             // Mark as connected BEFORE starting threads (so they can loop)
             connected = true;
@@ -95,6 +115,44 @@ public class VoiceChatClient {
         } catch (Exception e) {
             logger.error("Failed to connect to voice server", e);
             disconnect();
+        }
+    }
+    
+    /**
+     * Wait for authentication acknowledgment from server
+     */
+    private boolean waitForAckowledgment() {
+        try {
+            byte[] buffer = new byte[1024];
+            DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+            socket.receive(packet);
+            
+            byte[] data = new byte[packet.getLength()];
+            System.arraycopy(buffer, 0, data, 0, packet.getLength());
+            
+            // Check if this is an acknowledgment packet (type 0x03)
+            if (data.length > 0 && data[0] == 0x03) {
+                AuthAckPacket ackPacket = AuthAckPacket.deserialize(data);
+                
+                // Verify it's for this client
+                if (ackPacket.getClientId().equals(clientId)) {
+                    if (ackPacket.isAccepted()) {
+                        logger.debug("Authentication accepted: {}", ackPacket.getMessage());
+                        return true;
+                    } else {
+                        logger.error("Authentication rejected: {}", ackPacket.getMessage());
+                        return false;
+                    }
+                }
+            }
+            
+            return false;
+        } catch (java.net.SocketTimeoutException e) {
+            logger.error("Connection timeout: Server did not respond within 5 seconds");
+            return false;
+        } catch (Exception e) {
+            logger.error("Error waiting for authentication acknowledgment", e);
+            return false;
         }
     }
     
@@ -121,8 +179,9 @@ public class VoiceChatClient {
                 
                 if (audioSamples != null && audioSamples.length > 0) {
                     // Convert samples to bytes (for transmission)
-                    // TODO: Encode with Opus codec here
-                    byte[] audioData = samplesToBytes(audioSamples);
+                    byte[] audioData = opusEncoder != null
+                        ? opusEncoder.encode(audioSamples)
+                        : samplesToBytes(audioSamples);
                     
                     // Create and send audio packet
                     AudioPacket audioPacket = new AudioPacket(
@@ -234,6 +293,10 @@ public class VoiceChatClient {
         // Stop audio
         microphoneManager.stop();
         speakerManager.stop();
+        if (opusEncoder != null) {
+            opusEncoder.close();
+            opusEncoder = null;
+        }
         
         // Close socket
         if (socket != null && !socket.isClosed()) {

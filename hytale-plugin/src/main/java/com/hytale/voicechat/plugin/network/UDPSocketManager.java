@@ -2,6 +2,7 @@ package com.hytale.voicechat.plugin.network;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.packet.AudioPacket;
+import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -186,7 +187,8 @@ public class UDPSocketManager {
                     logger.info("╚══════════════════════════════════════════════════════════════");
                 }
                 
-                // TODO: Send acknowledgment packet back to client
+                // Send acknowledgment packet back to client
+                sendAuthAck(ctx, clientId, sender, true, "Authentication accepted");
                 
             } catch (Exception e) {
                 logger.error("Error handling authentication", e);
@@ -295,6 +297,20 @@ public class UDPSocketManager {
             });
             
             buf.release();
+        }
+        
+        private void sendAuthAck(ChannelHandlerContext ctx, UUID clientId, InetSocketAddress address, 
+                                 boolean accepted, String message) {
+            try {
+                AuthAckPacket ackPacket = new AuthAckPacket(clientId, accepted, message);
+                byte[] data = ackPacket.serialize();
+                ByteBuf buf = ctx.alloc().buffer(data.length);
+                buf.writeBytes(data);
+                ctx.writeAndFlush(new DatagramPacket(buf, address));
+                logger.debug("Sent authentication acknowledgment to {}", address);
+            } catch (Exception e) {
+                logger.error("Error sending authentication acknowledgment", e);
+            }
         }
     }
 }
