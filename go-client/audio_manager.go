@@ -16,14 +16,15 @@ import (
 const DefaultDeviceLabel = "Default (system)"
 
 type SimpleAudioManager struct {
-	inputChan  chan []int16
-	outputChan chan []int16
-	done       chan bool
-	frameSize  int
-	sampleRate int
-	mu         sync.Mutex
-	stream     *portaudio.Stream
-	inputLabel string
+	inputChan    chan []int16
+	outputChan   chan []int16
+	done         chan bool
+	frameSize    int
+	sampleRate   int
+	mu           sync.Mutex
+	inputStream  *portaudio.Stream
+	outputStream *portaudio.Stream
+	inputLabel   string
 }
 
 func NewSimpleAudioManager() (*SimpleAudioManager, error) {
@@ -49,18 +50,38 @@ func (am *SimpleAudioManager) Start() error {
 		return fmt.Errorf("failed to initialize PortAudio: %w", err)
 	}
 
-	stream, inputLabel, err := am.openStream()
+	inputStream, inputLabel, inputDevice, err := am.openInputStream()
 	if err != nil {
 		portaudio.Terminate()
 		return err
 	}
 
-	am.stream = stream
+	outputStream, err := am.openOutputStream(inputDevice)
+	if err != nil {
+		inputStream.Close()
+		portaudio.Terminate()
+		return err
+	}
+
+	am.inputStream = inputStream
+	am.outputStream = outputStream
 	am.inputLabel = inputLabel
 
-	if err := am.stream.Start(); err != nil {
-		am.stream.Close()
-		am.stream = nil
+	if err := am.outputStream.Start(); err != nil {
+		am.outputStream.Close()
+		am.outputStream = nil
+		am.inputStream.Close()
+		am.inputStream = nil
+		portaudio.Terminate()
+		return fmt.Errorf("failed to start audio stream: %w", err)
+	}
+
+	if err := am.inputStream.Start(); err != nil {
+		am.inputStream.Close()
+		am.inputStream = nil
+		am.outputStream.Stop()
+		am.outputStream.Close()
+		am.outputStream = nil
 		portaudio.Terminate()
 		return fmt.Errorf("failed to start audio stream: %w", err)
 	}
@@ -79,10 +100,16 @@ func (am *SimpleAudioManager) Stop() error {
 		close(am.done)
 	}
 
-	if am.stream != nil {
-		am.stream.Stop()
-		am.stream.Close()
-		am.stream = nil
+	if am.inputStream != nil {
+		am.inputStream.Stop()
+		am.inputStream.Close()
+		am.inputStream = nil
+	}
+
+	if am.outputStream != nil {
+		am.outputStream.Stop()
+		am.outputStream.Close()
+		am.outputStream = nil
 	}
 
 	portaudio.Terminate()
@@ -206,22 +233,14 @@ type deviceOption struct {
 	device *portaudio.DeviceInfo
 }
 
-func (am *SimpleAudioManager) openStream() (*portaudio.Stream, string, error) {
+func (am *SimpleAudioManager) openInputStream() (*portaudio.Stream, string, *portaudio.DeviceInfo, error) {
 	inputDevice, inputLabel, err := resolveInputDevice(am.inputLabel)
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	if inputDevice == nil {
-		return nil, "", fmt.Errorf("no input device available")
-	}
-
-	outputDevice, err := resolveOutputDevice(inputDevice)
-	if err != nil {
-		return nil, "", err
-	}
-	if outputDevice == nil {
-		return nil, "", fmt.Errorf("no output device available")
+		return nil, "", nil, fmt.Errorf("no input device available")
 	}
 
 	params := portaudio.StreamParameters{
@@ -230,32 +249,56 @@ func (am *SimpleAudioManager) openStream() (*portaudio.Stream, string, error) {
 			Channels: 1,
 			Latency:  inputDevice.DefaultLowInputLatency,
 		},
+		SampleRate:      float64(am.sampleRate),
+		FramesPerBuffer: am.frameSize,
+	}
+
+	if err := portaudio.IsFormatSupported(params, am.processInput); err != nil {
+		return nil, "", nil, fmt.Errorf("audio format not supported: %w", err)
+	}
+
+	stream, err := portaudio.OpenStream(params, am.processInput)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("failed to open audio stream: %w", err)
+	}
+
+	return stream, inputLabel, inputDevice, nil
+}
+
+func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo) (*portaudio.Stream, error) {
+	outputDevice, err := resolveOutputDevice(inputDevice)
+	if err != nil {
+		return nil, err
+	}
+	if outputDevice == nil {
+		return nil, fmt.Errorf("no output device available")
+	}
+
+	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outputDevice,
 			Channels: 1,
-			Latency:  inputDevice.DefaultLowInputLatency,
+			Latency:  outputDevice.DefaultLowOutputLatency,
 		},
 		SampleRate:      float64(am.sampleRate),
 		FramesPerBuffer: am.frameSize,
 	}
 
-	params.Output.Latency = params.Output.Device.DefaultLowOutputLatency
-
-	if err := portaudio.IsFormatSupported(params, am.processAudio); err != nil {
-		return nil, "", fmt.Errorf("audio format not supported: %w", err)
+	if err := portaudio.IsFormatSupported(params, am.processOutput); err != nil {
+		return nil, fmt.Errorf("audio format not supported: %w", err)
 	}
 
-	stream, err := portaudio.OpenStream(params, am.processAudio)
+	stream, err := portaudio.OpenStream(params, am.processOutput)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to open audio stream: %w", err)
+		return nil, fmt.Errorf("failed to open audio stream: %w", err)
 	}
 
-	return stream, inputLabel, nil
+	return stream, nil
 }
 
 var outputPacketCount int
 
-func (am *SimpleAudioManager) processAudio(in, out []int16) {
+func (am *SimpleAudioManager) processInput(in []int16) {
 	if len(in) > 0 {
 		samples := make([]int16, len(in))
 		copy(samples, in)
@@ -264,7 +307,9 @@ func (am *SimpleAudioManager) processAudio(in, out []int16) {
 		default:
 		}
 	}
+}
 
+func (am *SimpleAudioManager) processOutput(out []int16) {
 	select {
 	case samples := <-am.outputChan:
 		outputPacketCount++
