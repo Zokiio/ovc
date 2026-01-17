@@ -17,6 +17,7 @@ dependencies {
 
 // Configure JAR to include dependencies (fat JAR)
 jar {
+    dependsOn(':common:jar')
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }

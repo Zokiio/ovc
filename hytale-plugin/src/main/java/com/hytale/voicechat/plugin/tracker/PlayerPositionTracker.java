@@ -74,4 +74,21 @@ public class PlayerPositionTracker {
     public PlayerPosition getPlayerPosition(UUID playerId) {
         return playerPositions.get(playerId);
     }
+    
+    /**
+     * Get player UUID by username (case-insensitive)
+     */
+    public UUID getPlayerUUIDByUsername(String username) {
+        if (username == null) {
+            return null;
+        }
+        
+        for (PlayerPosition position : playerPositions.values()) {
+            if (username.equalsIgnoreCase(position.getPlayerName())) {
+                return position.getPlayerId();
+            }
+        }
+        
+        return null;
+    }
 }

@@ -1,6 +1,7 @@
-package com.hytale.voicechat.server;
+package com.hytale.voicechat.plugin;
 
 import com.hypixel.hytale.logger.HytaleLogger;
+import java.util.concurrent.CountDownLatch;
 
 
 /**
@@ -17,7 +18,7 @@ public class VoiceServer {
     }
     
     public void start() {
-        logger.atInfo().log("Starting Voice Server on port {}", port);
+        logger.atInfo().log("Starting Voice Server on port " + port);
         // TODO: Initialize UDP server
         // TODO: Initialize player manager
         // TODO: Initialize voice channel manager
@@ -41,15 +42,19 @@ public class VoiceServer {
         }
         
         VoiceServer server = new VoiceServer(port);
-        server.start();
-        
-        // Keep server running
+        CountDownLatch shutdownLatch = new CountDownLatch(1);
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            server.stop();
+            shutdownLatch.countDown();
+        }, "VoiceServer-Shutdown"));
+
         try {
-            Thread.currentThread().join();
+            server.start();
+            shutdownLatch.await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            server.stop();
         }
-        
-        server.stop();
     }
 }

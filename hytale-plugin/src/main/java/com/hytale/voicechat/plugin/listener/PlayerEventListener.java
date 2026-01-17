@@ -33,7 +33,7 @@ public class PlayerEventListener {
      * TODO: Hook to Hytale PlayerJoinEvent
      */
     public void onPlayerJoin(UUID playerUUID, String username, double x, double y, double z, String worldId) {
-        logger.atInfo().log("Player joined: {} (UUID: {})", username, playerUUID);
+        logger.atInfo().log("Player joined: " + username + " (UUID: " + playerUUID + ")");
         
         // Map username to Hytale player UUID
         usernameToPlayerUUID.put(username, playerUUID);
@@ -47,7 +47,7 @@ public class PlayerEventListener {
      * TODO: Hook to Hytale PlayerQuitEvent
      */
     public void onPlayerQuit(UUID playerUUID, String username) {
-        logger.atInfo().log("Player quit: {} (UUID: {})", username, playerUUID);
+        logger.atInfo().log("Player quit: " + username + " (UUID: " + playerUUID + ")");
         
         // Remove from tracking
         usernameToPlayerUUID.remove(username);
@@ -70,7 +70,7 @@ public class PlayerEventListener {
      * TODO: Hook to Hytale PlayerTeleportEvent
      */
     public void onPlayerTeleport(UUID playerUUID, String username, double x, double y, double z, String worldId) {
-        logger.atFine().log("Player teleported: {} to ({}, {}, {}) in {}", username, x, y, z, worldId);
+        logger.atFine().log("Player teleported: " + username + " to (" + x + ", " + y + ", " + z + ") in " + worldId);
         positionTracker.updatePosition(playerUUID, username, x, y, z, worldId);
     }
     

@@ -47,4 +47,210 @@ tasks.jar {
             'Main-Class': 'com.hytale.voicechat.client.VoiceChatClient'
         )
     }
+    
+    // Create fat JAR with all dependencies
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    
+    // Exclude signature files that cause issues
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+}
+
+// Task to create Windows distribution with all platform natives
+tasks.register('distWindows', Zip) {
+    dependsOn(':common:jar', jar)
+    archiveClassifier = 'windows'
+    archiveExtension = 'zip'
+    
+    // Create run scripts
+    def runBat = '''@echo off
+setlocal enabledelayedexpansion
+
+echo Checking Java installation...
+java -version >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: Java 25+ is not installed or not in PATH
+    echo Please install Java 25 from: https://www.oracle.com/java/technologies/downloads/
+    echo.
+    pause
+    exit /b 1
+)
+
+echo Java found. Starting Hytale Voice Chat...
+echo.
+
+set JAVA_TOOL_OPTIONS=-Djava.awt.headless=false
+
+REM Run the application with JavaFX modules explicitly added
+java -Xmx1024m ^
+    --add-modules javafx.controls,javafx.fxml,javafx.graphics ^
+    --enable-native-access=ALL-UNNAMED ^
+    -jar HytaleVoiceChat.jar 2>&1
+
+REM If we get here, the app closed
+echo.
+echo Application closed.
+pause
+'''
+    
+    def runSh = '''#!/bin/bash
+
+# Check if Java is available
+if ! command -v java &> /dev/null; then
+    echo "ERROR: Java 25+ is not installed"
+    echo "Please install Java 25 from: https://www.oracle.com/java/technologies/downloads/"
+    exit 1
+fi
+
+# Run the application
+echo "Starting Hytale Voice Chat..."
+export JAVA_TOOL_OPTIONS="-Djava.awt.headless=false"
+java -Xmx1024m -jar HytaleVoiceChat.jar
+'''
+    
+    into('HytaleVoiceChat-Windows') {
+        // Include the fat JAR
+        from(tasks.jar.outputs.files) {
+            rename { 'HytaleVoiceChat.jar' }
+        }
+        
+        // Create run.bat
+        from(projectDir) {
+            include 'README.txt'
+        }
+        
+        from(new File(buildDir, 'scripts')) {
+            include 'run.bat'
+            include 'run.sh'
+        }
+    }
+    
+    doFirst {
+        def scriptsDir = new File(buildDir, 'scripts')
+        scriptsDir.mkdirs()
+        
+        new File(scriptsDir, 'run.bat').text = runBat
+        def shScript = new File(scriptsDir, 'run.sh')
+        shScript.text = runSh
+        shScript.setExecutable(true)
+    }
+}
+
+// Task to create macOS distribution
+tasks.register('distMacOS', Jar) {
+    dependsOn(':common:jar')
+    archiveClassifier = 'macos'
+    
+    manifest {
+        attributes(
+            'Main-Class': 'com.hytale.voicechat.client.VoiceChatClient'
+        )
+    }
+    
+    from sourceSets.main.output
+    
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+}
+
+// Task to create Windows EXE using jpackage
+tasks.register('createWindowsExe', Exec) {
+    dependsOn(':common:jar', jar)
+    
+    doFirst {
+        def jarFile = jar.outputs.files.singleFile
+        def appName = 'HytaleVoiceChat'
+        def version = project.version.toString()
+        def outputDir = new File(buildDir, 'windows-exe')
+        
+        outputDir.mkdirs()
+        
+        // jpackage command - only works on Windows with Windows JDK
+        def jpackageCmd = [
+            'jpackage',
+            '--input', buildDir.absolutePath + '/libs',
+            '--name', appName,
+            '--main-jar', jarFile.name,
+            '--main-class', 'com.hytale.voicechat.client.VoiceChatClient',
+            '--type', 'msi',
+            '--app-version', version,
+            '--vendor', 'Hytale Voice Chat',
+            '--description', 'Proximity-based voice chat for Hytale',
+            '--win-console',
+            '--dest', outputDir.absolutePath
+        ]
+        
+        commandLine jpackageCmd
+    }
+}
+
+// Alternative: Create a simple launcher EXE using batch wrapper
+tasks.register('createWindowsLauncher', Zip) {
+    dependsOn(':common:jar', jar)
+    archiveClassifier = 'launcher'
+    archiveExtension = 'zip'
+    
+    into('HytaleVoiceChat') {
+        from(tasks.jar.outputs.files) {
+            rename { 'HytaleVoiceChat.jar' }
+        }
+        from(projectDir) {
+            include 'README.txt'
+        }
+        from(new File(buildDir, 'launcher-scripts')) {
+            include 'run.bat'
+            include 'run.sh'
+        }
+    }
+    
+    doFirst {
+        def scriptsDir = new File(buildDir, 'launcher-scripts')
+        scriptsDir.mkdirs()
+        
+        new File(scriptsDir, 'run.bat').text = '''@echo off
+setlocal enabledelayedexpansion
+
+REM Check if Java is available
+java -version >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Java 25+ is not installed or not in PATH
+    echo Please install Java 25 from: https://www.oracle.com/java/technologies/downloads/
+    pause
+    exit /b 1
+)
+
+REM Run the application
+echo Starting Hytale Voice Chat...
+java -jar HytaleVoiceChat.jar
+pause
+'''
+        
+        def runSh = new File(scriptsDir, 'run.sh')
+        runSh.text = '''#!/bin/bash
+
+# Check if Java is available
+if ! command -v java &> /dev/null; then
+    echo "ERROR: Java 25+ is not installed"
+    echo "Please install Java 25 from: https://www.oracle.com/java/technologies/downloads/"
+    exit 1
+fi
+
+# Run the application
+echo "Starting Hytale Voice Chat..."
+java -jar HytaleVoiceChat.jar
+'''
+        runSh.setExecutable(true)
+    }
 }

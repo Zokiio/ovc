@@ -3,9 +3,11 @@ package com.hytale.voicechat.plugin;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.plugin.JavaPlugin;
 import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
+import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -49,6 +51,9 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
             
+            // Register event system for player join/quit tracking
+            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker));
+            
             // Initialize event listener
             eventListener = new PlayerEventListener(positionTracker);
             
@@ -81,6 +86,11 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         
         if (udpServer != null) {
             udpServer.stop();
+        }
+        
+        if (opusCodec != null) {
+            opusCodec.close();
+            opusCodec = null;
         }
         
         logger.atInfo().log("Hytale Voice Chat Plugin shutdown complete");

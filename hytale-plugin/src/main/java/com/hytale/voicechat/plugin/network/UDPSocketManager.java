@@ -154,36 +154,30 @@ public class UDPSocketManager {
                 usernameToClientUUID.put(username, clientId);
                 
                 // Try to link to Hytale player UUID
-                if (eventListener != null) {
-                    UUID playerUUID = eventListener.getPlayerUUID(username);
-                    if (playerUUID != null) {
-                        clientToPlayerUUID.put(clientId, playerUUID);
-                        logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
-                        logger.atInfo().log("║ VOICE CLIENT CONNECTED");
-                        logger.atInfo().log("║ Username: {}", username);
-                        logger.atInfo().log("║ Client UUID: {}", clientId);
-                        logger.atInfo().log("║ Player UUID: {}", playerUUID);
-                        logger.atInfo().log("║ Address: {}", sender);
-                        logger.atInfo().log("║ Total clients: {}", clients.size());
-                        logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
-                    } else {
-                        logger.atWarning().log("╔══════════════════════════════════════════════════════════════");
-                        logger.atWarning().log("║ VOICE CLIENT CONNECTED (Player not in game)");
-                        logger.atWarning().log("║ Username: {}", username);
-                        logger.atWarning().log("║ Client UUID: {}", clientId);
-                        logger.atWarning().log("║ Address: {}", sender);
-                        logger.atWarning().log("║ Status: Player '{}' not found on server", username);
-                        logger.atWarning().log("║ Total clients: {}", clients.size());
-                        logger.atWarning().log("╚══════════════════════════════════════════════════════════════");
-                    }
-                } else {
+                UUID playerUUID = null;
+                if (positionTracker != null) {
+                    playerUUID = positionTracker.getPlayerUUIDByUsername(username);
+                }
+                
+                if (playerUUID != null) {
+                    clientToPlayerUUID.put(clientId, playerUUID);
                     logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
                     logger.atInfo().log("║ VOICE CLIENT CONNECTED");
-                    logger.atInfo().log("║ Username: {}", username);
-                    logger.atInfo().log("║ Client UUID: {}", clientId);
-                    logger.atInfo().log("║ Address: {}", sender);
-                    logger.atInfo().log("║ Total clients: {}", clients.size());
+                    logger.atInfo().log("║ Username: " + username);
+                    logger.atInfo().log("║ Client UUID: " + clientId);
+                    logger.atInfo().log("║ Player UUID: " + playerUUID);
+                    logger.atInfo().log("║ Address: " + sender);
+                    logger.atInfo().log("║ Total clients: " + clients.size());
                     logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
+                } else {
+                    logger.atWarning().log("╔══════════════════════════════════════════════════════════════");
+                    logger.atWarning().log("║ VOICE CLIENT CONNECTED (Player not in game)");
+                    logger.atWarning().log("║ Username: " + username);
+                    logger.atWarning().log("║ Client UUID: " + clientId);
+                    logger.atWarning().log("║ Address: " + sender);
+                    logger.atWarning().log("║ Status: Player '" + username + "' not found on server");
+                    logger.atWarning().log("║ Total clients: " + clients.size());
+                    logger.atWarning().log("╚══════════════════════════════════════════════════════════════");
                 }
                 
                 // Send acknowledgment packet back to client
@@ -200,8 +194,15 @@ public class UDPSocketManager {
                 UUID senderId = audioPacket.getSenderId();
                 
                 // Verify client is registered
-                if (!clients.containsKey(senderId)) {
-                    logger.atWarning().log("Received audio from unregistered client: {}", senderId);
+                InetSocketAddress registered = clients.get(senderId);
+                if (registered == null) {
+                    logger.atWarning().log("Received audio from unregistered client: " + senderId);
+                    return;
+                }
+
+                // Drop packets if sender address doesn't match the registered endpoint to prevent spoofing
+                if (!registered.equals(sender)) {
+                    logger.atWarning().log("Dropping spoofed audio packet for client " + senderId + " from " + sender);
                     return;
                 }
                 
@@ -225,7 +226,7 @@ public class UDPSocketManager {
             // Get Hytale player UUID from voice client UUID
             UUID playerUUID = clientToPlayerUUID.get(clientId);
             if (playerUUID == null) {
-                logger.atFine().log("Voice client {} not linked to player - broadcasting to all", clientId);
+                logger.atFine().log("Voice client " + clientId + " not linked to player - broadcasting to all");
                 broadcastToAll(ctx, packet, sender);
                 return;
             }
@@ -233,7 +234,7 @@ public class UDPSocketManager {
             // Get sender's position
             PlayerPosition senderPos = positionTracker.getPlayerPosition(playerUUID);
             if (senderPos == null) {
-                logger.atFine().log("Player {} position not found", playerUUID);
+                logger.atFine().log("Player " + playerUUID + " position not found");
                 return; // Sender not in game
             }
             
@@ -268,8 +269,7 @@ public class UDPSocketManager {
             }
             
             if (routedCount > 0) {
-                logger.atFine().log("▶ Audio routed from {} to {} nearby player(s)", 
-                    senderPos.getPlayerName(), routedCount);
+                logger.atFine().log("▶ Audio routed from " + senderPos.getPlayerName() + " to " + routedCount + " nearby player(s)");
             }
             
             buf.release();
@@ -306,7 +306,7 @@ public class UDPSocketManager {
                 ByteBuf buf = ctx.alloc().buffer(data.length);
                 buf.writeBytes(data);
                 ctx.writeAndFlush(new DatagramPacket(buf, address));
-                logger.atFine().log("Sent authentication acknowledgment to {}", address);
+                logger.atFine().log("Sent authentication acknowledgment to " + address);
             } catch (Exception e) {
                 logger.atSevere().log("Error sending authentication acknowledgment", e);
             }

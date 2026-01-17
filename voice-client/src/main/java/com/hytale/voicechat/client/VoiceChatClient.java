@@ -30,7 +30,6 @@ public class VoiceChatClient {
     private final UUID clientId;
     private final MicrophoneManager microphoneManager;
     private final SpeakerManager speakerManager;
-    private String serverAddress;
     private int serverPort;
     private String username;
     private DatagramSocket socket;
@@ -45,7 +44,6 @@ public class VoiceChatClient {
         this.clientId = UUID.randomUUID();
         this.microphoneManager = new MicrophoneManager();
         this.speakerManager = new SpeakerManager();
-        this.serverAddress = "localhost";
         this.serverPort = NetworkConfig.DEFAULT_VOICE_PORT;
         this.username = System.getProperty("user.name"); // Default to system username
         this.sequenceNumber = new AtomicInteger(0);
@@ -66,7 +64,6 @@ public class VoiceChatClient {
             return;
         }
 
-        this.serverAddress = serverAddress;
         this.serverPort = serverPort;
 
         logger.info("Connecting to voice server at {}:{} as user '{}'", serverAddress, serverPort, username);
