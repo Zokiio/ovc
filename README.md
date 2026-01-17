@@ -166,13 +166,16 @@ java -jar voice-client/build/libs/voice-client-1.0.0-SNAPSHOT.jar
 - [x] Implement Hytale plugin with position tracking
 - [x] Integrate voice server into plugin (combined deployment)
 - [x] Implement proximity-based routing logic (30 block range)
-- [ ] Connect microphone to UDP transmission
+- [x] Username-based authentication system
+- [x] Link voice clients to in-game players
+- [x] Real-time audio streaming (mic capture + UDP transmission)
+- [x] Full-duplex audio (simultaneous send/receive)
 - [ ] Wire Opus encoding/decoding to audio pipeline
+- [ ] Implement actual Hytale API event hooks
 - [ ] Implement OpenAL 3D audio playback
 - [ ] Add encryption for voice data (AES)
 - [ ] Implement voice activity detection (VAD)
 - [ ] Add GUI volume controls and device selection
-- [ ] Create authentication system
 - [ ] Add configuration files
 - [ ] Write integration tests
 
