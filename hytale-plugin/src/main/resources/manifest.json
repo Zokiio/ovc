@@ -1,0 +1,8 @@
+{
+  "Main": "com.hytale.voicechat.plugin.HytaleVoiceChatPlugin",
+  "Name": "HytaleVoiceChat",
+  "Version": "1.0.0",
+  "Description": "Proximity-based voice chat system for Hytale",
+  "Author": "Voice Chat Team",
+  "IncludesAssetPack": false
+}

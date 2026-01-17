@@ -20,6 +20,8 @@ import java.util.UUID;
  */
 public class HytaleVoiceChatPlugin {
     private static final Logger logger = LoggerFactory.getLogger(HytaleVoiceChatPlugin.class);
+    private static final String PLUGIN_NAME = "HytaleVoiceChat";
+    private static final String PLUGIN_VERSION = "1.0.0";
     
     private UDPSocketManager udpServer;
     private OpusCodec opusCodec;
@@ -29,13 +31,14 @@ public class HytaleVoiceChatPlugin {
 
     public HytaleVoiceChatPlugin() {
         this.voicePort = NetworkConfig.DEFAULT_VOICE_PORT;
+        logger.info("Hytale Voice Chat Plugin {} initialized", PLUGIN_VERSION);
     }
 
     /**
-     * Called when the plugin is enabled
+     * Setup method called when the plugin is enabled
      */
-    public void onEnable() {
-        logger.info("Hytale Voice Chat Plugin enabling...");
+    public void setup() {
+        logger.info("Setting up Hytale Voice Chat Plugin...");
         
         try {
             // Initialize Opus codec
@@ -59,17 +62,17 @@ public class HytaleVoiceChatPlugin {
             // TODO: Register Hytale event listeners when API is available
             // registerEventListeners();
             
-            logger.info("Hytale Voice Chat Plugin enabled on port {}", voicePort);
+            logger.info("Hytale Voice Chat Plugin setup complete - listening on port {}", voicePort);
         } catch (Exception e) {
-            logger.error("Failed to enable Hytale Voice Chat Plugin", e);
+            logger.error("Failed to setup Hytale Voice Chat Plugin", e);
         }
     }
     
     /**
-     * Called when the plugin is disabled
+     * Cleanup method called when the plugin is disabled
      */
-    public void onDisable() {
-        logger.info("Hytale Voice Chat Plugin disabling...");
+    public void shutdown() {
+        logger.info("Shutting down Hytale Voice Chat Plugin...");
         
         if (positionTracker != null) {
             positionTracker.stop();
@@ -79,7 +82,7 @@ public class HytaleVoiceChatPlugin {
             udpServer.stop();
         }
         
-        logger.info("Hytale Voice Chat Plugin disabled");
+        logger.info("Hytale Voice Chat Plugin shutdown complete");
     }
     
     /**
@@ -98,7 +101,7 @@ public class HytaleVoiceChatPlugin {
         if (positionTracker != null) {
             PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, worldId);
             positionTracker.addPlayer(position);
-            logger.info("Player joined voice chat: {} ({})", playerName, playerId);
+            logger.atInfo().log("Player joined voice chat: " + playerName + " (" + playerId + ")");
         }
     }
     
@@ -108,7 +111,7 @@ public class HytaleVoiceChatPlugin {
     public void onPlayerQuit(UUID playerId) {
         if (positionTracker != null) {
             positionTracker.removePlayer(playerId);
-            logger.info("Player left voice chat: {}", playerId);
+            logger.atInfo().log("Player left voice chat: " + playerId);
         }
     }
 
