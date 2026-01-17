@@ -3,6 +3,7 @@ package com.hytale.voicechat.plugin;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
+import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import org.slf4j.Logger;
@@ -23,6 +24,7 @@ public class HytaleVoiceChatPlugin {
     private UDPSocketManager udpServer;
     private OpusCodec opusCodec;
     private PlayerPositionTracker positionTracker;
+    private PlayerEventListener eventListener;
     private int voicePort;
 
     public HytaleVoiceChatPlugin() {
@@ -42,9 +44,13 @@ public class HytaleVoiceChatPlugin {
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
             
+            // Initialize event listener
+            eventListener = new PlayerEventListener(positionTracker);
+            
             // Initialize and start UDP voice server
             udpServer = new UDPSocketManager(voicePort);
             udpServer.setPositionTracker(positionTracker);
+            udpServer.setEventListener(eventListener); // Link event listener to server
             udpServer.start();
             
             // Start position tracking
