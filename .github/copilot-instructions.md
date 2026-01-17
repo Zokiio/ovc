@@ -1,22 +1,20 @@
 # Copilot Customization Instructions
 
 ## Project Overview
-Hybrid proximity-based voice chat system for Hytale with three components:
-- Voice Server (UDP relay)
+Hybrid proximity-based voice chat system for Hytale with two main components:
 - Voice Client (JavaFX desktop app)
-- Hytale Plugin (in-game integration)
+- Hytale Plugin (in-game integration + integrated voice server)
 
 ## Architecture
 - Multi-module Gradle project
-- Java 17+ with Opus codec, OpenAL audio, Netty networking
+- Java 25+ with Opus codec, OpenAL audio, Netty networking
 - Three independently deployable components
 
 ## Key Files
 - [build.gradle](build.gradle) - Root Gradle configuration
 - [README.md](README.md) - Architecture and setup guide
-- [voice-server/](voice-server/) - Voice relay server
 - [voice-client/](voice-client/) - Desktop client with GUI
-- [hytale-plugin/](hytale-plugin/) - Hytale event tracking
+- [hytale-plugin/](hytale-plugin/) - Hytale plugin with integrated voice server
 
 ## Development Guidelines
 
@@ -27,20 +25,18 @@ Hybrid proximity-based voice chat system for Hytale with three components:
 4. Follow existing package structure
 
 ### Audio Implementation:
-- Voice Server: Handle Opus compression, player routing
+- Hytale Plugin: Handle Opus compression, player routing via UDP server
 - Voice Client: Microphone/speaker I/O, 3D positioning
-- Network: UDP packets, encryption, authentication
+- Network: UDP packets, proximity-based routing
 
 ### Common Tasks:
-- Implement UDP server: `voice-server/src/.../network/`
-- Add audio processing: `voice-server/src/.../audio/`
+- Implement UDP/audio logic: `hytale-plugin/src/.../network/` or `hytale-plugin/src/.../audio/`
 - Extend GUI: `voice-client/src/.../gui/`
 - Add Hytale hooks: `hytale-plugin/src/.../plugin/`
 
 ## Testing
 Run individual modules:
 ```bash
-./gradlew :voice-server:build
 ./gradlew :voice-client:build
 ./gradlew :hytale-plugin:build
 ```

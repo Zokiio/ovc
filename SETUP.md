@@ -34,18 +34,12 @@ cp /path/to/Assets.zip hytale-plugin/hytalefiles/
 ./gradlew clean build
 ```
 
-All four modules will compile:
+All three modules will compile:
 - `common` - Shared models and packets
-- `voice-server` - UDP voice relay server
 - `voice-client` - JavaFX desktop client
-- `hytale-plugin` - Hytale server plugin
+- `hytale-plugin` - Hytale server plugin with integrated voice server
 
 ### 4. Run components
-
-**Voice Server:**
-```bash
-./gradlew :voice-server:run
-```
 
 **Voice Client:**
 ```bash
@@ -63,9 +57,8 @@ All four modules will compile:
 ```
 hytale-voice-chat/
 ├── common/                 # Shared code (models, packets, config)
-├── voice-server/           # UDP relay server with Opus codec
 ├── voice-client/           # JavaFX GUI with audio I/O
-├── hytale-plugin/          # Hytale plugin integration
+├── hytale-plugin/          # Hytale plugin with integrated UDP voice server
 │   └── hytalefiles/        # (local, not committed)
 │       ├── HytaleServer.jar
 │       ├── HytaleServer.aot

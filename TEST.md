@@ -2,11 +2,13 @@
 
 ## Quick Test Guide
 
-### 1. Start the Voice Server
+### 1. Start the Hytale Server with Plugin
+Place the plugin in your Hytale server's mods folder and start the server:
 ```bash
-./gradlew :voice-server:run
+# Plugin auto-copies via: ./gradlew :hytale-plugin:build
+# Then start your Hytale server
 ```
-**Expected:** Server logs "Starting voice server on port 24454"
+**Expected:** Server logs "UDP socket listening on port 24454"
 
 ### 2. Check Server is Listening
 ```bash
@@ -54,17 +56,15 @@ Connect both clients to the server.
 - ❌ Opus encoding/decoding
 - ❌ Real microphone audio capture
 - ❌ Audio playback
-- ❌ Proximity-based routing
-- ❌ REST API in voice server
-- ❌ Hytale plugin integration
+- ❌ Full Hytale plugin event integration
 
 ### 7. Check Logs
 
-**Voice Server Terminal:**
+**Hytale Server Terminal:**
 Look for:
 ```
-INFO com.hytale.voicechat.server.VoiceServer -- Starting voice server on port 24454
-INFO com.hytale.voicechat.server.network.UDPSocketManager -- UDP socket listening on port 24454
+INFO com.hytale.voicechat.plugin.HytaleVoiceChatPlugin -- Hytale Voice Chat Plugin enabled
+INFO com.hytale.voicechat.plugin.network.UDPSocketManager -- UDP socket listening on port 24454
 ```
 
 **Voice Client Terminal:**
@@ -84,13 +84,10 @@ Copy to Hytale server:
 # JAR automatically copied to /Users/zoki/hytale/server/mods/
 ```
 
-Start Hytale server and check for plugin loading.
-
 ### Next Steps to Make It Fully Functional
 
 1. **Implement actual UDP transmission** - Connect microphone data to UDP packets
 2. **Wire up Opus codec** - Encode audio before sending, decode on receive
-3. **Implement packet routing** - Server routes packets based on player proximity
-4. **Add REST API to voice server** - Endpoint for receiving player positions
-5. **Connect Hytale plugin** - Send player positions to voice server API
-6. **Test with actual voice data** - Speak into mic, hear on other client
+3. **Integrate with Hytale events** - Hook player movement/position tracking
+4. **Test with actual voice data** - Speak into mic, hear on other client
+5. **Test proximity routing** - Move players in-game and verify audio range

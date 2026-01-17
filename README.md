@@ -76,7 +76,6 @@ hytale-voice-chat/
 ./gradlew :common:build
 
 # Create executable JARs
-./gradlew :voice-server:jar
 ./gradlew :voice-client:jar
 ```
 
@@ -111,12 +110,6 @@ java -jar voice-client/build/libs/voice-client-1.0.0-SNAPSHOT.jar
    - Stream microphone audio (encoded with Opus)
    - Receive and play audio from nearby players only
 
-3. **Hytale Plugin** tracks players:
-   - Monitors player movement events
-   - Sends position updates to voice server API every 50ms
-   - Notifies server of player joins/quits
-
-4. **Server routes audio**:
 3. **Plugin processes audio**:
    - Receives audio packets from clients via UDP
    - Calculates which players are in proximity (30 block range)
