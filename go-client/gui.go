@@ -29,6 +29,7 @@ type GUI struct {
 	portInput     *widget.Entry
 	usernameInput *widget.Entry
 	micSelect     *widget.Select
+	speakerSelect *widget.Select
 	connectBtn    *widget.Button
 	testToneBtn   *widget.Button
 	statusLabel   *widget.Label
@@ -87,10 +88,21 @@ func (gui *GUI) setupUI() {
 		gui.statusLabel = widget.NewLabel("Disconnected")
 	}
 	gui.micSelect = widget.NewSelect(micOptions, func(selected string) {
-		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, selected)
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, selected, gui.speakerSelect.Selected)
 	})
 	gui.micSelect.SetSelected(DefaultDeviceLabel)
-	gui.applySavedMicSelection()
+
+	// Speaker/Output selection
+	speakerOptions, err := ListOutputDevices()
+	if err != nil {
+		speakerOptions = []string{DefaultDeviceLabel}
+	}
+	gui.speakerSelect = widget.NewSelect(speakerOptions, func(selected string) {
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, selected)
+	})
+	gui.speakerSelect.SetSelected(DefaultDeviceLabel)
+
+	gui.applySavedDeviceSelection()
 
 	// Status label
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
@@ -119,6 +131,8 @@ func (gui *GUI) setupUI() {
 		gui.usernameInput,
 		widget.NewLabel("Microphone:"),
 		gui.micSelect,
+		widget.NewLabel("Speaker:"),
+		gui.speakerSelect,
 	)
 
 	volumeBox := container.NewBorder(nil, nil, volumeLabel, nil, gui.volumeSlider)
@@ -156,14 +170,15 @@ func (gui *GUI) onConnectClicked() {
 		return
 	}
 
-	gui.saveConfig(server, port, username, gui.micSelect.Selected)
+	gui.saveConfig(server, port, username, gui.micSelect.Selected, gui.speakerSelect.Selected)
 
 	gui.statusLabel.SetText("Connecting...")
 	gui.connectBtn.Disable()
 
 	go func() {
 		selectedMic := gui.micSelect.Selected
-		err := gui.voiceClient.Connect(server, port, username, selectedMic)
+		selectedSpeaker := gui.speakerSelect.Selected
+		err := gui.voiceClient.Connect(server, port, username, selectedMic, selectedSpeaker)
 		if err != nil {
 			gui.statusLabel.SetText(fmt.Sprintf("Error: %v", err))
 			gui.connectBtn.Enable()
@@ -215,27 +230,39 @@ func (gui *GUI) loadSavedConfig() {
 	}
 }
 
-func (gui *GUI) saveConfig(server string, port int, username string, micLabel string) {
+func (gui *GUI) saveConfig(server string, port int, username string, micLabel string, speakerLabel string) {
 	cfg := ClientConfig{
-		Server:   server,
-		Port:     port,
-		Username: username,
-		MicLabel: micLabel,
+		Server:       server,
+		Port:         port,
+		Username:     username,
+		MicLabel:     micLabel,
+		SpeakerLabel: speakerLabel,
 	}
 	if err := saveClientConfig(cfg); err != nil {
 		log.Printf("Failed to save config: %v", err)
 	}
 }
 
-func (gui *GUI) applySavedMicSelection() {
-	if gui.savedConfig == nil || gui.savedConfig.MicLabel == "" {
+func (gui *GUI) applySavedDeviceSelection() {
+	if gui.savedConfig == nil {
 		return
 	}
 
-	for _, option := range gui.micSelect.Options {
-		if option == gui.savedConfig.MicLabel {
-			gui.micSelect.SetSelected(gui.savedConfig.MicLabel)
-			return
+	if gui.savedConfig.MicLabel != "" {
+		for _, option := range gui.micSelect.Options {
+			if option == gui.savedConfig.MicLabel {
+				gui.micSelect.SetSelected(gui.savedConfig.MicLabel)
+				break
+			}
+		}
+	}
+
+	if gui.savedConfig.SpeakerLabel != "" {
+		for _, option := range gui.speakerSelect.Options {
+			if option == gui.savedConfig.SpeakerLabel {
+				gui.speakerSelect.SetSelected(gui.savedConfig.SpeakerLabel)
+				break
+			}
 		}
 	}
 }
