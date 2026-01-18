@@ -87,9 +87,7 @@ func (gui *GUI) setupUI() {
 	} else {
 		gui.statusLabel = widget.NewLabel("Disconnected")
 	}
-	gui.micSelect = widget.NewSelect(micOptions, func(selected string) {
-		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, selected, gui.speakerSelect.Selected)
-	})
+	gui.micSelect = widget.NewSelect(micOptions, nil)
 	gui.micSelect.SetSelected(DefaultDeviceLabel)
 
 	// Speaker/Output selection
@@ -97,10 +95,16 @@ func (gui *GUI) setupUI() {
 	if err != nil {
 		speakerOptions = []string{DefaultDeviceLabel}
 	}
-	gui.speakerSelect = widget.NewSelect(speakerOptions, func(selected string) {
-		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, selected)
-	})
+	gui.speakerSelect = widget.NewSelect(speakerOptions, nil)
 	gui.speakerSelect.SetSelected(DefaultDeviceLabel)
+
+	// Set callbacks after both selects are created
+	gui.micSelect.OnChanged = func(selected string) {
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, selected, gui.speakerSelect.Selected)
+	}
+	gui.speakerSelect.OnChanged = func(selected string) {
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, selected)
+	}
 
 	gui.applySavedDeviceSelection()
 
