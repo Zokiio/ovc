@@ -9,11 +9,17 @@ import java.util.UUID;
 public class AudioPacket extends VoicePacket {
     private final byte[] audioData;
     private final int sequenceNumber;
+    private final byte codec;
 
-    public AudioPacket(UUID senderId, byte[] audioData, int sequenceNumber) {
+    public AudioPacket(UUID senderId, byte codec, byte[] audioData, int sequenceNumber) {
         super(senderId);
         this.audioData = audioData;
         this.sequenceNumber = sequenceNumber;
+        this.codec = codec;
+    }
+
+    public AudioPacket(UUID senderId, byte[] audioData, int sequenceNumber) {
+        this(senderId, AudioCodec.PCM, audioData, sequenceNumber);
     }
 
     public byte[] getAudioData() {
@@ -24,10 +30,15 @@ public class AudioPacket extends VoicePacket {
         return sequenceNumber;
     }
 
+    public byte getCodec() {
+        return codec;
+    }
+
     @Override
     public byte[] serialize() {
-        ByteBuffer buffer = ByteBuffer.allocate(1 + 20 + 4 + 4 + audioData.length);
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 1 + 16 + 4 + 4 + audioData.length);
         buffer.put((byte) 0x02); // Packet type: AUDIO
+        buffer.put(codec);
         buffer.putLong(getSenderId().getMostSignificantBits());
         buffer.putLong(getSenderId().getLeastSignificantBits());
         buffer.putInt(sequenceNumber);
@@ -42,6 +53,13 @@ public class AudioPacket extends VoicePacket {
         if (packetType != 0x02) {
             throw new IllegalArgumentException("Invalid packet type for AudioPacket: " + packetType);
         }
+        byte potentialCodec = buffer.get();
+        byte codec = AudioCodec.isSupported(potentialCodec) ? potentialCodec : AudioCodec.PCM;
+
+        if (!AudioCodec.isSupported(potentialCodec)) {
+            buffer.position(1); // rewind to treat as legacy packet
+        }
+
         long mostSig = buffer.getLong();
         long leastSig = buffer.getLong();
         UUID senderId = new UUID(mostSig, leastSig);
@@ -49,6 +67,7 @@ public class AudioPacket extends VoicePacket {
         int audioLength = buffer.getInt();
         byte[] audioData = new byte[audioLength];
         buffer.get(audioData);
-        return new AudioPacket(senderId, audioData, sequenceNumber);
+
+        return new AudioPacket(senderId, codec, audioData, sequenceNumber);
     }
 }

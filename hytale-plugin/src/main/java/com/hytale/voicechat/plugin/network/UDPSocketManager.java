@@ -142,7 +142,7 @@ public class UDPSocketManager {
                 }
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error processing voice packet", e);
+                logger.atSevere().withCause(e).log("Error processing voice packet");
             }
         }
         
@@ -203,7 +203,7 @@ public class UDPSocketManager {
                 sendAuthAck(ctx, clientId, sender, true, "Authentication accepted");
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error handling authentication", e);
+                logger.atSevere().withCause(e).log("Error handling authentication");
             }
         }
         
@@ -256,7 +256,7 @@ public class UDPSocketManager {
                 logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error handling disconnect", e);
+                logger.atSevere().withCause(e).log("Error handling disconnect");
             }
         }
         
@@ -294,7 +294,7 @@ public class UDPSocketManager {
                 routePacket(ctx, audioPacket, sender);
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error handling audio packet", e);
+                logger.atSevere().withCause(e).log("Error handling audio packet");
             }
         }
 
@@ -392,7 +392,7 @@ public class UDPSocketManager {
                 ctx.writeAndFlush(new DatagramPacket(buf, address));
                 logger.atFine().log("Sent authentication acknowledgment to " + address);
             } catch (Exception e) {
-                logger.atSevere().log("Error sending authentication acknowledgment", e);
+                logger.atSevere().withCause(e).log("Error sending authentication acknowledgment");
             }
         }
     }

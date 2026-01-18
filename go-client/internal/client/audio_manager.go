@@ -14,9 +14,14 @@ import (
 	"time"
 
 	"github.com/gordonklaus/portaudio"
+	"gopkg.in/hraban/opus.v2"
 )
 
 const DefaultDeviceLabel = "Default (system)"
+const (
+	AudioCodecPCM  byte = 0x00
+	AudioCodecOpus byte = 0x01
+)
 
 type SimpleAudioManager struct {
 	inputChan    chan []int16
@@ -29,6 +34,9 @@ type SimpleAudioManager struct {
 	outputStream *portaudio.Stream
 	inputLabel   string
 	outputLabel  string
+	useOpus      bool
+	encoder      *opus.Encoder
+	decoder      *opus.Decoder
 }
 
 func NewSimpleAudioManager() (*SimpleAudioManager, error) {
@@ -41,6 +49,7 @@ func NewSimpleAudioManager() (*SimpleAudioManager, error) {
 		frameSize:  frameSize,
 		sampleRate: sampleRate,
 		done:       make(chan bool),
+		useOpus:    true,
 	}
 
 	return am, nil
@@ -71,6 +80,13 @@ func (am *SimpleAudioManager) Start() error {
 	am.outputStream = outputStream
 	am.inputLabel = inputLabel
 
+	if am.useOpus {
+		if err := am.initOpus(); err != nil {
+			log.Printf("Opus init failed, falling back to PCM: %v", err)
+			am.useOpus = false
+		}
+	}
+
 	if err := am.outputStream.Start(); err != nil {
 		am.outputStream.Close()
 		am.outputStream = nil
@@ -90,7 +106,26 @@ func (am *SimpleAudioManager) Start() error {
 		return fmt.Errorf("failed to start audio stream: %w", err)
 	}
 
-	log.Printf("Audio manager initialized (PCM audio codec ready, input: %s)", am.inputLabel)
+	codec := "PCM"
+	if am.useOpus && am.encoder != nil && am.decoder != nil {
+		codec = "Opus"
+	}
+	log.Printf("Audio manager initialized (%s codec ready, input: %s)", codec, am.inputLabel)
+	return nil
+}
+
+func (am *SimpleAudioManager) initOpus() error {
+	enc, err := opus.NewEncoder(am.sampleRate, 1, opus.AppVoIP)
+	if err != nil {
+		return err
+	}
+	dec, err := opus.NewDecoder(am.sampleRate, 1)
+	if err != nil {
+		return err
+	}
+	am.encoder = enc
+	am.decoder = dec
+	log.Printf("Opus codec ready (frame=%d, sampleRate=%d)", am.frameSize, am.sampleRate)
 	return nil
 }
 
@@ -121,7 +156,7 @@ func (am *SimpleAudioManager) Stop() error {
 	return nil
 }
 
-func (am *SimpleAudioManager) EncodeAudio(samples []int16) ([]byte, error) {
+func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, error) {
 	if len(samples) == 0 {
 		return []byte{}, nil
 	}
@@ -134,17 +169,66 @@ func (am *SimpleAudioManager) EncodeAudio(samples []int16) ([]byte, error) {
 		samples = samples[:am.frameSize]
 	}
 
+	switch codec {
+	case AudioCodecOpus:
+		if !am.useOpus || am.encoder == nil {
+			return nil, fmt.Errorf("opus encoder not available")
+		}
+		// 4 KB buffer is plenty for mono voice frames
+		buf := make([]byte, 4000)
+		n, err := am.encoder.Encode(samples, buf)
+		if err != nil {
+			return nil, err
+		}
+		return buf[:n], nil
+	case AudioCodecPCM:
+		return encodePCM(samples), nil
+	default:
+		return nil, fmt.Errorf("unknown codec: %d", codec)
+	}
+}
+
+func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, error) {
+	if len(data) == 0 {
+		return make([]int16, am.frameSize), nil
+	}
+
+	switch codec {
+	case AudioCodecOpus:
+		if !am.useOpus || am.decoder == nil {
+			return nil, fmt.Errorf("opus decoder not available")
+		}
+		pcm := make([]int16, am.frameSize)
+		n, err := am.decoder.Decode(data, pcm)
+		if err != nil {
+			return nil, err
+		}
+		if n < len(pcm) {
+			padded := make([]int16, am.frameSize)
+			copy(padded, pcm[:n])
+			pcm = padded
+		} else {
+			pcm = pcm[:n]
+		}
+		return pcm, nil
+	case AudioCodecPCM:
+		return decodePCM(data, am.frameSize), nil
+	default:
+		return nil, fmt.Errorf("unknown codec: %d", codec)
+	}
+}
+
+func encodePCM(samples []int16) []byte {
 	encoded := make([]byte, len(samples)*2)
 	for i, sample := range samples {
 		binary.LittleEndian.PutUint16(encoded[i*2:], uint16(sample))
 	}
-
-	return encoded, nil
+	return encoded
 }
 
-func (am *SimpleAudioManager) DecodeAudio(data []byte) ([]int16, error) {
+func decodePCM(data []byte, frameSize int) []int16 {
 	if len(data) == 0 {
-		return make([]int16, am.frameSize), nil
+		return make([]int16, frameSize)
 	}
 
 	samples := make([]int16, len(data)/2)
@@ -154,13 +238,13 @@ func (am *SimpleAudioManager) DecodeAudio(data []byte) ([]int16, error) {
 		}
 	}
 
-	if len(samples) < am.frameSize {
-		padded := make([]int16, am.frameSize)
+	if len(samples) < frameSize {
+		padded := make([]int16, frameSize)
 		copy(padded, samples)
 		samples = padded
 	}
 
-	return samples, nil
+	return samples
 }
 
 func (am *SimpleAudioManager) GetInputChannel() <-chan []int16 {
