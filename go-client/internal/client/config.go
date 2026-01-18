@@ -8,13 +8,17 @@ import (
 )
 
 type ClientConfig struct {
-	Server       string `json:"server"`
-	Port         int    `json:"port"`
-	Username     string `json:"username"`
-	MicLabel     string `json:"micLabel"`
-	SpeakerLabel string `json:"speakerLabel"`
-	VADEnabled   bool   `json:"vadEnabled"`
-	VADThreshold int    `json:"vadThreshold"`
+	Server       string  `json:"server"`
+	Port         int     `json:"port"`
+	Username     string  `json:"username"`
+	MicLabel     string  `json:"micLabel"`
+	SpeakerLabel string  `json:"speakerLabel"`
+	VADEnabled   bool    `json:"vadEnabled"`
+	VADThreshold int     `json:"vadThreshold"`
+	MasterVolume float64 `json:"masterVolume"`
+	MicGain      float64 `json:"micGain"`
+	PushToTalk   bool    `json:"pushToTalk"`
+	PTTKey       string  `json:"pttKey"`
 }
 
 func loadClientConfig() (ClientConfig, error) {

@@ -4,6 +4,7 @@ import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.packet.AudioPacket;
 import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
+import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
@@ -26,6 +27,7 @@ public class UDPSocketManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final int port;
+    private volatile double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
     private final Map<UUID, InetSocketAddress> clients;
     private final Map<String, UUID> usernameToClientUUID; // username -> voice client UUID
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
@@ -39,6 +41,10 @@ public class UDPSocketManager {
         this.clients = new ConcurrentHashMap<>();
         this.usernameToClientUUID = new ConcurrentHashMap<>();
         this.clientToPlayerUUID = new ConcurrentHashMap<>();
+    }
+
+    public void setProximityDistance(double proximityDistance) {
+        this.proximityDistance = proximityDistance;
     }
     
     public void setPositionTracker(PlayerPositionTracker tracker) {
@@ -73,7 +79,7 @@ public class UDPSocketManager {
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
         logger.atInfo().log("  VOICE SERVER STARTED");
         logger.atInfo().log("  UDP Port: " + port);
-        logger.atInfo().log("  Proximity Range: 30 blocks");
+        logger.atInfo().log("  Proximity Range: " + proximityDistance + " blocks");
         logger.atInfo().log("  Ready for connections...");
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
@@ -93,7 +99,7 @@ public class UDPSocketManager {
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
 
-    private static class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
+    private class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
         private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
         private final Map<UUID, InetSocketAddress> clients;
         private final Map<String, UUID> usernameToClientUUID;
@@ -362,8 +368,8 @@ public class UDPSocketManager {
                 if (!otherPlayerUUID.equals(playerUUID)) { // Don't send to self
                     double distance = senderPos.distanceTo(position);
                     
-                    // Only send if within proximity distance (30 blocks default)
-                    if (distance <= 30.0) {
+                    // Only send if within proximity distance
+                    if (distance <= proximityDistance) {
                         // Find voice client for this player
                         UUID otherClientId = findClientByPlayerUUID(otherPlayerUUID);
                         if (otherClientId != null) {

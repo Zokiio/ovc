@@ -32,6 +32,8 @@ type SimpleAudioManager struct {
 	mu           sync.Mutex
 	encodeMu     sync.Mutex
 	decodeMu     sync.Mutex
+	micGain      float64
+	outputGain   float64
 	inputStream  *portaudio.Stream
 	outputStream *portaudio.Stream
 	inputLabel   string
@@ -52,9 +54,34 @@ func NewSimpleAudioManager() (*SimpleAudioManager, error) {
 		sampleRate: sampleRate,
 		done:       make(chan bool),
 		useOpus:    true,
+		micGain:    1.0,
+		outputGain: 1.0,
 	}
-
 	return am, nil
+}
+
+func (am *SimpleAudioManager) SetMicGain(gain float64) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	if gain < 0.0 {
+		gain = 0.0
+	}
+	if gain > 4.0 {
+		gain = 4.0
+	}
+	am.micGain = gain
+}
+
+func (am *SimpleAudioManager) SetOutputGain(gain float64) {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	if gain < 0.0 {
+		gain = 0.0
+	}
+	if gain > 4.0 {
+		gain = 4.0
+	}
+	am.outputGain = gain
 }
 
 func (am *SimpleAudioManager) Start() error {
@@ -161,6 +188,21 @@ func (am *SimpleAudioManager) Stop() error {
 func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, error) {
 	if len(samples) == 0 {
 		return []byte{}, nil
+	}
+
+	gain := am.micGain
+	if gain != 1.0 {
+		scaled := make([]int16, len(samples))
+		for i, s := range samples {
+			v := float64(s) * gain
+			if v > math.MaxInt16 {
+				v = math.MaxInt16
+			} else if v < math.MinInt16 {
+				v = math.MinInt16
+			}
+			scaled[i] = int16(v)
+		}
+		samples = scaled
 	}
 
 	if len(samples) < am.frameSize {
@@ -431,6 +473,18 @@ func (am *SimpleAudioManager) processOutput(out []int16) {
 		outputPacketCount++
 		if outputPacketCount%100 == 1 {
 			log.Printf("Playing audio packet #%d, samples=%d", outputPacketCount, len(samples))
+		}
+		gain := am.outputGain
+		if gain != 1.0 {
+			for i := range samples {
+				v := float64(samples[i]) * gain
+				if v > math.MaxInt16 {
+					v = math.MaxInt16
+				} else if v < math.MinInt16 {
+					v = math.MinInt16
+				}
+				samples[i] = int16(v)
+			}
 		}
 		copy(out, samples)
 		if len(samples) < len(out) {
