@@ -13,6 +13,8 @@ type ClientConfig struct {
 	Username     string `json:"username"`
 	MicLabel     string `json:"micLabel"`
 	SpeakerLabel string `json:"speakerLabel"`
+	VADEnabled   bool   `json:"vadEnabled"`
+	VADThreshold int    `json:"vadThreshold"`
 }
 
 func loadClientConfig() (ClientConfig, error) {
