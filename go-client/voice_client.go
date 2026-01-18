@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	PacketTypeAudio          = 0x02
 	PacketTypeAuthentication = 0x01
+	PacketTypeAudio          = 0x02
 	PacketTypeAuthAck        = 0x03
+	PacketTypeDisconnect     = 0x04
 	AuthTimeoutSeconds       = 5
 )
 
@@ -133,6 +134,11 @@ func (vc *VoiceClient) Disconnect() error {
 		return nil
 	}
 
+	// Send disconnect packet to server
+	if vc.socket != nil && vc.serverUDPAddr != nil {
+		vc.sendDisconnect()
+	}
+
 	vc.connected.Store(false)
 
 	if vc.audioManager != nil {
@@ -155,6 +161,14 @@ func (vc *VoiceClient) Disconnect() error {
 
 	log.Println("Disconnected from voice server")
 	return nil
+}
+
+func (vc *VoiceClient) sendDisconnect() {
+	packet := make([]byte, 17)
+	packet[0] = PacketTypeDisconnect
+	copy(packet[1:17], vc.clientID[:])
+	vc.socket.WriteToUDP(packet, vc.serverUDPAddr)
+	log.Println("Sent disconnect packet to server")
 }
 
 func (vc *VoiceClient) sendAuthentication() error {
