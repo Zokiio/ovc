@@ -1,4 +1,4 @@
-package main
+package client
 
 import (
 	"encoding/json"
@@ -61,9 +61,17 @@ func saveClientConfig(cfg ClientConfig) error {
 }
 
 func getConfigPath() (string, error) {
+	baseDir, err := getAppConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(baseDir, "client.json"), nil
+}
+
+func getAppConfigDir() (string, error) {
 	baseDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("locate config dir: %w", err)
 	}
-	return filepath.Join(baseDir, "hytale-voicechat", "client.json"), nil
+	return filepath.Join(baseDir, "hytale-voicechat"), nil
 }
