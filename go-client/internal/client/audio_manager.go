@@ -435,7 +435,7 @@ func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo
 	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outputDevice,
-			Channels: 1,
+			Channels: 2,
 			Latency:  outputDevice.DefaultLowOutputLatency,
 		},
 		SampleRate:      float64(am.sampleRate),
@@ -486,10 +486,22 @@ func (am *SimpleAudioManager) processOutput(out []int16) {
 				samples[i] = int16(v)
 			}
 		}
-		copy(out, samples)
-		if len(samples) < len(out) {
-			for i := len(samples); i < len(out); i++ {
-				out[i] = 0
+		switch {
+		case len(samples) == len(out):
+			copy(out, samples)
+		case len(samples)*2 == len(out):
+			// Expand mono to stereo if needed
+			for i := 0; i < len(samples); i++ {
+				v := samples[i]
+				out[2*i] = v
+				out[2*i+1] = v
+			}
+		default:
+			copy(out, samples)
+			if len(samples) < len(out) {
+				for i := len(samples); i < len(out); i++ {
+					out[i] = 0
+				}
 			}
 		}
 	default:
