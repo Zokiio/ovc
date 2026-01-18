@@ -23,34 +23,35 @@ const (
 	audioHeaderLegacy        = 25
 	audioHeaderWithCodec     = 26
 	vadThresholdDefault      = 1200
-	vadHangoverFrames        = 12
+	vadHangoverFramesDefault = 30 // default hangover frames (~1.5 seconds at 20ms per frame)
 	positionalMaxDistance    = 30.0
 )
 
 type VoiceClient struct {
-	clientID       uuid.UUID
-	username       string
-	serverAddr     string
-	serverPort     int
-	serverUDPAddr  *net.UDPAddr
-	socket         *net.UDPConn
-	audioManager   *SimpleAudioManager
-	codec          byte
-	vadEnabled     atomic.Bool
-	vadThreshold   atomic.Uint32
-	vadActive      bool
-	vadHangover    int
-	vadStateCB     atomic.Value // func(enabled bool, active bool)
-	pttEnabled     atomic.Bool
-	pttActive      atomic.Bool
-	pttKey         string
-	masterVolume   float64
-	micGain        float64
-	connected      atomic.Bool
-	sequenceNumber atomic.Uint32
-	rxDone         chan struct{}
-	txDone         chan struct{}
-	mu             sync.Mutex
+	clientID          uuid.UUID
+	username          string
+	serverAddr        string
+	serverPort        int
+	serverUDPAddr     *net.UDPAddr
+	socket            *net.UDPConn
+	audioManager      *SimpleAudioManager
+	codec             byte
+	vadEnabled        atomic.Bool
+	vadThreshold      atomic.Uint32
+	vadHangoverFrames atomic.Uint32
+	vadActive         bool
+	vadHangover       int
+	vadStateCB        atomic.Value // func(enabled bool, active bool)
+	pttEnabled        atomic.Bool
+	pttActive         atomic.Bool
+	pttKey            string
+	masterVolume      float64
+	micGain           float64
+	connected         atomic.Bool
+	sequenceNumber    atomic.Uint32
+	rxDone            chan struct{}
+	txDone            chan struct{}
+	mu                sync.Mutex
 }
 
 func NewVoiceClient() *VoiceClient {
@@ -65,6 +66,7 @@ func NewVoiceClient() *VoiceClient {
 	}
 	vc.vadEnabled.Store(true)
 	vc.vadThreshold.Store(vadThresholdDefault)
+	vc.vadHangoverFrames.Store(vadHangoverFramesDefault)
 	vc.pttEnabled.Store(false)
 	return vc
 }
@@ -80,6 +82,16 @@ func (vc *VoiceClient) SetVAD(enabled bool, threshold int) {
 	}
 	vc.vadThreshold.Store(uint32(threshold))
 	vc.notifyVADState()
+}
+
+func (vc *VoiceClient) SetVADHangover(frames int) {
+	if frames < 0 {
+		frames = 0
+	}
+	if frames > 200 {
+		frames = 200
+	}
+	vc.vadHangoverFrames.Store(uint32(frames))
 }
 
 func (vc *VoiceClient) SetPushToTalk(enabled bool, key string) {
@@ -555,7 +567,7 @@ func (vc *VoiceClient) shouldTransmit(samples []int16) bool {
 	rms := calculateRMS(samples)
 	if rms >= threshold {
 		vc.vadActive = true
-		vc.vadHangover = vadHangoverFrames
+		vc.vadHangover = int(vc.vadHangoverFrames.Load())
 		if prevActive != vc.vadActive {
 			vc.notifyVADState()
 		}
