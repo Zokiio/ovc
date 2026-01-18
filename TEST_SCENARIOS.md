@@ -77,7 +77,7 @@ Plugin:
 Voice Client -> Plugin:
 AudioPacket {
     clientId: aaaaaaaa-bbbb... (Steve's client)
-    audioData: [opus encoded bytes]
+    audioData: [raw PCM bytes]
     sequenceNumber: 1
 }
 
