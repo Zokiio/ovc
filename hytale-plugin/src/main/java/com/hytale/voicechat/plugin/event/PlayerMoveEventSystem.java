@@ -59,6 +59,16 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         double x = pos.getX();
         double y = pos.getY();
         double z = pos.getZ();
+        double yaw = 0.0;
+        double pitch = 0.0;
+        if (transform.getRotation() != null) {
+            try {
+                yaw = transform.getRotation().getYaw();
+                pitch = transform.getRotation().getPitch();
+            } catch (Exception ignored) {
+                // fallback to zero if API differs
+            }
+        }
         String worldId = "world"; // TODO: replace when world identifier is available from TransformComponent
 
         long now = System.currentTimeMillis();
@@ -77,7 +87,7 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         }
 
         lastSamples.put(playerUUID, new Sample(x, y, z, now, worldId));
-        positionTracker.updatePosition(playerUUID, username, x, y, z, worldId);
+        positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
         logger.atFine().log("Movement update for " + username + " @ (" + x + ", " + y + ", " + z + ")");
     }
 

@@ -640,6 +640,7 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 
 	att := 1.0
 	pan := 0.0
+	elev := 0.0
 
 	if pos != nil {
 		d := math.Sqrt(float64(pos[0]*pos[0] + pos[1]*pos[1] + pos[2]*pos[2]))
@@ -653,10 +654,30 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 			if lr > 0 {
 				pan = float64(pos[0]) / lr
 			}
+			elev = float64(pos[1]) / maxDistance
+			if elev > 1 {
+				elev = 1
+			} else if elev < -1 {
+				elev = -1
+			}
 		}
 	}
 
-	// Equal-power panning
+	// Equal-power panning with simple elevation widening: above = wider, below = narrower
+	panScale := 1.0 + 0.6*elev
+	if panScale < 0.4 {
+		panScale = 0.4
+	}
+	if panScale > 1.6 {
+		panScale = 1.6
+	}
+	pan *= panScale
+	if pan < -1 {
+		pan = -1
+	}
+	if pan > 1 {
+		pan = 1
+	}
 	leftGain := att * math.Sqrt((1.0-pan)*0.5)
 	rightGain := att * math.Sqrt((1.0+pan)*0.5)
 

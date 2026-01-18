@@ -379,7 +379,9 @@ public class UDPSocketManager {
                                 float dy = (float) (senderPos.getY() - position.getY());
                                 float dz = (float) (senderPos.getZ() - position.getZ());
 
-                                AudioPacket relativePacket = withRelativePosition(packet, dx, dy, dz);
+                                float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
+
+                                AudioPacket relativePacket = withRelativePosition(packet, rotated[0], rotated[1], rotated[2]);
                                 byte[] data = relativePacket.serialize();
                                 ByteBuf buf = ctx.alloc().buffer(data.length);
                                 buf.writeBytes(data);
@@ -397,6 +399,25 @@ public class UDPSocketManager {
         
         private AudioPacket withRelativePosition(AudioPacket packet, float dx, float dy, float dz) {
             return new AudioPacket(packet.getSenderId(), packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(), dx, dy, dz);
+        }
+
+        private float[] rotateToListenerFrame(float dx, float dy, float dz, double yawDeg, double pitchDeg) {
+            double yaw = Math.toRadians(yawDeg);
+            double pitch = Math.toRadians(pitchDeg);
+
+            // Yaw: rotate around Y so +Z is forward for listener
+            double cosY = Math.cos(-yaw);
+            double sinY = Math.sin(-yaw);
+            double rx = dx * cosY - dz * sinY;
+            double rz = dx * sinY + dz * cosY;
+
+            // Pitch: rotate around X to account for looking up/down
+            double cosP = Math.cos(-pitch);
+            double sinP = Math.sin(-pitch);
+            double ry = dy * cosP - rz * sinP;
+            double rz2 = dy * sinP + rz * cosP;
+
+            return new float[]{(float) rx, (float) ry, (float) rz2};
         }
         
         private UUID findClientByPlayerUUID(UUID playerUUID) {

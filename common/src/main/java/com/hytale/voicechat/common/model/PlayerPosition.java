@@ -11,15 +11,19 @@ public class PlayerPosition {
     private final double x;
     private final double y;
     private final double z;
+    private final double yaw;
+    private final double pitch;
     private final String worldId;
     private final long timestamp;
 
-    public PlayerPosition(UUID playerId, String playerName, double x, double y, double z, String worldId) {
+    public PlayerPosition(UUID playerId, String playerName, double x, double y, double z, double yaw, double pitch, String worldId) {
         this.playerId = playerId;
         this.playerName = playerName;
         this.x = x;
         this.y = y;
         this.z = z;
+        this.yaw = yaw;
+        this.pitch = pitch;
         this.worldId = worldId;
         this.timestamp = System.currentTimeMillis();
     }
@@ -42,6 +46,14 @@ public class PlayerPosition {
 
     public double getZ() {
         return z;
+    }
+
+    public double getYaw() {
+        return yaw;
+    }
+
+    public double getPitch() {
+        return pitch;
     }
 
     public String getWorldId() {

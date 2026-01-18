@@ -42,8 +42,18 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
                 // World ID will be tracked separately
                 String worldId = "world"; // Default for now
                 
+                double yaw = 0.0;
+                double pitch = 0.0;
+                if (transform.getRotation() != null) {
+                    try {
+                        yaw = transform.getRotation().getYaw();
+                        pitch = transform.getRotation().getPitch();
+                    } catch (Exception ignored) {
+                    }
+                }
+
                 logger.atInfo().log("Player joined: " + username + " (UUID: " + playerUUID + ")");
-                positionTracker.updatePosition(playerUUID, username, pos.getX(), pos.getY(), pos.getZ(), worldId);
+                positionTracker.updatePosition(playerUUID, username, pos.getX(), pos.getY(), pos.getZ(), yaw, pitch, worldId);
             }
         }
     }
