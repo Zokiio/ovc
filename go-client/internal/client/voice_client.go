@@ -41,6 +41,11 @@ type VoiceClient struct {
 	vadActive      bool
 	vadHangover    int
 	vadStateCB     atomic.Value // func(enabled bool, active bool)
+	pttEnabled     atomic.Bool
+	pttActive      atomic.Bool
+	pttKey         string
+	masterVolume   float64
+	micGain        float64
 	connected      atomic.Bool
 	sequenceNumber atomic.Uint32
 	rxDone         chan struct{}
@@ -50,13 +55,17 @@ type VoiceClient struct {
 
 func NewVoiceClient() *VoiceClient {
 	vc := &VoiceClient{
-		clientID: uuid.New(),
-		rxDone:   make(chan struct{}, 1),
-		txDone:   make(chan struct{}, 1),
-		codec:    AudioCodecOpus,
+		clientID:     uuid.New(),
+		rxDone:       make(chan struct{}, 1),
+		txDone:       make(chan struct{}, 1),
+		codec:        AudioCodecOpus,
+		pttKey:       "Space",
+		masterVolume: 1.0,
+		micGain:      1.0,
 	}
 	vc.vadEnabled.Store(true)
 	vc.vadThreshold.Store(vadThresholdDefault)
+	vc.pttEnabled.Store(false)
 	return vc
 }
 
@@ -71,6 +80,97 @@ func (vc *VoiceClient) SetVAD(enabled bool, threshold int) {
 	}
 	vc.vadThreshold.Store(uint32(threshold))
 	vc.notifyVADState()
+}
+
+func (vc *VoiceClient) SetPushToTalk(enabled bool, key string) {
+	vc.pttEnabled.Store(enabled)
+	if key != "" {
+		vc.pttKey = key
+	}
+	if enabled {
+		vc.vadEnabled.Store(false)
+		vc.notifyVADState()
+	}
+}
+
+func (vc *VoiceClient) SetPTTActive(active bool) {
+	vc.pttActive.Store(active)
+}
+
+func (vc *VoiceClient) SetMasterVolume(vol float64) {
+	if vol < 0 {
+		vol = 0
+	}
+	if vol > 4.0 {
+		vol = 4.0
+	}
+	vc.mu.Lock()
+	vc.masterVolume = vol
+	if vc.audioManager != nil {
+		vc.audioManager.SetOutputGain(vol)
+	}
+	vc.mu.Unlock()
+}
+
+func (vc *VoiceClient) SetMicGain(gain float64) {
+	if gain < 0 {
+		gain = 0
+	}
+	if gain > 4.0 {
+		gain = 4.0
+	}
+	vc.mu.Lock()
+	vc.micGain = gain
+	if vc.audioManager != nil {
+		vc.audioManager.SetMicGain(gain)
+	}
+	vc.mu.Unlock()
+}
+
+func (vc *VoiceClient) SwitchAudioDevices(inputDeviceLabel string, outputDeviceLabel string) error {
+	vc.mu.Lock()
+	if !vc.connected.Load() {
+		vc.mu.Unlock()
+		return fmt.Errorf("not connected")
+	}
+	current := vc.audioManager
+	vc.mu.Unlock()
+
+	newManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel)
+	if err != nil {
+		return err
+	}
+
+	if current != nil {
+		_ = current.Stop()
+	}
+
+	if err := newManager.Start(); err != nil {
+		return fmt.Errorf("failed to start new audio: %w", err)
+	}
+	newManager.SetOutputGain(vc.masterVolume)
+	newManager.SetMicGain(vc.micGain)
+
+	vc.mu.Lock()
+	vc.audioManager = newManager
+	if newManager.useOpus && newManager.encoder != nil && newManager.decoder != nil {
+		vc.codec = AudioCodecOpus
+	} else {
+		vc.codec = AudioCodecPCM
+	}
+	vc.mu.Unlock()
+
+	return nil
+}
+
+func (vc *VoiceClient) newAudioManager(inputDeviceLabel string, outputDeviceLabel string) (*SimpleAudioManager, error) {
+	am, err := NewSimpleAudioManager()
+	if err != nil {
+		return nil, err
+	}
+	am.SetInputDeviceLabel(inputDeviceLabel)
+	am.SetOutputDeviceLabel(outputDeviceLabel)
+	return am, nil
 }
 
 // SetVADStateListener registers a callback invoked when VAD enabled/active state changes.
@@ -93,17 +193,19 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 	log.Printf("Connecting to voice server at %s:%d as user '%s'", serverAddr, serverPort, username)
 
 	// Initialize audio manager
-	audioManager, err := NewSimpleAudioManager()
+	audioManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel)
 	if err != nil {
 		return fmt.Errorf("failed to initialize audio: %w", err)
 	}
-	audioManager.SetInputDeviceLabel(inputDeviceLabel)
-	audioManager.SetOutputDeviceLabel(outputDeviceLabel)
-	vc.audioManager = audioManager
-
-	if err := vc.audioManager.Start(); err != nil {
+	if audioManager == nil {
+		return fmt.Errorf("audio manager unavailable")
+	}
+	if err := audioManager.Start(); err != nil {
 		return fmt.Errorf("failed to start audio: %w", err)
 	}
+	vc.audioManager = audioManager
+	vc.audioManager.SetOutputGain(vc.masterVolume)
+	vc.audioManager.SetMicGain(vc.micGain)
 
 	vc.codec = AudioCodecPCM
 	if audioManager.useOpus && audioManager.encoder != nil && audioManager.decoder != nil {
@@ -377,17 +479,27 @@ func (vc *VoiceClient) receiveLoop() {
 func (vc *VoiceClient) transmitLoop() {
 	defer func() { vc.txDone <- struct{}{} }()
 
-	inputChan := vc.audioManager.GetInputChannel()
-
 	for vc.connected.Load() {
+		inputChan := vc.getInputChannel()
+		if inputChan == nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
 		select {
 		case samples := <-inputChan:
 			if len(samples) == 0 {
 				continue
 			}
 
-			if !vc.shouldTransmit(samples) {
-				continue
+			if vc.pttEnabled.Load() {
+				if !vc.pttActive.Load() {
+					continue
+				}
+			} else {
+				if !vc.shouldTransmit(samples) {
+					continue
+				}
 			}
 
 			audioData, err := vc.audioManager.EncodeAudio(vc.codec, samples)
@@ -406,6 +518,15 @@ func (vc *VoiceClient) transmitLoop() {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+}
+
+func (vc *VoiceClient) getInputChannel() <-chan []int16 {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if vc.audioManager == nil {
+		return nil
+	}
+	return vc.audioManager.GetInputChannel()
 }
 
 func (vc *VoiceClient) sendAudioPacket(audioData []byte) error {
