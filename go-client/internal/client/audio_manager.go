@@ -1,7 +1,7 @@
 //go:build cgo
 // +build cgo
 
-package main
+package client
 
 import (
 	"encoding/binary"
@@ -397,7 +397,6 @@ func resolveOutputDeviceByLabel(label string, inputDevice *portaudio.DeviceInfo)
 		}
 	}
 
-	// Fallback to default if not found
 	return resolveOutputDevice(inputDevice)
 }
 

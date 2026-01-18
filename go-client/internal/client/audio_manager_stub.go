@@ -1,7 +1,7 @@
 //go:build !cgo
 // +build !cgo
 
-package main
+package client
 
 import (
 	"fmt"
@@ -35,7 +35,7 @@ func (am *SimpleAudioManager) Stop() error {
 	return nil
 }
 
-func (am *SimpleAudioManager) EncodeAudio(samples []int16) ([]byte, error) {
+func (am *SimpleAudioManager) EncodeAudio(_ []int16) ([]byte, error) {
 	return []byte{}, nil
 }
 
@@ -53,10 +53,16 @@ func (am *SimpleAudioManager) GetOutputChannel() chan<- []int16 {
 
 func (am *SimpleAudioManager) SetInputDeviceLabel(_ string) {}
 
+func (am *SimpleAudioManager) SetOutputDeviceLabel(_ string) {}
+
 func (am *SimpleAudioManager) SendTestTone(_ time.Duration, _ float64) error {
 	return fmt.Errorf("audio requires a CGO-enabled build")
 }
 
 func ListInputDevices() ([]string, error) {
+	return []string{DefaultDeviceLabel}, nil
+}
+
+func ListOutputDevices() ([]string, error) {
 	return []string{DefaultDeviceLabel}, nil
 }

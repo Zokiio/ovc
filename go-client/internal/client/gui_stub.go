@@ -1,7 +1,7 @@
 //go:build !cgo
 // +build !cgo
 
-package main
+package client
 
 import "log"
 
