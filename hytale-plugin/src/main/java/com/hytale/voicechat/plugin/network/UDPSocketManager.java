@@ -367,13 +367,18 @@ public class UDPSocketManager {
                 
                 if (!otherPlayerUUID.equals(playerUUID)) { // Don't send to self
                     double distance = senderPos.distanceTo(position);
+                    logger.atInfo().log("[ROUTE_CHECK] recipient=" + position.getPlayerName() + " distance=" + String.format("%.2f", distance) + " maxProximity=" + proximityDistance);
                     
                     // Only send if within proximity distance
                     if (distance <= proximityDistance) {
                         // Find voice client for this player
                         UUID otherClientId = findClientByPlayerUUID(otherPlayerUUID);
+                        logger.atInfo().log("[ROUTE_LOOKUP] recipient=" + position.getPlayerName() + " playerUUID=" + otherPlayerUUID + " clientUUID=" + otherClientId);
+                        
                         if (otherClientId != null) {
                             InetSocketAddress clientAddr = clients.get(otherClientId);
+                            logger.atInfo().log("[ROUTE_ADDRESS] recipient=" + position.getPlayerName() + " clientUUID=" + otherClientId + " address=" + clientAddr);
+                            
                             if (clientAddr != null) {
                                 float dx = (float) (senderPos.getX() - position.getX());
                                 float dy = (float) (senderPos.getY() - position.getY());
@@ -389,6 +394,7 @@ public class UDPSocketManager {
                                 buf.writeBytes(data);
                                 ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                 routedCount++;
+                                logger.atInfo().log("[ROUTED] sender=" + senderPos.getPlayerName() + " -> recipient=" + position.getPlayerName());
                             }
                         }
                     }
