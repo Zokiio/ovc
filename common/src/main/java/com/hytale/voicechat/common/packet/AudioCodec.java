@@ -7,7 +7,12 @@ public final class AudioCodec {
     private AudioCodec() {
     }
 
-    public static boolean isSupported(byte codec) {
+    public static boolean isSupported(byte codecWithFlags) {
+        byte codec = (byte) (codecWithFlags & 0x7F); // strip feature flags
         return codec == PCM || codec == OPUS;
+    }
+
+    public static byte baseCodec(byte codecWithFlags) {
+        return (byte) (codecWithFlags & 0x7F);
     }
 }
