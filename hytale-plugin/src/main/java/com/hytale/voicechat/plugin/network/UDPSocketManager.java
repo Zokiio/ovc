@@ -345,7 +345,7 @@ public class UDPSocketManager {
             // Get sender's position
             PlayerPosition senderPos = positionTracker.getPlayerPosition(playerUUID);
             if (senderPos == null) {
-                logger.atFine().log("Player " + playerUUID + " position not found - broadcasting to all");
+                logger.atInfo().log("Positional fallback: no position for player " + playerUUID + " (client=" + clientId + ")");
                 broadcastToAll(ctx, packet, sender);
                 return; // Sender not in game / not tracked yet
             }
@@ -358,6 +358,7 @@ public class UDPSocketManager {
 
             int routedCount = 0;
             Map<UUID, PlayerPosition> allPlayers = positionTracker.getPlayerPositions();
+            int tracked = allPlayers.size();
             
             for (Map.Entry<UUID, PlayerPosition> entry : allPlayers.entrySet()) {
                 UUID otherPlayerUUID = entry.getKey();
@@ -381,9 +382,7 @@ public class UDPSocketManager {
                 }
             }
             
-            if (routedCount > 0) {
-                logger.atFine().log("▶ Audio routed from " + senderPos.getPlayerName() + " to " + routedCount + " nearby player(s)");
-            }
+            logger.atInfo().log("Positional route: sender=" + senderPos.getPlayerName() + " tracked=" + tracked + " routed=" + routedCount + " pos=" + senderPos.getX() + "," + senderPos.getY() + "," + senderPos.getZ());
             
             buf.release();
         }
