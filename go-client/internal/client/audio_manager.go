@@ -30,6 +30,8 @@ type SimpleAudioManager struct {
 	frameSize    int
 	sampleRate   int
 	mu           sync.Mutex
+	encodeMu     sync.Mutex
+	decodeMu     sync.Mutex
 	inputStream  *portaudio.Stream
 	outputStream *portaudio.Stream
 	inputLabel   string
@@ -174,9 +176,11 @@ func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, 
 		if !am.useOpus || am.encoder == nil {
 			return nil, fmt.Errorf("opus encoder not available")
 		}
+		am.encodeMu.Lock()
 		// 4 KB buffer is plenty for mono voice frames
 		buf := make([]byte, 4000)
 		n, err := am.encoder.Encode(samples, buf)
+		am.encodeMu.Unlock()
 		if err != nil {
 			return nil, err
 		}
@@ -198,8 +202,10 @@ func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, err
 		if !am.useOpus || am.decoder == nil {
 			return nil, fmt.Errorf("opus decoder not available")
 		}
+		am.decodeMu.Lock()
 		pcm := make([]int16, am.frameSize)
 		n, err := am.decoder.Decode(data, pcm)
+		am.decodeMu.Unlock()
 		if err != nil {
 			return nil, err
 		}

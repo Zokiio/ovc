@@ -8,6 +8,7 @@ import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
+import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -53,6 +54,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Register event system for player join/quit tracking
             EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker));
+            EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
             
             // Initialize event listener
             eventListener = new PlayerEventListener(positionTracker);
