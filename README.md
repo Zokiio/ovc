@@ -1,10 +1,10 @@
 # Hytale Voice Chat - Hybrid System
 
-A hybrid proximity-based voice chat system for Hytale consisting of a desktop client and Hytale plugin with integrated voice server.
+A hybrid proximity-based voice chat system for Hytale consisting of a Hytale plugin with an integrated voice server.
 
 ## Architecture
 
-### Three Components:
+### Two Components:
 
 1. **Common Module** (`common/`)
    - Shared data models (PlayerPosition, etc.)
@@ -12,14 +12,7 @@ A hybrid proximity-based voice chat system for Hytale consisting of a desktop cl
    - Configuration constants
    - Used by both client and plugin
 
-2. **Voice Client** (`voice-client/`)
-   - Desktop JavaFX application
-   - Microphone capture (Java Sound API)
-   - Speaker output (OpenAL for 3D positioning)
-   - Opus codec support
-   - Real-time audio transmission to voice server
-
-3. **Hytale Plugin** (`hytale-plugin/`)
+2. **Hytale Plugin** (`hytale-plugin/`)
    - Integrated UDP voice server on port 24454
    - Player position tracking in-game
    - Proximity-based audio routing (30 block range)
@@ -34,7 +27,6 @@ A hybrid proximity-based voice chat system for Hytale consisting of a desktop cl
 - **Audio Codecs**: Opus (de.maxhenkel.opus4j)
 - **Audio I/O**: Java Sound API (input), LWJGL OpenAL (3D output)
 - **Networking**: Netty (UDP)
-- **GUI**: JavaFX 21
 - **JSON**: Gson
 - **Logging**: SLF4J + Logback
 
@@ -48,11 +40,6 @@ hytale-voice-chat/
 │           ├── model/      # PlayerPosition
 │           ├── packet/     # AudioPacket, VoicePacket
 │           └── network/    # NetworkConfig
-├── voice-client/           # Desktop client application
-│   └── src/main/java/
-│       └── com/hytale/voicechat/client/
-│           ├── audio/      # MicrophoneManager, SpeakerManager
-│           └── gui/        # VoiceChatGUI
 ├── hytale-plugin/          # Hytale plugin with integrated voice server
 │   └── src/main/java/
 │       └── com/hytale/voicechat/plugin/
@@ -71,23 +58,11 @@ hytale-voice-chat/
 ./gradlew build
 
 # Build specific module
-./gradlew :voice-client:build
 ./gradlew :hytale-plugin:build
 ./gradlew :common:build
-
-# Create executable JARs
-./gradlew :voice-client:jar
 ```
 
 ## Running
-
-### Start Voice Client:
-```bash
-./gradlew :voice-client:run
-
-# Or directly
-java -jar voice-client/build/libs/voice-client-1.0.0-SNAPSHOT.jar
-```
 
 ### Install Hytale Plugin:
 ```bash
@@ -105,21 +80,11 @@ java -jar voice-client/build/libs/voice-client-1.0.0-SNAPSHOT.jar
    - Starts UDP server on port 24454
    - Routes audio packets based on proximity (30 block range)
 
-2. **Voice Clients** connect to plugin server:
-   - Authenticate with unique client ID
-   - Stream microphone audio (encoded with Opus)
-   - Receive and play audio from nearby players only
-
-3. **Plugin processes audio**:
+2. **Plugin processes audio**:
    - Receives audio packets from clients via UDP
    - Calculates which players are in proximity (30 block range)
    - Routes packets only to nearby players
    - Uses 3D distance calculation for filtering
-
-4. **Clients render audio**:
-   - Decode Opus audio streams
-   - Use OpenAL for 3D positional audio
-   - Apply volume based on distance
 
 ## Configuration
 
@@ -145,12 +110,6 @@ java -jar voice-client/build/libs/voice-client-1.0.0-SNAPSHOT.jar
 - `AudioPacket` - Encoded audio data packet
 - `NetworkConfig` - Shared constants
 
-**Voice Client:**
-- `VoiceChatClient` - Main client class
-- `MicrophoneManager` - Audio capture
-- `SpeakerManager` - OpenAL playback
-- `VoiceChatGUI` - JavaFX interface
-
 **Hytale Plugin:**
 - `HytaleVoiceChatPlugin` - Main plugin class
 - `UDPSocketManager` - Netty UDP server with proximity routing
@@ -162,20 +121,16 @@ java -jar voice-client/build/libs/voice-client-1.0.0-SNAPSHOT.jar
 - [x] Set up multi-module Gradle project
 - [x] Create common module with shared models
 - [x] Implement basic UDP voice server with Opus
-- [x] Create JavaFX client with microphone capture
 - [x] Implement Hytale plugin with position tracking
 - [x] Integrate voice server into plugin (combined deployment)
 - [x] Implement proximity-based routing logic (30 block range)
 - [x] Username-based authentication system
-- [x] Link voice clients to in-game players
+- [x] Link players to in-game audio
 - [x] Real-time audio streaming (mic capture + UDP transmission)
 - [x] Full-duplex audio (simultaneous send/receive)
-- [ ] Wire Opus encoding/decoding to audio pipeline
 - [ ] Implement actual Hytale API event hooks
-- [ ] Implement OpenAL 3D audio playback
 - [ ] Add encryption for voice data (AES)
 - [ ] Implement voice activity detection (VAD)
-- [ ] Add GUI volume controls and device selection
 - [ ] Add configuration files
 - [ ] Write integration tests
 
