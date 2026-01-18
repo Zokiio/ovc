@@ -32,6 +32,7 @@ type GUI struct {
 	speakerSelect *widget.Select
 	connectBtn    *widget.Button
 	testToneBtn   *widget.Button
+	posTestBtn    *widget.Button
 	statusLabel   *widget.Label
 	volumeSlider  *widget.Slider
 	vadCheck      *widget.Check
@@ -138,8 +139,9 @@ func (gui *GUI) setupUI() {
 	// Connect button
 	gui.connectBtn = widget.NewButton("Connect", gui.onConnectClicked)
 
-	// Test tone button
-	gui.testToneBtn = widget.NewButton("Send Test Tone", gui.onTestToneClicked)
+	// Test tone buttons
+	gui.testToneBtn = widget.NewButton("Send Global Test Tone", gui.onTestToneClicked)
+	gui.posTestBtn = widget.NewButton("Send Positional Test", gui.onPositionalTestClicked)
 
 	// Volume slider
 	volumeLabel := widget.NewLabel("Volume:")
@@ -189,7 +191,7 @@ func (gui *GUI) setupUI() {
 		form,
 		widget.NewSeparator(),
 		gui.connectBtn,
-		gui.testToneBtn,
+		container.NewHBox(gui.testToneBtn, gui.posTestBtn),
 		gui.statusLabel,
 		widget.NewSeparator(),
 		volumeBox,
@@ -249,10 +251,10 @@ func (gui *GUI) onTestToneClicked() {
 	}
 
 	gui.testToneBtn.Disable()
-	gui.statusLabel.SetText("Sending test tone...")
+	gui.statusLabel.SetText("Sending global test tone...")
 
 	go func() {
-		err := gui.voiceClient.SendTestTone(1 * time.Second)
+		err := gui.voiceClient.SendBroadcastTestTone(1 * time.Second)
 		if err != nil {
 			gui.runOnUI(func() {
 				gui.statusLabel.SetText(fmt.Sprintf("Test tone error: %v", err))
@@ -260,8 +262,33 @@ func (gui *GUI) onTestToneClicked() {
 			})
 		} else {
 			gui.runOnUI(func() {
-				gui.statusLabel.SetText("Test tone sent")
+				gui.statusLabel.SetText("Global test tone sent")
 				gui.testToneBtn.Enable()
+			})
+		}
+	}()
+}
+
+func (gui *GUI) onPositionalTestClicked() {
+	if !gui.voiceClient.connected.Load() {
+		gui.statusLabel.SetText("Connect first to send test tone")
+		return
+	}
+
+	gui.posTestBtn.Disable()
+	gui.statusLabel.SetText("Sending positional test tone...")
+
+	go func() {
+		err := gui.voiceClient.SendTestTone(1 * time.Second)
+		if err != nil {
+			gui.runOnUI(func() {
+				gui.statusLabel.SetText(fmt.Sprintf("Test tone error: %v", err))
+				gui.posTestBtn.Enable()
+			})
+		} else {
+			gui.runOnUI(func() {
+				gui.statusLabel.SetText("Positional test tone sent")
+				gui.posTestBtn.Enable()
 			})
 		}
 	}()
