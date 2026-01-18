@@ -1,8 +1,12 @@
+//go:build cgo
+// +build cgo
+
 package main
 
 import (
 	"fmt"
 	"image/color"
+	"log"
 	"strconv"
 	"time"
 
@@ -18,6 +22,7 @@ type GUI struct {
 	myApp       fyne.App
 	win         fyne.Window
 	voiceClient *VoiceClient
+	savedConfig *ClientConfig
 
 	// UI Elements
 	serverInput   *widget.Entry
@@ -71,6 +76,8 @@ func (gui *GUI) setupUI() {
 	gui.usernameInput.SetPlaceHolder("Username")
 	gui.usernameInput.SetText("Player")
 
+	gui.loadSavedConfig()
+
 	// Microphone selection
 	micOptions, err := ListInputDevices()
 	if err != nil {
@@ -79,8 +86,11 @@ func (gui *GUI) setupUI() {
 	} else {
 		gui.statusLabel = widget.NewLabel("Disconnected")
 	}
-	gui.micSelect = widget.NewSelect(micOptions, nil)
+	gui.micSelect = widget.NewSelect(micOptions, func(selected string) {
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, selected)
+	})
 	gui.micSelect.SetSelected(DefaultDeviceLabel)
+	gui.applySavedMicSelection()
 
 	// Status label
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
@@ -146,6 +156,8 @@ func (gui *GUI) onConnectClicked() {
 		return
 	}
 
+	gui.saveConfig(server, port, username, gui.micSelect.Selected)
+
 	gui.statusLabel.SetText("Connecting...")
 	gui.connectBtn.Disable()
 
@@ -182,4 +194,56 @@ func (gui *GUI) onTestToneClicked() {
 		}
 		gui.testToneBtn.Enable()
 	}()
+}
+
+func (gui *GUI) loadSavedConfig() {
+	cfg, err := loadClientConfig()
+	if err != nil {
+		log.Printf("Failed to load config: %v", err)
+		return
+	}
+
+	gui.savedConfig = &cfg
+	if cfg.Server != "" {
+		gui.serverInput.SetText(cfg.Server)
+	}
+	if cfg.Port > 0 {
+		gui.portInput.SetText(strconv.Itoa(cfg.Port))
+	}
+	if cfg.Username != "" {
+		gui.usernameInput.SetText(cfg.Username)
+	}
+}
+
+func (gui *GUI) saveConfig(server string, port int, username string, micLabel string) {
+	cfg := ClientConfig{
+		Server:   server,
+		Port:     port,
+		Username: username,
+		MicLabel: micLabel,
+	}
+	if err := saveClientConfig(cfg); err != nil {
+		log.Printf("Failed to save config: %v", err)
+	}
+}
+
+func (gui *GUI) applySavedMicSelection() {
+	if gui.savedConfig == nil || gui.savedConfig.MicLabel == "" {
+		return
+	}
+
+	for _, option := range gui.micSelect.Options {
+		if option == gui.savedConfig.MicLabel {
+			gui.micSelect.SetSelected(gui.savedConfig.MicLabel)
+			return
+		}
+	}
+}
+
+func (gui *GUI) parsePort() int {
+	port, err := strconv.Atoi(gui.portInput.Text)
+	if err != nil {
+		return 0
+	}
+	return port
 }
