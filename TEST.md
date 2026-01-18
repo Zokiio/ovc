@@ -18,7 +18,9 @@ lsof -i :24454
 
 ### 3. Start Voice Client #1
 ```bash
-./gradlew :voice-client:run
+cd go-client
+go build -o HytaleVoiceChat ./cmd/voice-client
+./HytaleVoiceChat
 ```
 **Expected:** GUI window opens with "Disconnected" status
 
@@ -34,13 +36,14 @@ In the GUI:
 - Console logs: "Connected to voice server successfully"
 
 ### 5. Test Microphone
-- Click **Test Microphone** button
-- **Expected:** Shows dialog with Client ID
+- Click **Send Test Tone**
+- **Expected:** Other client hears a short tone
 
 ### 6. Test Multiple Clients (Full Test)
 Open another terminal and start a second client:
 ```bash
-./gradlew :voice-client:run
+cd go-client
+./HytaleVoiceChat
 ```
 Connect both clients to the server.
 
@@ -48,14 +51,10 @@ Connect both clients to the server.
 - ✅ UDP server listening
 - ✅ Client connection to server
 - ✅ GUI controls functional
-- ✅ Microphone manager initialized
-- ✅ Speaker manager initialized
+- ✅ Microphone capture and speaker playback
 
 **What's NOT Implemented Yet:**
-- ❌ Actual UDP packet transmission
 - ❌ Opus encoding/decoding
-- ❌ Real microphone audio capture
-- ❌ Audio playback
 - ❌ Full Hytale plugin event integration
 
 ### 7. Check Logs
@@ -70,10 +69,9 @@ INFO com.hytale.voicechat.plugin.network.UDPSocketManager -- UDP socket listenin
 **Voice Client Terminal:**
 Look for:
 ```
-INFO com.hytale.voicechat.client.VoiceChatClient -- Connecting to voice server at localhost:24454
-INFO com.hytale.voicechat.client.audio.MicrophoneManager -- Microphone started
-INFO com.hytale.voicechat.client.audio.SpeakerManager -- OpenAL audio playback started
-INFO com.hytale.voicechat.client.VoiceChatClient -- Connected to voice server successfully
+Connecting to voice server at localhost:24454 as user '...'
+Received authentication acknowledgment: Authentication accepted
+Audio manager initialized (PCM audio codec ready, input: ...)
 ```
 
 ### 8. Test Hytale Plugin
