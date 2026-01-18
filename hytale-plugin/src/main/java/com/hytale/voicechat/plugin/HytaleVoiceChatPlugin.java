@@ -7,6 +7,7 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
+import com.hytale.voicechat.plugin.command.VoiceProximityCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
@@ -69,6 +70,9 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Start position tracking
             positionTracker.start();
+            
+            // Register commands
+            getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
             
             logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
@@ -145,6 +149,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         if (udpServer != null) {
             udpServer.setProximityDistance(this.proximityDistance);
         }
+    }
+
+    /**
+     * Get current proximity distance (blocks)
+     */
+    public double getProximityDistance() {
+        return proximityDistance;
     }
 
     // TODO: Register Hytale event listeners when API becomes available
