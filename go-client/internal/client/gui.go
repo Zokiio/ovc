@@ -27,26 +27,27 @@ type GUI struct {
 	savedConfig *ClientConfig
 
 	// UI Elements
-	serverInput   *widget.Entry
-	portInput     *widget.Entry
-	usernameInput *widget.Entry
-	micSelect     *widget.Select
-	speakerSelect *widget.Select
-	connectBtn    *widget.Button
-	testToneBtn   *widget.Button
-	posTestBtn    *widget.Button
-	statusLabel   *widget.Label
-	volumeSlider  *widget.Slider
-	micGainSlider *widget.Slider
-	vadCheck      *widget.Check
-	vadSlider     *widget.Slider
-	vadBar        *canvas.Rectangle
-	vadStateLabel *widget.Label
-	modeRadio     *widget.RadioGroup
-	pttKeyEntry   *widget.Entry
-	pttHoldBtn    *HoldButton
-	pttToggleMode *widget.Check
-	uiReady       bool
+	serverInput       *widget.Entry
+	portInput         *widget.Entry
+	usernameInput     *widget.Entry
+	micSelect         *widget.Select
+	speakerSelect     *widget.Select
+	connectBtn        *widget.Button
+	testToneBtn       *widget.Button
+	posTestBtn        *widget.Button
+	statusLabel       *widget.Label
+	volumeSlider      *widget.Slider
+	micGainSlider     *widget.Slider
+	vadCheck          *widget.Check
+	vadSlider         *widget.Slider
+	vadHangoverSlider *widget.Slider
+	vadBar            *canvas.Rectangle
+	vadStateLabel     *widget.Label
+	modeRadio         *widget.RadioGroup
+	pttKeyEntry       *widget.Entry
+	pttHoldBtn        *HoldButton
+	pttToggleMode     *widget.Check
+	uiReady           bool
 }
 
 // HoldButton triggers callbacks on mouse press/release for hold-to-talk behavior.
@@ -200,6 +201,17 @@ func (gui *GUI) setupUI() {
 		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold(), gui.volumeSlider.Value, gui.micGainSlider.Value, gui.modeRadio.Selected == "Push-to-Talk", gui.pttKeyEntry.Text)
 	}
 
+	gui.vadHangoverSlider = widget.NewSlider(0, 200)
+	gui.vadHangoverSlider.Step = 5
+	gui.vadHangoverSlider.SetValue(30)
+	gui.vadHangoverSlider.OnChanged = func(value float64) {
+		if !gui.uiReady {
+			return
+		}
+		gui.voiceClient.SetVADHangover(int(value))
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold(), gui.volumeSlider.Value, gui.micGainSlider.Value, gui.modeRadio.Selected == "Push-to-Talk", gui.pttKeyEntry.Text)
+	}
+
 	// Status label
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
 
@@ -246,6 +258,7 @@ func (gui *GUI) setupUI() {
 	vadBox := container.NewVBox(
 		gui.vadCheck,
 		container.NewBorder(nil, nil, widget.NewLabel("Threshold"), nil, gui.vadSlider),
+		container.NewBorder(nil, nil, widget.NewLabel("Hangover (ms)"), nil, gui.vadHangoverSlider),
 		vadIndicatorRow,
 	)
 
