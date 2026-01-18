@@ -118,30 +118,48 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 	}
 	vc.serverUDPAddr = serverUDPAddr
 
-	// Send authentication packet
-	if err := vc.sendAuthentication(); err != nil {
-		vc.socket.Close()
-		vc.audioManager.Stop()
-		return fmt.Errorf("failed to send authentication: %w", err)
+	// Retry logic for authentication with exponential backoff
+	const maxRetries = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			log.Printf("Authentication attempt %d/%d", attempt, maxRetries)
+			time.Sleep(time.Duration(math.Pow(2, float64(attempt-2))) * time.Second)
+		}
+
+		// Send authentication packet
+		if err := vc.sendAuthentication(); err != nil {
+			lastErr = err
+			continue
+		}
+
+		// Wait for server acknowledgment
+		socket.SetReadDeadline(time.Now().Add(time.Duration(AuthTimeoutSeconds) * time.Second))
+		if err := vc.waitForAcknowledgment(); err != nil {
+			lastErr = err
+			if attempt < maxRetries {
+				continue
+			}
+			vc.socket.Close()
+			vc.audioManager.Stop()
+			return fmt.Errorf("server did not acknowledge authentication after %d attempts: %w", maxRetries, err)
+		}
+
+		// Success
+		log.Println("Server acknowledged connection")
+		vc.connected.Store(true)
+		socket.SetReadDeadline(time.Time{})
+
+		// Start goroutines
+		go vc.transmitLoop()
+		go vc.receiveLoop()
+
+		return nil
 	}
 
-	// Wait for server acknowledgment
-	socket.SetReadDeadline(time.Now().Add(time.Duration(AuthTimeoutSeconds) * time.Second))
-	if err := vc.waitForAcknowledgment(); err != nil {
-		vc.socket.Close()
-		vc.audioManager.Stop()
-		return fmt.Errorf("server did not acknowledge authentication: %w", err)
-	}
-
-	log.Println("Server acknowledged connection")
-	vc.connected.Store(true)
-	socket.SetReadDeadline(time.Time{})
-
-	// Start goroutines
-	go vc.transmitLoop()
-	go vc.receiveLoop()
-
-	return nil
+	vc.socket.Close()
+	vc.audioManager.Stop()
+	return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
 }
 
 func (vc *VoiceClient) SendTestTone(duration time.Duration) error {
