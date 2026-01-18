@@ -350,12 +350,7 @@ public class UDPSocketManager {
                 return; // Sender not in game / not tracked yet
             }
             
-            // Route to nearby players only
-            AudioPacket enriched = enrichWithPosition(packet, senderPos);
-            byte[] data = enriched.serialize();
-            ByteBuf buf = ctx.alloc().buffer(data.length);
-            buf.writeBytes(data);
-
+            // Route to nearby players only, embedding relative offset per recipient
             int routedCount = 0;
             Map<UUID, PlayerPosition> allPlayers = positionTracker.getPlayerPositions();
             int tracked = allPlayers.size();
@@ -374,7 +369,15 @@ public class UDPSocketManager {
                         if (otherClientId != null) {
                             InetSocketAddress clientAddr = clients.get(otherClientId);
                             if (clientAddr != null) {
-                                ctx.writeAndFlush(new DatagramPacket(buf.copy(), clientAddr));
+                                float dx = (float) (senderPos.getX() - position.getX());
+                                float dy = (float) (senderPos.getY() - position.getY());
+                                float dz = (float) (senderPos.getZ() - position.getZ());
+
+                                AudioPacket relativePacket = withRelativePosition(packet, dx, dy, dz);
+                                byte[] data = relativePacket.serialize();
+                                ByteBuf buf = ctx.alloc().buffer(data.length);
+                                buf.writeBytes(data);
+                                ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                 routedCount++;
                             }
                         }
@@ -384,15 +387,10 @@ public class UDPSocketManager {
             
             logger.atInfo().log("Positional route: sender=" + senderPos.getPlayerName() + " tracked=" + tracked + " routed=" + routedCount + " pos=" + senderPos.getX() + "," + senderPos.getY() + "," + senderPos.getZ());
             
-            buf.release();
         }
-
-        private AudioPacket enrichWithPosition(AudioPacket packet, PlayerPosition senderPos) {
-            if (senderPos == null) {
-                return packet;
-            }
-            return new AudioPacket(packet.getSenderId(), packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(),
-                    (float) senderPos.getX(), (float) senderPos.getY(), (float) senderPos.getZ());
+        
+        private AudioPacket withRelativePosition(AudioPacket packet, float dx, float dy, float dz) {
+            return new AudioPacket(packet.getSenderId(), packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(), dx, dy, dz);
         }
         
         private UUID findClientByPlayerUUID(UUID playerUUID) {
