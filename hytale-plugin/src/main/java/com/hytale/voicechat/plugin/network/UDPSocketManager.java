@@ -280,7 +280,7 @@ public class UDPSocketManager {
                 AudioPacket audioPacket = AudioPacket.deserialize(data);
                 UUID senderId = audioPacket.getSenderId();
 
-                // Verify client is registered; if UUID mismatches but address matches a known client, heal it.
+                // Verify client is registered; attempt to heal only if address matches an existing client
                 InetSocketAddress registered = clients.get(senderId);
                 if (registered == null) {
                     UUID addressMatch = findClientByAddress(sender);
@@ -290,15 +290,16 @@ public class UDPSocketManager {
                         registered = clients.get(addressMatch);
                         audioPacket = cloneWithSender(audioPacket, addressMatch);
                     } else {
-                        logger.atWarning().log("Received audio from unregistered client: " + senderId);
+                        logger.atWarning().log("Received audio from unregistered client: " + senderId + " at " + sender + " (clients=" + clients.size() + ")");
                         return;
                     }
                 }
 
-                // Drop packets if sender address doesn't match the registered endpoint to prevent spoofing
+                // If the address changed (e.g., NAT rebinding), update the mapping only for the known clientId
                 if (!registered.equals(sender)) {
-                    logger.atWarning().log("Dropping spoofed audio packet for client " + senderId + " from " + sender);
-                    return;
+                    logger.atInfo().log("Updating client " + senderId + " address from " + registered + " to " + sender);
+                    clients.put(senderId, sender);
+                    registered = sender;
                 }
                 
                 if (forceBroadcast || positionTracker == null) {
@@ -325,6 +326,17 @@ public class UDPSocketManager {
             // Get Hytale player UUID from voice client UUID
             UUID playerUUID = clientToPlayerUUID.get(clientId);
             if (playerUUID == null) {
+                // Try to resolve lazily from username mapping if the player joined after voice auth
+                String username = findUsernameByClientId(clientId);
+                if (username != null) {
+                    playerUUID = positionTracker.getPlayerUUIDByUsername(username);
+                    if (playerUUID != null) {
+                        clientToPlayerUUID.put(clientId, playerUUID);
+                        logger.atFine().log("Linked voice client " + clientId + " to player " + playerUUID + " (" + username + ")");
+                    }
+                }
+            }
+            if (playerUUID == null) {
                 logger.atFine().log("Voice client " + clientId + " not linked to player - broadcasting to all");
                 broadcastToAll(ctx, packet, sender);
                 return;
@@ -333,8 +345,9 @@ public class UDPSocketManager {
             // Get sender's position
             PlayerPosition senderPos = positionTracker.getPlayerPosition(playerUUID);
             if (senderPos == null) {
-                logger.atFine().log("Player " + playerUUID + " position not found");
-                return; // Sender not in game
+                logger.atFine().log("Player " + playerUUID + " position not found - broadcasting to all");
+                broadcastToAll(ctx, packet, sender);
+                return; // Sender not in game / not tracked yet
             }
             
             // Route to nearby players only
@@ -386,6 +399,15 @@ public class UDPSocketManager {
         private UUID findClientByPlayerUUID(UUID playerUUID) {
             for (Map.Entry<UUID, UUID> entry : clientToPlayerUUID.entrySet()) {
                 if (entry.getValue().equals(playerUUID)) {
+                    return entry.getKey();
+                }
+            }
+            return null;
+        }
+
+        private String findUsernameByClientId(UUID clientId) {
+            for (Map.Entry<String, UUID> entry : usernameToClientUUID.entrySet()) {
+                if (entry.getValue().equals(clientId)) {
                     return entry.getKey();
                 }
             }
