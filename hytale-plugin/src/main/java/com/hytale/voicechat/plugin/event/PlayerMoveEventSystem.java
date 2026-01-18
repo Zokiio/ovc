@@ -1,8 +1,9 @@
 package com.hytale.voicechat.plugin.event;
 
-import com.hypixel.hytale.component.Holder;
 import com.hypixel.hytale.component.Store;
-import com.hypixel.hytale.component.system.HolderSystem;
+import com.hypixel.hytale.component.query.Query;
+import com.hypixel.hytale.component.system.QuerySystem;
+import com.hypixel.hytale.component.system.tick.TickingSystem;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
@@ -18,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Samples player movement and updates the position tracker with a small throttle
  * to keep positional audio accurate without spamming updates.
  */
-public class PlayerMoveEventSystem extends HolderSystem<EntityStore> {
+public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements QuerySystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final double MIN_DISTANCE_DELTA = 0.5; // blocks
     private static final long MIN_INTERVAL_MS = 100; // throttle per player
@@ -31,42 +32,27 @@ public class PlayerMoveEventSystem extends HolderSystem<EntityStore> {
     }
 
     @Override
-    public void onEntityAdd(@Nonnull Holder<EntityStore> holder,
-                            @Nonnull com.hypixel.hytale.component.AddReason reason,
-                            @Nonnull Store<EntityStore> store) {
-        sampleAndUpdate(holder, true);
+    public void tick(float deltaSeconds, int tickCount, @Nonnull Store<EntityStore> store) {
+        var seen = ConcurrentHashMap.newKeySet();
+
+        store.forEachChunk(getQuery(), (chunk, commandBuffer) -> {
+            int size = chunk.size();
+            for (int i = 0; i < size; i++) {
+                PlayerRef playerRef = chunk.getComponent(i, PlayerRef.getComponentType());
+                TransformComponent transform = chunk.getComponent(i, TransformComponent.getComponentType());
+                if (playerRef == null || transform == null || transform.getPosition() == null) {
+                    continue;
+                }
+                sampleAndUpdate(playerRef, transform);
+                seen.add(playerRef.getUuid());
+            }
+        });
+
+        // Cleanup entries for players no longer present
+        lastSamples.keySet().removeIf(uuid -> !seen.contains(uuid));
     }
 
-    @Override
-    public void onEntityRemoved(@Nonnull Holder<EntityStore> holder,
-                                @Nonnull com.hypixel.hytale.component.RemoveReason reason,
-                                @Nonnull Store<EntityStore> store) {
-        PlayerRef playerRef = holder.getComponent(PlayerRef.getComponentType());
-        if (playerRef != null) {
-            lastSamples.remove(playerRef.getUuid());
-        }
-    }
-
-    /**
-     * Tick hook (name chosen to match HolderSystem patterns); if the engine exposes
-     * a different per-tick callback, wire this logic there.
-     */
-    public void onEntityTick(@Nonnull Holder<EntityStore> holder,
-                             @Nonnull Store<EntityStore> store) {
-        sampleAndUpdate(holder, false);
-    }
-
-    private void sampleAndUpdate(@Nonnull Holder<EntityStore> holder, boolean force) {
-        PlayerRef playerRef = holder.getComponent(PlayerRef.getComponentType());
-        if (playerRef == null) {
-            return;
-        }
-
-        TransformComponent transform = holder.getComponent(TransformComponent.getComponentType());
-        if (transform == null || transform.getPosition() == null) {
-            return;
-        }
-
+    private void sampleAndUpdate(@Nonnull PlayerRef playerRef, @Nonnull TransformComponent transform) {
         var pos = transform.getPosition();
         UUID playerUUID = playerRef.getUuid();
         String username = playerRef.getUsername();
@@ -78,7 +64,7 @@ public class PlayerMoveEventSystem extends HolderSystem<EntityStore> {
         long now = System.currentTimeMillis();
         Sample prev = lastSamples.get(playerUUID);
 
-        if (!force && prev != null) {
+        if (prev != null) {
             double dx = prev.x - x;
             double dy = prev.y - y;
             double dz = prev.z - z;
@@ -96,7 +82,7 @@ public class PlayerMoveEventSystem extends HolderSystem<EntityStore> {
     }
 
     @Override
-    public com.hypixel.hytale.component.query.Query<EntityStore> getQuery() {
+    public Query<EntityStore> getQuery() {
         return PlayerRef.getComponentType();
     }
 
