@@ -323,10 +323,11 @@ public class UDPSocketManager {
             }
             
             // Route to nearby players only
-            byte[] data = packet.serialize();
+            AudioPacket enriched = enrichWithPosition(packet, senderPos);
+            byte[] data = enriched.serialize();
             ByteBuf buf = ctx.alloc().buffer(data.length);
             buf.writeBytes(data);
-            
+
             int routedCount = 0;
             Map<UUID, PlayerPosition> allPlayers = positionTracker.getPlayerPositions();
             
@@ -357,6 +358,14 @@ public class UDPSocketManager {
             }
             
             buf.release();
+        }
+
+        private AudioPacket enrichWithPosition(AudioPacket packet, PlayerPosition senderPos) {
+            if (senderPos == null) {
+                return packet;
+            }
+            return new AudioPacket(packet.getSenderId(), packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(),
+                    (float) senderPos.getX(), (float) senderPos.getY(), (float) senderPos.getZ());
         }
         
         private UUID findClientByPlayerUUID(UUID playerUUID) {

@@ -22,7 +22,8 @@ const (
 	audioHeaderLegacy        = 25
 	audioHeaderWithCodec     = 26
 	vadThresholdDefault      = 1200
-	vadHangoverFrames        = 5
+	vadHangoverFrames        = 12
+	positionalMaxDistance    = 30.0
 )
 
 type VoiceClient struct {
@@ -38,6 +39,7 @@ type VoiceClient struct {
 	vadThreshold   atomic.Uint32
 	vadActive      bool
 	vadHangover    int
+	vadStateCB     atomic.Value // func(enabled bool, active bool)
 	connected      atomic.Bool
 	sequenceNumber atomic.Uint32
 	rxDone         chan struct{}
@@ -67,6 +69,12 @@ func (vc *VoiceClient) SetVAD(enabled bool, threshold int) {
 		threshold = vadThresholdDefault
 	}
 	vc.vadThreshold.Store(uint32(threshold))
+	vc.notifyVADState()
+}
+
+// SetVADStateListener registers a callback invoked when VAD enabled/active state changes.
+func (vc *VoiceClient) SetVADStateListener(fn func(enabled bool, active bool)) {
+	vc.vadStateCB.Store(fn)
 }
 
 func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string, outputDeviceLabel string) error {
@@ -284,7 +292,7 @@ func (vc *VoiceClient) receiveLoop() {
 			continue
 		}
 
-		codec, audioData, ok := parseAudioPayload(buffer[:n])
+		codec, audioData, pos, ok := parseAudioPayload(buffer[:n])
 		if !ok {
 			continue
 		}
@@ -301,6 +309,14 @@ func (vc *VoiceClient) receiveLoop() {
 				continue
 			}
 
+			if pos != nil {
+				att := attenuationForDistance(positionalMaxDistance, pos[0], pos[1], pos[2])
+				if att <= 0 {
+					continue
+				}
+				samples = applyAttenuation(samples, att)
+			}
+
 			select {
 			case vc.audioManager.GetOutputChannel() <- samples:
 			default:
@@ -309,6 +325,7 @@ func (vc *VoiceClient) receiveLoop() {
 				}
 			}
 		}
+
 	}
 }
 
@@ -366,23 +383,41 @@ func (vc *VoiceClient) shouldTransmit(samples []int16) bool {
 		return true
 	}
 
+	prevActive := vc.vadActive
 	threshold := float64(vc.vadThreshold.Load())
 	rms := calculateRMS(samples)
 	if rms >= threshold {
 		vc.vadActive = true
 		vc.vadHangover = vadHangoverFrames
+		if prevActive != vc.vadActive {
+			vc.notifyVADState()
+		}
 		return true
 	}
 
 	if vc.vadActive {
 		if vc.vadHangover > 0 {
 			vc.vadHangover--
+			if prevActive != vc.vadActive {
+				vc.notifyVADState()
+			}
 			return true
 		}
 		vc.vadActive = false
+		if prevActive != vc.vadActive {
+			vc.notifyVADState()
+		}
 	}
 
 	return false
+}
+
+func (vc *VoiceClient) notifyVADState() {
+	cb, ok := vc.vadStateCB.Load().(func(bool, bool))
+	if !ok || cb == nil {
+		return
+	}
+	cb(vc.vadEnabled.Load(), vc.vadActive)
 }
 
 func calculateRMS(samples []int16) float64 {
@@ -395,6 +430,40 @@ func calculateRMS(samples []int16) float64 {
 		sum += v * v
 	}
 	return math.Sqrt(sum / float64(len(samples)))
+}
+
+func attenuationForDistance(maxDistance float64, x, y, z float32) float64 {
+	d := math.Sqrt(float64(x*x + y*y + z*z))
+	if d <= 0 {
+		return 1.0
+	}
+	if d >= maxDistance {
+		return 0.0
+	}
+	f := 1.0 - (d / maxDistance)
+	return f * f // gentle rolloff
+}
+
+func applyAttenuation(samples []int16, factor float64) []int16 {
+	if factor >= 0.9999 {
+		return samples
+	}
+	if factor <= 0 {
+		return nil
+	}
+	out := make([]int16, len(samples))
+	maxVal := float64(math.MaxInt16)
+	minVal := float64(math.MinInt16)
+	for i, s := range samples {
+		scaled := float64(s) * factor
+		if scaled > maxVal {
+			scaled = maxVal
+		} else if scaled < minVal {
+			scaled = minVal
+		}
+		out[i] = int16(scaled)
+	}
+	return out
 }
 
 func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
@@ -421,31 +490,41 @@ func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
 	return ackClientID, accepted, message, true
 }
 
-func parseAudioPayload(data []byte) (byte, []byte, bool) {
+func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
 	if len(data) < audioHeaderLegacy {
-		return AudioCodecPCM, nil, false
+		return AudioCodecPCM, nil, nil, false
 	}
 	if data[0] != PacketTypeAudio {
-		return AudioCodecPCM, nil, false
+		return AudioCodecPCM, nil, nil, false
 	}
 
 	codecByte := data[1]
-	if codecByte == AudioCodecOpus || codecByte == AudioCodecPCM {
+	baseCodec := codecByte & 0x7F
+	hasPos := (codecByte & 0x80) != 0
+	if baseCodec == AudioCodecOpus || baseCodec == AudioCodecPCM {
 		if len(data) < audioHeaderWithCodec {
-			return AudioCodecPCM, nil, false
+			return AudioCodecPCM, nil, nil, false
 		}
 		audioLen := binary.BigEndian.Uint32(data[22:26])
 		totalLen := audioHeaderWithCodec + int(audioLen)
 		if totalLen > len(data) || audioLen == 0 {
-			return AudioCodecPCM, nil, false
+			return AudioCodecPCM, nil, nil, false
 		}
-		return codecByte, data[26:totalLen], true
+		var pos *[3]float32
+		if hasPos && len(data) >= totalLen+12 {
+			pos = &[3]float32{
+				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen : totalLen+4])),
+				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+4 : totalLen+8])),
+				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+8 : totalLen+12])),
+			}
+		}
+		return baseCodec, data[26:totalLen], pos, true
 	}
 
 	audioLen := binary.BigEndian.Uint32(data[21:25])
 	totalLen := audioHeaderLegacy + int(audioLen)
 	if totalLen > len(data) || audioLen == 0 {
-		return AudioCodecPCM, nil, false
+		return AudioCodecPCM, nil, nil, false
 	}
-	return AudioCodecPCM, data[25:totalLen], true
+	return AudioCodecPCM, data[25:totalLen], nil, true
 }

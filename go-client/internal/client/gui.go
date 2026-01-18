@@ -36,6 +36,8 @@ type GUI struct {
 	volumeSlider  *widget.Slider
 	vadCheck      *widget.Check
 	vadSlider     *widget.Slider
+	vadBar        *canvas.Rectangle
+	vadStateLabel *widget.Label
 }
 
 const defaultVADThreshold = 1200
@@ -130,8 +132,6 @@ func (gui *GUI) setupUI() {
 		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold())
 	}
 
-	gui.applySavedSettings()
-
 	// Status label
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
 
@@ -149,9 +149,22 @@ func (gui *GUI) setupUI() {
 		// Volume control would go here
 	}
 
+	gui.vadBar = canvas.NewRectangle(color.NRGBA{R: 180, G: 180, B: 180, A: 255})
+	gui.vadBar.Resize(fyne.NewSize(120, 10))
+	gui.vadStateLabel = widget.NewLabel("VAD: idle")
+	gui.voiceClient.SetVADStateListener(func(enabled bool, active bool) {
+		gui.runOnUI(func() {
+			gui.updateVADIndicator(enabled, active)
+		})
+	})
+
+	gui.applySavedSettings()
+
+	vadIndicatorRow := container.NewHBox(gui.vadBar, gui.vadStateLabel)
 	vadBox := container.NewVBox(
 		gui.vadCheck,
 		container.NewBorder(nil, nil, widget.NewLabel("Threshold"), nil, gui.vadSlider),
+		vadIndicatorRow,
 	)
 
 	// Layout
@@ -324,6 +337,7 @@ func (gui *GUI) applySavedSettings() {
 		gui.vadCheck.SetChecked(true)
 	}
 	gui.voiceClient.SetVAD(gui.vadCheck.Checked, gui.currentVADThreshold())
+	gui.updateVADIndicator(gui.vadCheck.Checked, false)
 }
 
 func (gui *GUI) parsePort() int {
@@ -339,4 +353,24 @@ func (gui *GUI) currentVADThreshold() int {
 		return defaultVADThreshold
 	}
 	return int(gui.vadSlider.Value)
+}
+
+func (gui *GUI) updateVADIndicator(enabled bool, active bool) {
+	if gui.vadBar == nil || gui.vadStateLabel == nil {
+		return
+	}
+
+	switch {
+	case !enabled:
+		gui.vadBar.FillColor = color.NRGBA{R: 140, G: 140, B: 140, A: 255}
+		gui.vadStateLabel.SetText("VAD: disabled")
+	case active:
+		gui.vadBar.FillColor = color.NRGBA{R: 76, G: 175, B: 80, A: 255}
+		gui.vadStateLabel.SetText("VAD: speaking")
+	default:
+		gui.vadBar.FillColor = color.NRGBA{R: 220, G: 180, B: 80, A: 255}
+		gui.vadStateLabel.SetText("VAD: idle")
+	}
+	gui.vadBar.Refresh()
+	gui.vadStateLabel.Refresh()
 }

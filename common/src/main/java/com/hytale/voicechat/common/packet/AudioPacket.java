@@ -10,12 +10,22 @@ public class AudioPacket extends VoicePacket {
     private final byte[] audioData;
     private final int sequenceNumber;
     private final byte codec;
+    private final Float posX;
+    private final Float posY;
+    private final Float posZ;
 
     public AudioPacket(UUID senderId, byte codec, byte[] audioData, int sequenceNumber) {
+        this(senderId, codec, audioData, sequenceNumber, null, null, null);
+    }
+
+    public AudioPacket(UUID senderId, byte codec, byte[] audioData, int sequenceNumber, Float posX, Float posY, Float posZ) {
         super(senderId);
         this.audioData = audioData;
         this.sequenceNumber = sequenceNumber;
         this.codec = codec;
+        this.posX = posX;
+        this.posY = posY;
+        this.posZ = posZ;
     }
 
     public AudioPacket(UUID senderId, byte[] audioData, int sequenceNumber) {
@@ -34,16 +44,44 @@ public class AudioPacket extends VoicePacket {
         return codec;
     }
 
+    public boolean hasPosition() {
+        return posX != null && posY != null && posZ != null;
+    }
+
+    public Float getPosX() {
+        return posX;
+    }
+
+    public Float getPosY() {
+        return posY;
+    }
+
+    public Float getPosZ() {
+        return posZ;
+    }
+
     @Override
     public byte[] serialize() {
-        ByteBuffer buffer = ByteBuffer.allocate(1 + 1 + 16 + 4 + 4 + audioData.length);
+        int extra = hasPosition() ? 12 : 0;
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 1 + 16 + 4 + 4 + audioData.length + extra);
+        byte codecByte = codec;
+        if (hasPosition()) {
+            codecByte |= (byte) 0x80; // flag indicates trailing position
+        }
+
         buffer.put((byte) 0x02); // Packet type: AUDIO
-        buffer.put(codec);
+        buffer.put(codecByte);
         buffer.putLong(getSenderId().getMostSignificantBits());
         buffer.putLong(getSenderId().getLeastSignificantBits());
         buffer.putInt(sequenceNumber);
         buffer.putInt(audioData.length);
         buffer.put(audioData);
+
+        if (hasPosition()) {
+            buffer.putFloat(posX);
+            buffer.putFloat(posY);
+            buffer.putFloat(posZ);
+        }
         return buffer.array();
     }
 
@@ -54,7 +92,8 @@ public class AudioPacket extends VoicePacket {
             throw new IllegalArgumentException("Invalid packet type for AudioPacket: " + packetType);
         }
         byte potentialCodec = buffer.get();
-        byte codec = AudioCodec.isSupported(potentialCodec) ? potentialCodec : AudioCodec.PCM;
+        byte baseCodec = AudioCodec.baseCodec(potentialCodec);
+        byte codec = AudioCodec.isSupported(potentialCodec) ? baseCodec : AudioCodec.PCM;
 
         if (!AudioCodec.isSupported(potentialCodec)) {
             buffer.position(1); // rewind to treat as legacy packet
@@ -68,6 +107,15 @@ public class AudioPacket extends VoicePacket {
         byte[] audioData = new byte[audioLength];
         buffer.get(audioData);
 
-        return new AudioPacket(senderId, codec, audioData, sequenceNumber);
+        Float posX = null;
+        Float posY = null;
+        Float posZ = null;
+        if ((potentialCodec & (byte) 0x80) != 0 && buffer.remaining() >= 12) {
+            posX = buffer.getFloat();
+            posY = buffer.getFloat();
+            posZ = buffer.getFloat();
+        }
+
+        return new AudioPacket(senderId, codec, audioData, sequenceNumber, posX, posY, posZ);
     }
 }
