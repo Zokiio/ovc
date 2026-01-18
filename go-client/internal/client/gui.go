@@ -34,7 +34,11 @@ type GUI struct {
 	testToneBtn   *widget.Button
 	statusLabel   *widget.Label
 	volumeSlider  *widget.Slider
+	vadCheck      *widget.Check
+	vadSlider     *widget.Slider
 }
+
+const defaultVADThreshold = 1200
 
 // NewGUI creates a new GUI instance
 func NewGUI(client *VoiceClient) *GUI {
@@ -105,13 +109,28 @@ func (gui *GUI) setupUI() {
 
 	// Set callbacks after both selects are created
 	gui.micSelect.OnChanged = func(selected string) {
-		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, selected, gui.speakerSelect.Selected)
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold())
 	}
 	gui.speakerSelect.OnChanged = func(selected string) {
-		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, selected)
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, selected, gui.vadCheck.Checked, gui.currentVADThreshold())
 	}
 
-	gui.applySavedDeviceSelection()
+	// VAD controls
+	gui.vadCheck = widget.NewCheck("Voice Activity Detection", func(on bool) {
+		gui.voiceClient.SetVAD(on, gui.currentVADThreshold())
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, gui.speakerSelect.Selected, on, gui.currentVADThreshold())
+	})
+	gui.vadCheck.SetChecked(true)
+
+	gui.vadSlider = widget.NewSlider(200, 6000)
+	gui.vadSlider.Step = 50
+	gui.vadSlider.SetValue(defaultVADThreshold)
+	gui.vadSlider.OnChanged = func(value float64) {
+		gui.voiceClient.SetVAD(gui.vadCheck.Checked, gui.currentVADThreshold())
+		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold())
+	}
+
+	gui.applySavedSettings()
 
 	// Status label
 	gui.statusLabel.Alignment = fyne.TextAlignCenter
@@ -129,6 +148,11 @@ func (gui *GUI) setupUI() {
 	gui.volumeSlider.OnChanged = func(value float64) {
 		// Volume control would go here
 	}
+
+	vadBox := container.NewVBox(
+		gui.vadCheck,
+		container.NewBorder(nil, nil, widget.NewLabel("Threshold"), nil, gui.vadSlider),
+	)
 
 	// Layout
 	form := container.NewVBox(
@@ -156,6 +180,7 @@ func (gui *GUI) setupUI() {
 		gui.statusLabel,
 		widget.NewSeparator(),
 		volumeBox,
+		vadBox,
 	)
 
 	gui.win.SetContent(container.NewPadded(content))
@@ -179,7 +204,7 @@ func (gui *GUI) onConnectClicked() {
 		return
 	}
 
-	gui.saveConfig(server, port, username, gui.micSelect.Selected, gui.speakerSelect.Selected)
+	gui.saveConfig(server, port, username, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold())
 
 	gui.statusLabel.SetText("Connecting...")
 	gui.connectBtn.Disable()
@@ -237,6 +262,12 @@ func (gui *GUI) loadSavedConfig() {
 	}
 
 	gui.savedConfig = &cfg
+	if cfg.VADThreshold == 0 {
+		cfg.VADThreshold = defaultVADThreshold
+	}
+	if !cfg.VADEnabled {
+		cfg.VADEnabled = true
+	}
 	if cfg.Server != "" {
 		gui.serverInput.SetText(cfg.Server)
 	}
@@ -248,20 +279,22 @@ func (gui *GUI) loadSavedConfig() {
 	}
 }
 
-func (gui *GUI) saveConfig(server string, port int, username string, micLabel string, speakerLabel string) {
+func (gui *GUI) saveConfig(server string, port int, username string, micLabel string, speakerLabel string, vadEnabled bool, vadThreshold int) {
 	cfg := ClientConfig{
 		Server:       server,
 		Port:         port,
 		Username:     username,
 		MicLabel:     micLabel,
 		SpeakerLabel: speakerLabel,
+		VADEnabled:   vadEnabled,
+		VADThreshold: vadThreshold,
 	}
 	if err := saveClientConfig(cfg); err != nil {
 		log.Printf("Failed to save config: %v", err)
 	}
 }
 
-func (gui *GUI) applySavedDeviceSelection() {
+func (gui *GUI) applySavedSettings() {
 	if gui.savedConfig == nil {
 		return
 	}
@@ -283,6 +316,14 @@ func (gui *GUI) applySavedDeviceSelection() {
 			}
 		}
 	}
+
+	if gui.savedConfig.VADThreshold > 0 {
+		gui.vadSlider.SetValue(float64(gui.savedConfig.VADThreshold))
+	}
+	if gui.savedConfig.VADEnabled {
+		gui.vadCheck.SetChecked(true)
+	}
+	gui.voiceClient.SetVAD(gui.vadCheck.Checked, gui.currentVADThreshold())
 }
 
 func (gui *GUI) parsePort() int {
@@ -291,4 +332,11 @@ func (gui *GUI) parsePort() int {
 		return 0
 	}
 	return port
+}
+
+func (gui *GUI) currentVADThreshold() int {
+	if gui.vadSlider == nil {
+		return defaultVADThreshold
+	}
+	return int(gui.vadSlider.Value)
 }

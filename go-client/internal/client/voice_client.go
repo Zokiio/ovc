@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,8 @@ const (
 	AuthTimeoutSeconds       = 5
 	audioHeaderLegacy        = 25
 	audioHeaderWithCodec     = 26
+	vadThresholdDefault      = 1200
+	vadHangoverFrames        = 5
 )
 
 type VoiceClient struct {
@@ -31,6 +34,10 @@ type VoiceClient struct {
 	socket         *net.UDPConn
 	audioManager   *SimpleAudioManager
 	codec          byte
+	vadEnabled     atomic.Bool
+	vadThreshold   atomic.Uint32
+	vadActive      bool
+	vadHangover    int
 	connected      atomic.Bool
 	sequenceNumber atomic.Uint32
 	rxDone         chan struct{}
@@ -39,16 +46,27 @@ type VoiceClient struct {
 }
 
 func NewVoiceClient() *VoiceClient {
-	return &VoiceClient{
+	vc := &VoiceClient{
 		clientID: uuid.New(),
 		rxDone:   make(chan struct{}, 1),
 		txDone:   make(chan struct{}, 1),
 		codec:    AudioCodecOpus,
 	}
+	vc.vadEnabled.Store(true)
+	vc.vadThreshold.Store(vadThresholdDefault)
+	return vc
 }
 
 func (vc *VoiceClient) GetClientID() uuid.UUID {
 	return vc.clientID
+}
+
+func (vc *VoiceClient) SetVAD(enabled bool, threshold int) {
+	vc.vadEnabled.Store(enabled)
+	if threshold <= 0 {
+		threshold = vadThresholdDefault
+	}
+	vc.vadThreshold.Store(uint32(threshold))
 }
 
 func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string, outputDeviceLabel string) error {
@@ -288,6 +306,10 @@ func (vc *VoiceClient) transmitLoop() {
 				continue
 			}
 
+			if !vc.shouldTransmit(samples) {
+				continue
+			}
+
 			audioData, err := vc.audioManager.EncodeAudio(vc.codec, samples)
 			if err != nil {
 				log.Printf("Error encoding audio: %v", err)
@@ -319,6 +341,42 @@ func (vc *VoiceClient) sendAudioPacket(audioData []byte) error {
 
 	_, err := vc.socket.WriteToUDP(packet, vc.serverUDPAddr)
 	return err
+}
+
+func (vc *VoiceClient) shouldTransmit(samples []int16) bool {
+	if !vc.vadEnabled.Load() {
+		return true
+	}
+
+	threshold := float64(vc.vadThreshold.Load())
+	rms := calculateRMS(samples)
+	if rms >= threshold {
+		vc.vadActive = true
+		vc.vadHangover = vadHangoverFrames
+		return true
+	}
+
+	if vc.vadActive {
+		if vc.vadHangover > 0 {
+			vc.vadHangover--
+			return true
+		}
+		vc.vadActive = false
+	}
+
+	return false
+}
+
+func calculateRMS(samples []int16) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, s := range samples {
+		v := float64(s)
+		sum += v * v
+	}
+	return math.Sqrt(sum / float64(len(samples)))
 }
 
 func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
