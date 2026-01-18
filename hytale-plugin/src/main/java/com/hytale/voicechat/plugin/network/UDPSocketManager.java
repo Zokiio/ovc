@@ -279,12 +279,20 @@ public class UDPSocketManager {
             try {
                 AudioPacket audioPacket = AudioPacket.deserialize(data);
                 UUID senderId = audioPacket.getSenderId();
-                
-                // Verify client is registered
+
+                // Verify client is registered; if UUID mismatches but address matches a known client, heal it.
                 InetSocketAddress registered = clients.get(senderId);
                 if (registered == null) {
-                    logger.atWarning().log("Received audio from unregistered client: " + senderId);
-                    return;
+                    UUID addressMatch = findClientByAddress(sender);
+                    if (addressMatch != null) {
+                        logger.atWarning().log("Received audio with mismatched UUID " + senderId + " from " + sender + "; treating as " + addressMatch);
+                        senderId = addressMatch;
+                        registered = clients.get(addressMatch);
+                        audioPacket = cloneWithSender(audioPacket, addressMatch);
+                    } else {
+                        logger.atWarning().log("Received audio from unregistered client: " + senderId);
+                        return;
+                    }
                 }
 
                 // Drop packets if sender address doesn't match the registered endpoint to prevent spoofing
@@ -382,6 +390,23 @@ public class UDPSocketManager {
                 }
             }
             return null;
+        }
+
+        private UUID findClientByAddress(InetSocketAddress address) {
+            for (Map.Entry<UUID, InetSocketAddress> entry : clients.entrySet()) {
+                if (entry.getValue().equals(address)) {
+                    return entry.getKey();
+                }
+            }
+            return null;
+        }
+
+        private AudioPacket cloneWithSender(AudioPacket packet, UUID senderId) {
+            if (packet.hasPosition()) {
+                return new AudioPacket(senderId, packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(),
+                        packet.getPosX(), packet.getPosY(), packet.getPosZ());
+            }
+            return new AudioPacket(senderId, packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber());
         }
         
         private void broadcastToAll(ChannelHandlerContext ctx, AudioPacket packet, InetSocketAddress sender) {

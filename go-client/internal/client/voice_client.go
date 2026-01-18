@@ -543,7 +543,9 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
 	if len(data) < audioHeaderLegacy {
 		return AudioCodecPCM, nil, nil, false
 	}
-	if data[0] != PacketTypeAudio {
+
+	packetType := data[0]
+	if packetType != PacketTypeAudio && packetType != PacketTypeTestAudio {
 		return AudioCodecPCM, nil, nil, false
 	}
 
