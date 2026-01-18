@@ -87,8 +87,8 @@ public class AudioPacket extends VoicePacket {
 
     public static AudioPacket deserialize(byte[] data) {
         ByteBuffer buffer = ByteBuffer.wrap(data);
-        byte packetType = buffer.get(); // Should be 0x02
-        if (packetType != 0x02) {
+        byte packetType = buffer.get(); // Should be 0x02 or 0x05 (test audio)
+        if (packetType != 0x02 && packetType != 0x05) {
             throw new IllegalArgumentException("Invalid packet type for AudioPacket: " + packetType);
         }
         byte potentialCodec = buffer.get();

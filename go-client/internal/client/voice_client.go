@@ -18,6 +18,7 @@ const (
 	PacketTypeAudio          = 0x02
 	PacketTypeAuthAck        = 0x03
 	PacketTypeDisconnect     = 0x04
+	PacketTypeTestAudio      = 0x05
 	AuthTimeoutSeconds       = 5
 	audioHeaderLegacy        = 25
 	audioHeaderWithCodec     = 26
@@ -180,6 +181,50 @@ func (vc *VoiceClient) SendTestTone(duration time.Duration) error {
 	return vc.audioManager.SendTestTone(duration, 1000)
 }
 
+// SendBroadcastTestTone sends a test tone as a broadcast (non-positional) packet to all clients.
+func (vc *VoiceClient) SendBroadcastTestTone(duration time.Duration) error {
+	if !vc.connected.Load() {
+		return fmt.Errorf("not connected")
+	}
+
+	// Generate and send tone frames directly so they bypass VAD and are marked as broadcast/test.
+	frameSize := 960
+	sampleRate := 48000
+	frameDuration := time.Duration(float64(time.Second) * float64(frameSize) / float64(sampleRate))
+	totalFrames := int(duration / frameDuration)
+	if totalFrames < 1 {
+		totalFrames = 1
+	}
+
+	phase := 0.0
+	phaseInc := 2 * math.Pi * 1000 / float64(sampleRate)
+	amplitude := 0.2 * float64(math.MaxInt16)
+
+	for i := 0; i < totalFrames; i++ {
+		samples := make([]int16, frameSize)
+		for j := 0; j < frameSize; j++ {
+			samples[j] = int16(math.Sin(phase) * amplitude)
+			phase += phaseInc
+			if phase >= 2*math.Pi {
+				phase -= 2 * math.Pi
+			}
+		}
+
+		audioData, err := vc.audioManager.EncodeAudio(vc.codec, samples)
+		if err != nil {
+			return fmt.Errorf("encode test tone: %w", err)
+		}
+
+		if err := vc.sendAudioPacketWithType(audioData, PacketTypeTestAudio); err != nil {
+			return fmt.Errorf("send test tone: %w", err)
+		}
+
+		time.Sleep(frameDuration)
+	}
+
+	return nil
+}
+
 func (vc *VoiceClient) Disconnect() error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
@@ -288,7 +333,7 @@ func (vc *VoiceClient) receiveLoop() {
 			continue
 		}
 
-		if buffer[0] != PacketTypeAudio {
+		if buffer[0] != PacketTypeAudio && buffer[0] != PacketTypeTestAudio {
 			continue
 		}
 
@@ -364,10 +409,14 @@ func (vc *VoiceClient) transmitLoop() {
 }
 
 func (vc *VoiceClient) sendAudioPacket(audioData []byte) error {
+	return vc.sendAudioPacketWithType(audioData, PacketTypeAudio)
+}
+
+func (vc *VoiceClient) sendAudioPacketWithType(audioData []byte, packetType byte) error {
 	seqNum := vc.sequenceNumber.Add(1) - 1
 
 	packet := make([]byte, audioHeaderWithCodec+len(audioData))
-	packet[0] = PacketTypeAudio
+	packet[0] = packetType
 	packet[1] = vc.codec
 	copy(packet[2:18], vc.clientID[:])
 	binary.BigEndian.PutUint32(packet[18:22], seqNum)

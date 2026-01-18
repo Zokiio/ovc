@@ -131,8 +131,11 @@ public class UDPSocketManager {
                     case 0x01: // Authentication packet
                         handleAuthentication(ctx, data, packet.sender());
                         break;
-                    case 0x02: // Audio packet
-                        handleAudio(ctx, data, packet.sender());
+                    case 0x02: // Audio packet (positional routing)
+                        handleAudio(ctx, data, packet.sender(), false);
+                        break;
+                    case 0x05: // Test audio broadcast (non-positional)
+                        handleAudio(ctx, data, packet.sender(), true);
                         break;
                     case 0x04: // Disconnect packet
                         handleDisconnect(ctx, data, packet.sender());
@@ -272,7 +275,7 @@ public class UDPSocketManager {
             return new UUID(msb, lsb);
         }
         
-        private void handleAudio(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+        private void handleAudio(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender, boolean forceBroadcast) {
             try {
                 AudioPacket audioPacket = AudioPacket.deserialize(data);
                 UUID senderId = audioPacket.getSenderId();
@@ -290,8 +293,12 @@ public class UDPSocketManager {
                     return;
                 }
                 
-                // Route packet based on proximity
-                routePacket(ctx, audioPacket, sender);
+                if (forceBroadcast || positionTracker == null) {
+                    broadcastToAll(ctx, audioPacket, sender);
+                } else {
+                    // Route packet based on proximity
+                    routePacket(ctx, audioPacket, sender);
+                }
                 
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error handling audio packet");
