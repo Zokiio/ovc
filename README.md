@@ -46,8 +46,6 @@ hytale-voice-chat/
 ├── SETUP.md
 └── TEST.md
 ```
-# Hytale Voice Chat
-
 ## Go Client
 
 For those looking to use the Go client, please refer to the following details from the go-client's README:
