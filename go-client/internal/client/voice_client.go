@@ -661,6 +661,7 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 				elev = -1
 			}
 		}
+		log.Printf("[SPATIALIZE] pos=(%.2f,%.2f,%.2f) dist=%.2f att=%.3f pan=%.3f elev=%.3f panScale=%.3f", pos[0], pos[1], pos[2], d, att, pan, elev, 1.0+0.6*elev)
 	}
 
 	// Equal-power panning with simple elevation widening: above = wider, below = narrower
@@ -756,6 +757,9 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
 				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+4 : totalLen+8])),
 				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+8 : totalLen+12])),
 			}
+			log.Printf("[AUDIO_RX] hasPos=true position=(%.2f,%.2f,%.2f)", pos[0], pos[1], pos[2])
+		} else if !hasPos {
+			log.Printf("[AUDIO_RX] hasPos=false (broadcast/non-positional)")
 		}
 		return baseCodec, data[26:totalLen], pos, true
 	}

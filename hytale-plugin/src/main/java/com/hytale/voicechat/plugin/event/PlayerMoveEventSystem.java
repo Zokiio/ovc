@@ -65,9 +65,11 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             try {
                 yaw = transform.getRotation().getYaw();
                 pitch = transform.getRotation().getPitch();
-            } catch (Exception ignored) {
-                // fallback to zero if API differs
+            } catch (Exception e) {
+                logger.atWarning().log("Failed to get rotation for " + username + ": " + e.getMessage());
             }
+        } else {
+            logger.atWarning().log("TransformComponent.getRotation() is NULL for player " + username);
         }
         String worldId = "world"; // TODO: replace when world identifier is available from TransformComponent
 
@@ -88,7 +90,7 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
 
         lastSamples.put(playerUUID, new Sample(x, y, z, now, worldId));
         positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
-        logger.atFine().log("Movement update for " + username + " @ (" + x + ", " + y + ", " + z + ")");
+        logger.atInfo().log("[POSITION_SAMPLE] player=" + username + " pos=(" + String.format("%.2f", x) + "," + String.format("%.2f", y) + "," + String.format("%.2f", z) + ") yaw=" + String.format("%.2f", yaw) + "° pitch=" + String.format("%.2f", pitch) + "°");
     }
 
     @Override
