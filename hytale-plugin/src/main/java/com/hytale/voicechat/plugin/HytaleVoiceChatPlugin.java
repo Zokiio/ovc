@@ -103,18 +103,18 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     /**
      * Handle player movement
      */
-    public void onPlayerMove(UUID playerId, String playerName, double x, double y, double z, String worldId) {
+    public void onPlayerMove(UUID playerId, String playerName, double x, double y, double z, double yaw, double pitch, String worldId) {
         if (positionTracker != null) {
-            positionTracker.updatePosition(playerId, playerName, x, y, z, worldId);
+            positionTracker.updatePosition(playerId, playerName, x, y, z, yaw, pitch, worldId);
         }
     }
     
     /**
      * Handle player join
      */
-    public void onPlayerJoin(UUID playerId, String playerName, double x, double y, double z, String worldId) {
+    public void onPlayerJoin(UUID playerId, String playerName, double x, double y, double z, double yaw, double pitch, String worldId) {
         if (positionTracker != null) {
-            PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, worldId);
+            PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, yaw, pitch, worldId);
             positionTracker.addPlayer(position);
             logger.atInfo().log("Player joined voice chat: " + playerName + " (" + playerId + ")");
         }
