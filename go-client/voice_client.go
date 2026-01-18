@@ -47,7 +47,7 @@ func (vc *VoiceClient) GetClientID() uuid.UUID {
 	return vc.clientID
 }
 
-func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string) error {
+func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string, outputDeviceLabel string) error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 
@@ -67,6 +67,7 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 		return fmt.Errorf("failed to initialize audio: %w", err)
 	}
 	audioManager.SetInputDeviceLabel(inputDeviceLabel)
+	audioManager.SetOutputDeviceLabel(outputDeviceLabel)
 	vc.audioManager = audioManager
 
 	if err := vc.audioManager.Start(); err != nil {

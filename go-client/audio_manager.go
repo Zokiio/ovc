@@ -28,6 +28,7 @@ type SimpleAudioManager struct {
 	inputStream  *portaudio.Stream
 	outputStream *portaudio.Stream
 	inputLabel   string
+	outputLabel  string
 }
 
 func NewSimpleAudioManager() (*SimpleAudioManager, error) {
@@ -174,6 +175,10 @@ func (am *SimpleAudioManager) SetInputDeviceLabel(label string) {
 	am.inputLabel = label
 }
 
+func (am *SimpleAudioManager) SetOutputDeviceLabel(label string) {
+	am.outputLabel = label
+}
+
 func (am *SimpleAudioManager) SendTestTone(duration time.Duration, frequency float64) error {
 	if duration <= 0 {
 		return fmt.Errorf("invalid duration")
@@ -231,6 +236,24 @@ func ListInputDevices() ([]string, error) {
 	return labels, nil
 }
 
+func ListOutputDevices() ([]string, error) {
+	if err := portaudio.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize PortAudio: %w", err)
+	}
+	defer portaudio.Terminate()
+
+	options, err := buildOutputDeviceOptions()
+	if err != nil {
+		return nil, err
+	}
+
+	labels := []string{DefaultDeviceLabel}
+	for _, option := range options {
+		labels = append(labels, option.label)
+	}
+	return labels, nil
+}
+
 type deviceOption struct {
 	label  string
 	device *portaudio.DeviceInfo
@@ -269,7 +292,7 @@ func (am *SimpleAudioManager) openInputStream() (*portaudio.Stream, string, *por
 }
 
 func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo) (*portaudio.Stream, error) {
-	outputDevice, err := resolveOutputDevice(inputDevice)
+	outputDevice, err := resolveOutputDeviceByLabel(am.outputLabel, inputDevice)
 	if err != nil {
 		return nil, err
 	}
@@ -356,6 +379,26 @@ func resolveInputDevice(label string) (*portaudio.DeviceInfo, string, error) {
 	}
 
 	return nil, "", fmt.Errorf("input device not found: %s", label)
+}
+
+func resolveOutputDeviceByLabel(label string, inputDevice *portaudio.DeviceInfo) (*portaudio.DeviceInfo, error) {
+	if label == "" || label == DefaultDeviceLabel {
+		return resolveOutputDevice(inputDevice)
+	}
+
+	options, err := buildOutputDeviceOptions()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, option := range options {
+		if option.label == label {
+			return option.device, nil
+		}
+	}
+
+	// Fallback to default if not found
+	return resolveOutputDevice(inputDevice)
 }
 
 func resolveOutputDevice(inputDevice *portaudio.DeviceInfo) (*portaudio.DeviceInfo, error) {
@@ -456,4 +499,52 @@ func hostNameFromDevice(device *portaudio.DeviceInfo) string {
 
 func hostName(device *portaudio.DeviceInfo) string {
 	return hostNameFromDevice(device)
+}
+
+func buildOutputDeviceOptions() ([]deviceOption, error) {
+	devices, err := portaudio.Devices()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list devices: %w", err)
+	}
+
+	candidates := make([]*portaudio.DeviceInfo, 0, len(devices))
+	for _, device := range devices {
+		if device.MaxOutputChannels > 0 {
+			candidates = append(candidates, device)
+		}
+	}
+
+	if runtime.GOOS == "windows" {
+		wasapi := filterByHostAPI(candidates, "WASAPI")
+		if len(wasapi) > 0 {
+			candidates = wasapi
+		}
+	}
+
+	nameCounts := make(map[string]int)
+	for _, device := range candidates {
+		nameCounts[device.Name]++
+	}
+
+	usedLabels := make(map[string]int)
+	options := make([]deviceOption, 0, len(candidates))
+	for _, device := range candidates {
+		label := device.Name
+		if nameCounts[device.Name] > 1 {
+			host := hostName(device)
+			if host != "" {
+				label = fmt.Sprintf("%s (%s)", device.Name, host)
+			}
+		}
+		if count := usedLabels[label]; count > 0 {
+			label = fmt.Sprintf("%s #%d", label, count+1)
+		}
+		usedLabels[label]++
+		options = append(options, deviceOption{
+			label:  label,
+			device: device,
+		})
+	}
+
+	return options, nil
 }

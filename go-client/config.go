@@ -8,10 +8,11 @@ import (
 )
 
 type ClientConfig struct {
-	Server   string `json:"server"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	MicLabel string `json:"micLabel"`
+	Server       string `json:"server"`
+	Port         int    `json:"port"`
+	Username     string `json:"username"`
+	MicLabel     string `json:"micLabel"`
+	SpeakerLabel string `json:"speakerLabel"`
 }
 
 func loadClientConfig() (ClientConfig, error) {
