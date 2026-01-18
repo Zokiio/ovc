@@ -456,16 +456,13 @@ func (vc *VoiceClient) receiveLoop() {
 				continue
 			}
 
-			if pos != nil {
-				att := attenuationForDistance(positionalMaxDistance, pos[0], pos[1], pos[2])
-				if att <= 0 {
-					continue
-				}
-				samples = applyAttenuation(samples, att)
+			stereo := spatialize(samples, pos, positionalMaxDistance)
+			if stereo == nil {
+				continue
 			}
 
 			select {
-			case vc.audioManager.GetOutputChannel() <- samples:
+			case vc.audioManager.GetOutputChannel() <- stereo:
 			default:
 				if packetCount%100 == 1 {
 					log.Printf("Output channel full, dropping packet")
@@ -633,6 +630,55 @@ func applyAttenuation(samples []int16, factor float64) []int16 {
 		}
 		out[i] = int16(scaled)
 	}
+	return out
+}
+
+func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	att := 1.0
+	pan := 0.0
+
+	if pos != nil {
+		d := math.Sqrt(float64(pos[0]*pos[0] + pos[1]*pos[1] + pos[2]*pos[2]))
+		if d >= maxDistance {
+			return nil
+		}
+		if d > 0 {
+			att = 1.0 - (d / maxDistance)
+			att *= att
+			lr := math.Sqrt(float64(pos[0]*pos[0] + pos[2]*pos[2]))
+			if lr > 0 {
+				pan = float64(pos[0]) / lr
+			}
+		}
+	}
+
+	// Equal-power panning
+	leftGain := att * math.Sqrt((1.0-pan)*0.5)
+	rightGain := att * math.Sqrt((1.0+pan)*0.5)
+
+	out := make([]int16, len(samples)*2)
+	for i, s := range samples {
+		v := float64(s)
+		l := v * leftGain
+		r := v * rightGain
+		if l > math.MaxInt16 {
+			l = math.MaxInt16
+		} else if l < math.MinInt16 {
+			l = math.MinInt16
+		}
+		if r > math.MaxInt16 {
+			r = math.MaxInt16
+		} else if r < math.MinInt16 {
+			r = math.MinInt16
+		}
+		out[2*i] = int16(l)
+		out[2*i+1] = int16(r)
+	}
+
 	return out
 }
 
