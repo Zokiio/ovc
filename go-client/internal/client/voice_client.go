@@ -650,27 +650,31 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 		if d > 0 {
 			att = 1.0 - (d / maxDistance)
 			att *= att
-			lr := math.Sqrt(float64(pos[0]*pos[0] + pos[2]*pos[2]))
+
+			lr := math.Hypot(float64(pos[0]), float64(pos[2]))
 			if lr > 0 {
 				pan = float64(pos[0]) / lr
 			}
-			elev = float64(pos[1]) / maxDistance
-			if elev > 1 {
-				elev = 1
-			} else if elev < -1 {
+
+			elevAngle := math.Atan2(float64(pos[1]), lr) // radians, -pi/2..pi/2
+			elev = elevAngle / (math.Pi / 2)             // normalize to -1..1
+			if elev < -1 {
 				elev = -1
+			} else if elev > 1 {
+				elev = 1
 			}
 		}
-		log.Printf("[SPATIALIZE] pos=(%.2f,%.2f,%.2f) dist=%.2f att=%.3f pan=%.3f elev=%.3f panScale=%.3f", pos[0], pos[1], pos[2], d, att, pan, elev, 1.0+0.6*elev)
+		panPreview := 1.0 + 1.2*elev
+		log.Printf("[SPATIALIZE] pos=(%.2f,%.2f,%.2f) dist=%.2f att=%.3f pan=%.3f elevNorm=%.3f panScale=%.3f", pos[0], pos[1], pos[2], d, att, pan, elev, panPreview)
 	}
 
-	// Equal-power panning with simple elevation widening: above = wider, below = narrower
-	panScale := 1.0 + 0.6*elev
-	if panScale < 0.4 {
-		panScale = 0.4
+	// Equal-power panning with stronger elevation widening: above = wider, below = narrower
+	panScale := 1.0 + 1.2*elev
+	if panScale < 0.35 {
+		panScale = 0.35
 	}
-	if panScale > 1.6 {
-		panScale = 1.6
+	if panScale > 1.8 {
+		panScale = 1.8
 	}
 	pan *= panScale
 	if pan < -1 {

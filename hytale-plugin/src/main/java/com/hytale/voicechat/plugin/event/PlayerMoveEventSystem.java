@@ -6,6 +6,7 @@ import com.hypixel.hytale.component.system.QuerySystem;
 import com.hypixel.hytale.component.system.tick.TickingSystem;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.modules.entity.component.TransformComponent;
+import com.hypixel.hytale.server.core.modules.entity.component.HeadRotation;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -40,10 +41,11 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             for (int i = 0; i < size; i++) {
                 PlayerRef playerRef = chunk.getComponent(i, PlayerRef.getComponentType());
                 TransformComponent transform = chunk.getComponent(i, TransformComponent.getComponentType());
+                HeadRotation headRotation = chunk.getComponent(i, HeadRotation.getComponentType());
                 if (playerRef == null || transform == null || transform.getPosition() == null) {
                     continue;
                 }
-                sampleAndUpdate(playerRef, transform);
+                sampleAndUpdate(playerRef, transform, headRotation);
                 seen.add(playerRef.getUuid());
             }
         });
@@ -52,7 +54,7 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         lastSamples.keySet().removeIf(uuid -> !seen.contains(uuid));
     }
 
-    private void sampleAndUpdate(@Nonnull PlayerRef playerRef, @Nonnull TransformComponent transform) {
+    private void sampleAndUpdate(@Nonnull PlayerRef playerRef, @Nonnull TransformComponent transform, HeadRotation headRotation) {
         var pos = transform.getPosition();
         UUID playerUUID = playerRef.getUuid();
         String username = playerRef.getUsername();
@@ -61,13 +63,53 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         double z = pos.getZ();
         double yaw = 0.0;
         double pitch = 0.0;
-        if (transform.getRotation() != null) {
-            try {
-                yaw = transform.getRotation().getYaw();
-                pitch = transform.getRotation().getPitch();
-            } catch (Exception e) {
-                logger.atWarning().log("Failed to get rotation for " + username + ": " + e.getMessage());
-            }
+
+        // Prefer independent head rotation if available
+        if (headRotation != null && headRotation.getRotation() != null) {
+            var hrot = headRotation.getRotation();
+            Double hx = null, hy = null, hz = null;
+            try { hx = (double) hrot.getX(); } catch (Exception ignored) {}
+            try { hy = (double) hrot.getY(); } catch (Exception ignored) {}
+            try { hz = (double) hrot.getZ(); } catch (Exception ignored) {}
+
+            yaw = chooseDegrees(hy, hz, null);   // likely Y is yaw
+            pitch = chooseDegrees(hx, null, null); // likely X is pitch
+
+            logger.atInfo().log("[HEAD_ROT_CAPTURE] player=" + username
+                    + " hx=" + safeD(hx)
+                    + " hy=" + safeD(hy)
+                    + " hz=" + safeD(hz)
+                    + " yawDeg=" + String.format("%.2f", yaw)
+                    + " pitchDeg=" + String.format("%.2f", pitch)
+                    + " rotClass=" + hrot.getClass().getSimpleName()
+                    + " rot=" + hrot.toString());
+        } else if (transform.getRotation() != null) {
+            var rot = transform.getRotation();
+            Double yawRaw = null;
+            Double pitchRaw = null;
+            Double altX = null;
+            Double altY = null;
+            Double altZ = null;
+
+            try { yawRaw = (double) rot.getYaw(); } catch (Exception ignored) {}
+            try { pitchRaw = (double) rot.getPitch(); } catch (Exception ignored) {}
+            try { altX = (double) rot.getX(); } catch (Exception ignored) {}
+            try { altY = (double) rot.getY(); } catch (Exception ignored) {}
+            try { altZ = (double) rot.getZ(); } catch (Exception ignored) {}
+
+            yaw = chooseDegrees(yawRaw, altY, altZ);
+            pitch = chooseDegrees(pitchRaw, altX, null);
+
+            logger.atInfo().log("[ROT_CAPTURE] player=" + username
+                    + " yawRaw=" + safeD(yawRaw)
+                    + " pitchRaw=" + safeD(pitchRaw)
+                    + " altX=" + safeD(altX)
+                    + " altY=" + safeD(altY)
+                    + " altZ=" + safeD(altZ)
+                    + " yawDeg=" + String.format("%.2f", yaw)
+                    + " pitchDeg=" + String.format("%.2f", pitch)
+                    + " rotClass=" + rot.getClass().getSimpleName()
+                    + " rot=" + rot.toString());
         } else {
             logger.atWarning().log("TransformComponent.getRotation() is NULL for player " + username);
         }
@@ -112,5 +154,32 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             this.timestamp = timestamp;
             this.worldId = worldId;
         }
+    }
+
+    private static double chooseDegrees(Double primary, Double fallback1, Double fallback2) {
+        Double candidate = firstFinite(primary, fallback1, fallback2);
+        if (candidate == null) {
+            return 0.0;
+        }
+        double val = candidate;
+        // Heuristic: if absolute value is larger than 2π, assume already degrees; otherwise radians.
+        if (Math.abs(val) <= (Math.PI * 2.0)) {
+            val = Math.toDegrees(val);
+        }
+        return val;
+    }
+
+    private static Double firstFinite(Double... values) {
+        if (values == null) return null;
+        for (Double v : values) {
+            if (v != null && !v.isNaN() && !v.isInfinite()) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    private static String safeD(Double v) {
+        return (v == null || v.isNaN() || v.isInfinite()) ? "null" : String.format("%.4f", v);
     }
 }
