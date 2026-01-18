@@ -354,13 +354,10 @@ func (vc *VoiceClient) receiveLoop() {
 				continue
 			}
 
-			if pos != nil {
-				att := attenuationForDistance(positionalMaxDistance, pos[0], pos[1], pos[2])
-				if att <= 0 {
-					continue
-				}
-				samples = applyAttenuation(samples, att)
-			}
+			// TODO: compute attenuation using listener position; currently pos carries
+			// absolute coordinates of the sender, so we skip attenuation to avoid
+			// dropping audio incorrectly.
+			_ = pos
 
 			select {
 			case vc.audioManager.GetOutputChannel() <- samples:
