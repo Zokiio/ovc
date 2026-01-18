@@ -134,6 +134,9 @@ public class UDPSocketManager {
                     case 0x02: // Audio packet
                         handleAudio(ctx, data, packet.sender());
                         break;
+                    case 0x04: // Disconnect packet
+                        handleDisconnect(ctx, data, packet.sender());
+                        break;
                     default:
                         logger.atWarning().log("Unknown packet type: " + packetType);
                 }
@@ -148,6 +151,22 @@ public class UDPSocketManager {
                 AuthenticationPacket authPacket = AuthenticationPacket.deserialize(data);
                 UUID clientId = authPacket.getSenderId();
                 String username = authPacket.getUsername();
+                
+                // Check if this client ID is already connected from a different address
+                InetSocketAddress existingAddr = clients.get(clientId);
+                if (existingAddr != null && !existingAddr.equals(sender)) {
+                    logger.atInfo().log("Client " + clientId + " reconnecting from new address, removing old connection");
+                    // Old connection will be replaced
+                }
+                
+                // Check if this username is already connected with a different client ID
+                UUID existingClientId = usernameToClientUUID.get(username);
+                if (existingClientId != null && !existingClientId.equals(clientId)) {
+                    logger.atInfo().log("Username '" + username + "' already connected with different client ID, removing old connection");
+                    // Remove old client mappings
+                    clients.remove(existingClientId);
+                    clientToPlayerUUID.remove(existingClientId);
+                }
                 
                 // Register client
                 clients.put(clientId, sender);
@@ -186,6 +205,71 @@ public class UDPSocketManager {
             } catch (Exception e) {
                 logger.atSevere().log("Error handling authentication", e);
             }
+        }
+        
+        private void handleDisconnect(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+            try {
+                if (data.length < 17) {
+                    logger.atWarning().log("Invalid disconnect packet size: " + data.length);
+                    return;
+                }
+                
+                // Extract client UUID (bytes 1-16)
+                byte[] uuidBytes = new byte[16];
+                System.arraycopy(data, 1, uuidBytes, 0, 16);
+                UUID clientId = bytesToUUID(uuidBytes);
+                
+                // Verify the disconnect is from the registered address
+                InetSocketAddress registered = clients.get(clientId);
+                if (registered == null) {
+                    logger.atFine().log("Disconnect from unknown client: " + clientId);
+                    return;
+                }
+                
+                if (!registered.equals(sender)) {
+                    logger.atWarning().log("Ignoring spoofed disconnect for " + clientId + " from " + sender);
+                    return;
+                }
+                
+                // Find and remove username mapping
+                String disconnectedUsername = null;
+                for (Map.Entry<String, UUID> entry : usernameToClientUUID.entrySet()) {
+                    if (entry.getValue().equals(clientId)) {
+                        disconnectedUsername = entry.getKey();
+                        break;
+                    }
+                }
+                
+                // Remove all mappings for this client
+                clients.remove(clientId);
+                clientToPlayerUUID.remove(clientId);
+                if (disconnectedUsername != null) {
+                    usernameToClientUUID.remove(disconnectedUsername);
+                }
+                
+                logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
+                logger.atInfo().log("║ VOICE CLIENT DISCONNECTED");
+                logger.atInfo().log("║ Username: " + (disconnectedUsername != null ? disconnectedUsername : "unknown"));
+                logger.atInfo().log("║ Client UUID: " + clientId);
+                logger.atInfo().log("║ Address: " + sender);
+                logger.atInfo().log("║ Remaining clients: " + clients.size());
+                logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
+                
+            } catch (Exception e) {
+                logger.atSevere().log("Error handling disconnect", e);
+            }
+        }
+        
+        private UUID bytesToUUID(byte[] bytes) {
+            long msb = 0;
+            long lsb = 0;
+            for (int i = 0; i < 8; i++) {
+                msb = (msb << 8) | (bytes[i] & 0xff);
+            }
+            for (int i = 8; i < 16; i++) {
+                lsb = (lsb << 8) | (bytes[i] & 0xff);
+            }
+            return new UUID(msb, lsb);
         }
         
         private void handleAudio(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
