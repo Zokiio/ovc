@@ -43,6 +43,11 @@ func NewGUI(client *VoiceClient) *GUI {
 	}
 }
 
+// runOnUI ensures a callback executes on the Fyne UI thread.
+func (gui *GUI) runOnUI(fn func()) {
+	fyne.Do(fn)
+}
+
 // Run starts the GUI application
 func (gui *GUI) Run() {
 	gui.myApp = app.New()
@@ -184,14 +189,18 @@ func (gui *GUI) onConnectClicked() {
 		selectedSpeaker := gui.speakerSelect.Selected
 		err := gui.voiceClient.Connect(server, port, username, selectedMic, selectedSpeaker)
 		if err != nil {
-			gui.statusLabel.SetText(fmt.Sprintf("Error: %v", err))
-			gui.connectBtn.Enable()
+			gui.runOnUI(func() {
+				gui.statusLabel.SetText(fmt.Sprintf("Error: %v", err))
+				gui.connectBtn.Enable()
+			})
 			return
 		}
 
-		gui.statusLabel.SetText(fmt.Sprintf("Connected as %s", username))
-		gui.connectBtn.SetText("Disconnect")
-		gui.connectBtn.Enable()
+		gui.runOnUI(func() {
+			gui.statusLabel.SetText(fmt.Sprintf("Connected as %s", username))
+			gui.connectBtn.SetText("Disconnect")
+			gui.connectBtn.Enable()
+		})
 	}()
 }
 
@@ -207,11 +216,16 @@ func (gui *GUI) onTestToneClicked() {
 	go func() {
 		err := gui.voiceClient.SendTestTone(1 * time.Second)
 		if err != nil {
-			gui.statusLabel.SetText(fmt.Sprintf("Test tone error: %v", err))
+			gui.runOnUI(func() {
+				gui.statusLabel.SetText(fmt.Sprintf("Test tone error: %v", err))
+				gui.testToneBtn.Enable()
+			})
 		} else {
-			gui.statusLabel.SetText("Test tone sent")
+			gui.runOnUI(func() {
+				gui.statusLabel.SetText("Test tone sent")
+				gui.testToneBtn.Enable()
+			})
 		}
-		gui.testToneBtn.Enable()
 	}()
 }
 

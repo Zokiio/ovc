@@ -18,6 +18,8 @@ const (
 	PacketTypeAuthAck        = 0x03
 	PacketTypeDisconnect     = 0x04
 	AuthTimeoutSeconds       = 5
+	audioHeaderLegacy        = 25
+	audioHeaderWithCodec     = 26
 )
 
 type VoiceClient struct {
@@ -28,6 +30,7 @@ type VoiceClient struct {
 	serverUDPAddr  *net.UDPAddr
 	socket         *net.UDPConn
 	audioManager   *SimpleAudioManager
+	codec          byte
 	connected      atomic.Bool
 	sequenceNumber atomic.Uint32
 	rxDone         chan struct{}
@@ -40,6 +43,7 @@ func NewVoiceClient() *VoiceClient {
 		clientID: uuid.New(),
 		rxDone:   make(chan struct{}, 1),
 		txDone:   make(chan struct{}, 1),
+		codec:    AudioCodecOpus,
 	}
 }
 
@@ -72,6 +76,11 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 
 	if err := vc.audioManager.Start(); err != nil {
 		return fmt.Errorf("failed to start audio: %w", err)
+	}
+
+	vc.codec = AudioCodecPCM
+	if audioManager.useOpus && audioManager.encoder != nil && audioManager.decoder != nil {
+		vc.codec = AudioCodecOpus
 	}
 
 	// Create UDP socket
@@ -231,7 +240,7 @@ func (vc *VoiceClient) receiveLoop() {
 			continue
 		}
 
-		if n < 25 {
+		if n < audioHeaderLegacy {
 			continue
 		}
 
@@ -239,7 +248,7 @@ func (vc *VoiceClient) receiveLoop() {
 			continue
 		}
 
-		audioData, ok := extractAudioPayload(buffer[:n])
+		codec, audioData, ok := parseAudioPayload(buffer[:n])
 		if !ok {
 			continue
 		}
@@ -250,7 +259,7 @@ func (vc *VoiceClient) receiveLoop() {
 		}
 
 		if vc.audioManager != nil {
-			samples, err := vc.audioManager.DecodeAudio(audioData)
+			samples, err := vc.audioManager.DecodeAudio(codec, audioData)
 			if err != nil {
 				log.Printf("Error decoding audio: %v", err)
 				continue
@@ -279,7 +288,7 @@ func (vc *VoiceClient) transmitLoop() {
 				continue
 			}
 
-			audioData, err := vc.audioManager.EncodeAudio(samples)
+			audioData, err := vc.audioManager.EncodeAudio(vc.codec, samples)
 			if err != nil {
 				log.Printf("Error encoding audio: %v", err)
 				continue
@@ -300,12 +309,13 @@ func (vc *VoiceClient) transmitLoop() {
 func (vc *VoiceClient) sendAudioPacket(audioData []byte) error {
 	seqNum := vc.sequenceNumber.Add(1) - 1
 
-	packet := make([]byte, 25+len(audioData))
+	packet := make([]byte, audioHeaderWithCodec+len(audioData))
 	packet[0] = PacketTypeAudio
-	copy(packet[1:17], vc.clientID[:])
-	binary.BigEndian.PutUint32(packet[17:21], seqNum)
-	binary.BigEndian.PutUint32(packet[21:25], uint32(len(audioData)))
-	copy(packet[25:], audioData)
+	packet[1] = vc.codec
+	copy(packet[2:18], vc.clientID[:])
+	binary.BigEndian.PutUint32(packet[18:22], seqNum)
+	binary.BigEndian.PutUint32(packet[22:26], uint32(len(audioData)))
+	copy(packet[26:], audioData)
 
 	_, err := vc.socket.WriteToUDP(packet, vc.serverUDPAddr)
 	return err
@@ -335,17 +345,31 @@ func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
 	return ackClientID, accepted, message, true
 }
 
-func extractAudioPayload(data []byte) ([]byte, bool) {
-	if len(data) < 25 {
-		return nil, false
+func parseAudioPayload(data []byte) (byte, []byte, bool) {
+	if len(data) < audioHeaderLegacy {
+		return AudioCodecPCM, nil, false
 	}
 	if data[0] != PacketTypeAudio {
-		return nil, false
+		return AudioCodecPCM, nil, false
 	}
+
+	codecByte := data[1]
+	if codecByte == AudioCodecOpus || codecByte == AudioCodecPCM {
+		if len(data) < audioHeaderWithCodec {
+			return AudioCodecPCM, nil, false
+		}
+		audioLen := binary.BigEndian.Uint32(data[22:26])
+		totalLen := audioHeaderWithCodec + int(audioLen)
+		if totalLen > len(data) || audioLen == 0 {
+			return AudioCodecPCM, nil, false
+		}
+		return codecByte, data[26:totalLen], true
+	}
+
 	audioLen := binary.BigEndian.Uint32(data[21:25])
-	totalLen := 25 + int(audioLen)
+	totalLen := audioHeaderLegacy + int(audioLen)
 	if totalLen > len(data) || audioLen == 0 {
-		return nil, false
+		return AudioCodecPCM, nil, false
 	}
-	return data[25:totalLen], true
+	return AudioCodecPCM, data[25:totalLen], true
 }
