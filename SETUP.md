@@ -34,16 +34,17 @@ cp /path/to/Assets.zip hytale-plugin/hytalefiles/
 ./gradlew clean build
 ```
 
-All three modules will compile:
+Gradle builds the shared library and the Hytale plugin:
 - `common` - Shared models and packets
-- `voice-client` - JavaFX desktop client
 - `hytale-plugin` - Hytale server plugin with integrated voice server
 
 ### 4. Run components
 
-**Voice Client:**
+**Go Voice Client:**
 ```bash
-./gradlew :voice-client:run
+cd go-client
+go build -o HytaleVoiceChat ./cmd/voice-client
+./HytaleVoiceChat
 ```
 
 **Build Plugin for Deployment:**
@@ -57,7 +58,7 @@ All three modules will compile:
 ```
 hytale-voice-chat/
 ├── common/                 # Shared code (models, packets, config)
-├── voice-client/           # JavaFX GUI with audio I/O
+├── go-client/              # Go GUI client (Fyne + PortAudio)
 ├── hytale-plugin/          # Hytale plugin with integrated UDP voice server
 │   └── hytalefiles/        # (local, not committed)
 │       ├── HytaleServer.jar

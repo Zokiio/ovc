@@ -34,7 +34,9 @@
 
 **Terminal 1 - Start Client #1:**
 ```bash
-./gradlew :voice-client:run
+cd go-client
+go build -o HytaleVoiceChat ./cmd/voice-client
+./HytaleVoiceChat
 ```
 - Username: `Alice`
 - Server: `localhost`
@@ -43,7 +45,8 @@
 
 **Terminal 2 - Start Client #2:**
 ```bash
-./gradlew :voice-client:run
+cd go-client
+./HytaleVoiceChat
 ```
 - Username: `Bob`
 - Server: `localhost`
@@ -83,7 +86,7 @@ DEBUG: Routed audio from Alice to 1 nearby players
 - Check firewall allows UDP port 24454
 - Verify microphone permissions
 - Check speaker/microphone in system settings
-- Look for errors in terminal output
+- Look for errors in the client log file (`client.log`)
 
 **Audio choppy/distorted:**
 - CPU too high? Check with Activity Monitor
