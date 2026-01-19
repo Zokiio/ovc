@@ -8,6 +8,10 @@ import java.util.UUID;
  * Packet containing encoded audio data
  */
 public class AudioPacket extends VoicePacket {
+    private static final byte POSITION_FLAG = (byte) 0x80;
+    private static final int PACKET_HEADER_SIZE = 1 + 1 + 16 + 4 + 4; // type + codec + senderId + seqNum + audioLen
+    private static final int POSITION_DATA_SIZE = 12; // 3 floats (x, y, z)
+    
     private final byte[] audioData;
     private final int sequenceNumber;
     private final byte codec;
@@ -63,11 +67,11 @@ public class AudioPacket extends VoicePacket {
 
     @Override
     public byte[] serialize() {
-        int extra = hasPosition() ? 12 : 0;
-        ByteBuffer buffer = ByteBuffer.allocate(1 + 1 + 16 + 4 + 4 + audioData.length + extra);
+        int extra = hasPosition() ? POSITION_DATA_SIZE : 0;
+        ByteBuffer buffer = ByteBuffer.allocate(PACKET_HEADER_SIZE + audioData.length + extra);
         byte codecByte = codec;
         if (hasPosition()) {
-            codecByte |= (byte) 0x80; // flag indicates trailing position
+            codecByte |= POSITION_FLAG; // flag indicates trailing position
         }
 
         buffer.put((byte) 0x02); // Packet type: AUDIO
@@ -97,7 +101,7 @@ public class AudioPacket extends VoicePacket {
      * @param posZ the Z position coordinate
      */
     public void serializeToByteBufWithPosition(ByteBuf buf, float posX, float posY, float posZ) {
-        byte codecByte = (byte) (codec | 0x80); // Set position flag
+        byte codecByte = (byte) (codec | POSITION_FLAG); // Set position flag
         
         buf.writeByte(0x02); // Packet type: AUDIO
         buf.writeByte(codecByte);
@@ -109,6 +113,15 @@ public class AudioPacket extends VoicePacket {
         buf.writeFloat(posX);
         buf.writeFloat(posY);
         buf.writeFloat(posZ);
+    }
+    
+    /**
+     * Calculate the serialized size of an AudioPacket with position data.
+     * @param audioDataLength the length of the audio data
+     * @return the total serialized packet size
+     */
+    public static int getSerializedSizeWithPosition(int audioDataLength) {
+        return PACKET_HEADER_SIZE + audioDataLength + POSITION_DATA_SIZE;
     }
 
     public static AudioPacket deserialize(byte[] data) {
