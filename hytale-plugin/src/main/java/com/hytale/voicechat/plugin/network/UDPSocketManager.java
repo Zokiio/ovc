@@ -389,7 +389,9 @@ public class UDPSocketManager {
                                 logger.atInfo().log("[ROTATION] sender=" + senderPos.getPlayerName() + "(" + String.format("%.2f", senderPos.getX()) + "," + String.format("%.2f", senderPos.getY()) + "," + String.format("%.2f", senderPos.getZ()) + ") listener=" + position.getPlayerName() + "(" + String.format("%.2f", position.getX()) + "," + String.format("%.2f", position.getY()) + "," + String.format("%.2f", position.getZ()) + ") yaw=" + String.format("%.2f", position.getYaw()) + "° pitch=" + String.format("%.2f", position.getPitch()) + "° world=(" + String.format("%.2f", dx) + "," + String.format("%.2f", dy) + "," + String.format("%.2f", dz) + ") rotated=(" + String.format("%.2f", rotated[0]) + "," + String.format("%.2f", rotated[1]) + "," + String.format("%.2f", rotated[2]) + ")");
 
                                 // Optimize: write directly to ByteBuf to avoid intermediate byte array allocation
-                                ByteBuf buf = serializeAudioPacketWithPosition(ctx.alloc(), packet, rotated[0], rotated[1], rotated[2]);
+                                int packetSize = 1 + 1 + 16 + 4 + 4 + packet.getAudioData().length + 12;
+                                ByteBuf buf = ctx.alloc().buffer(packetSize);
+                                packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
                                 ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                 routedCount++;
                                 logger.atInfo().log("[ROUTED] sender=" + senderPos.getPlayerName() + " -> recipient=" + position.getPlayerName());
@@ -405,33 +407,6 @@ public class UDPSocketManager {
         
         private AudioPacket withRelativePosition(AudioPacket packet, float dx, float dy, float dz) {
             return new AudioPacket(packet.getSenderId(), packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(), dx, dy, dz);
-        }
-
-        /**
-         * Serialize an AudioPacket with position data directly to a ByteBuf.
-         * This avoids creating intermediate byte arrays and reduces GC pressure.
-         */
-        private ByteBuf serializeAudioPacketWithPosition(io.netty.buffer.ByteBufAllocator allocator, AudioPacket packet, float posX, float posY, float posZ) {
-            byte[] audioData = packet.getAudioData();
-            // Packet format: type(1) + codec(1) + senderId(16) + seqNum(4) + audioLen(4) + audioData + pos(12)
-            int totalSize = 1 + 1 + 16 + 4 + 4 + audioData.length + 12;
-            ByteBuf buf = allocator.buffer(totalSize);
-            
-            // Set codec with position flag
-            byte codecByte = (byte) (packet.getCodec() | 0x80);
-            
-            buf.writeByte(0x02); // Packet type: AUDIO
-            buf.writeByte(codecByte);
-            buf.writeLong(packet.getSenderId().getMostSignificantBits());
-            buf.writeLong(packet.getSenderId().getLeastSignificantBits());
-            buf.writeInt(packet.getSequenceNumber());
-            buf.writeInt(audioData.length);
-            buf.writeBytes(audioData);
-            buf.writeFloat(posX);
-            buf.writeFloat(posY);
-            buf.writeFloat(posZ);
-            
-            return buf;
         }
 
         private float[] rotateToListenerFrame(float dx, float dy, float dz, double yawDeg, double pitchDeg) {

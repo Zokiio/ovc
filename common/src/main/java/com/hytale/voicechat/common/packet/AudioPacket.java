@@ -1,5 +1,6 @@
 package com.hytale.voicechat.common.packet;
 
+import io.netty.buffer.ByteBuf;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
@@ -83,6 +84,31 @@ public class AudioPacket extends VoicePacket {
             buffer.putFloat(posZ);
         }
         return buffer.array();
+    }
+
+    /**
+     * Serialize this packet with custom position data directly to a ByteBuf.
+     * This avoids creating intermediate byte arrays and reduces GC pressure.
+     * Useful for broadcasting packets with position data relative to each recipient.
+     * 
+     * @param buf the ByteBuf to write to
+     * @param posX the X position coordinate
+     * @param posY the Y position coordinate
+     * @param posZ the Z position coordinate
+     */
+    public void serializeToByteBufWithPosition(ByteBuf buf, float posX, float posY, float posZ) {
+        byte codecByte = (byte) (codec | 0x80); // Set position flag
+        
+        buf.writeByte(0x02); // Packet type: AUDIO
+        buf.writeByte(codecByte);
+        buf.writeLong(getSenderId().getMostSignificantBits());
+        buf.writeLong(getSenderId().getLeastSignificantBits());
+        buf.writeInt(sequenceNumber);
+        buf.writeInt(audioData.length);
+        buf.writeBytes(audioData);
+        buf.writeFloat(posX);
+        buf.writeFloat(posY);
+        buf.writeFloat(posZ);
     }
 
     public static AudioPacket deserialize(byte[] data) {
