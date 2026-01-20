@@ -18,7 +18,7 @@ lsof -i :24454
 
 ### 3. Start Voice Client #1
 ```bash
-cd go-client
+cd voice-client
 go build -o HytaleVoiceChat ./cmd/voice-client
 ./HytaleVoiceChat
 ```
@@ -42,7 +42,7 @@ In the GUI:
 ### 6. Test Multiple Clients (Full Test)
 Open another terminal and start a second client:
 ```bash
-cd go-client
+cd voice-client
 ./HytaleVoiceChat
 ```
 Connect both clients to the server.
@@ -52,10 +52,14 @@ Connect both clients to the server.
 - ✅ Client connection to server
 - ✅ GUI controls functional
 - ✅ Microphone capture and speaker playback
+- ✅ Opus encoding/decoding
+- ✅ Real-time audio streaming (48kHz, 16-bit, mono)
+- ✅ Full-duplex communication
 
-**What's NOT Implemented Yet:**
-- ❌ Opus encoding/decoding
-- ❌ Full Hytale plugin event integration
+**What's NOT Fully Implemented Yet:**
+- ⚠️ Hytale plugin event integration (player positions, join/quit events)
+- ⚠️ Voice Activity Detection (VAD)
+- ⚠️ 3D positional audio
 
 ### 7. Check Logs
 
@@ -76,16 +80,18 @@ Audio manager initialized (PCM audio codec ready, input: ...)
 
 ### 8. Test Hytale Plugin
 
-Copy to Hytale server:
+Build and copy to Hytale server:
 ```bash
-./gradlew :hytale-plugin:build
-# JAR automatically copied to /Users/zoki/hytale/server/mods/
+./gradlew build
+# Copy JAR from build/libs/ to your Hytale server's mods/ directory
 ```
 
 ### Next Steps to Make It Fully Functional
 
-1. **Implement actual UDP transmission** - Connect microphone data to UDP packets
-2. **Wire up Opus codec** - Encode audio before sending, decode on receive
-3. **Integrate with Hytale events** - Hook player movement/position tracking
-4. **Test with actual voice data** - Speak into mic, hear on other client
-5. **Test proximity routing** - Move players in-game and verify audio range
+1. ✅ **Implement actual UDP transmission** - Done
+2. ✅ **Wire up Opus codec** - Done (both encoding and decoding)
+3. **Integrate with Hytale events** - Hook player movement/position tracking (in progress)
+4. ✅ **Test with actual voice data** - Done (working audio streaming)
+5. **Test proximity routing** - Needs player positions from Hytale API
+6. **Add Voice Activity Detection** - Reduce bandwidth when not speaking
+7. **Implement 3D positional audio** - Spatial audio based on player positions

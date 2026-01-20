@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-1. Java 21+ (LTS recommended)
+1. Java 25
 2. Git
 3. Hytale Server files (official API)
 
@@ -11,22 +11,20 @@
 ### 1. Clone the repository
 
 ```bash
-git clone git@github.com:YOUR_USERNAME/Hytale-Voice-Chat.git
-cd Hytale-Voice-Chat
+git clone https://github.com/YOUR_USERNAME/hytale-voicechat.git
+cd hytale-voicechat
 ```
 
 ### 2. Add Hytale API files
 
-The official Hytale API files need to be placed locally:
+The official Hytale API files need to be placed in your Hytale server directory:
 
 ```bash
-mkdir -p hytale-plugin/hytalefiles
-cp /path/to/HytaleServer.jar hytale-plugin/hytalefiles/
-cp /path/to/HytaleServer.aot hytale-plugin/hytalefiles/
-cp /path/to/Assets.zip hytale-plugin/hytalefiles/
+# The build.gradle references files from your Hytale installation:
+# /path/to/hytale/server/HytaleServer.jar
 ```
 
-**Note:** These files are not committed to git due to their size. Add them locally for development.
+**Note:** Update the path in `hytale-plugin/build.gradle` to match your Hytale installation location if needed.
 
 ### 3. Build the project
 
@@ -52,22 +50,21 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 ```bash
 cd hytale-plugin
 ./gradlew build
-# JAR is automatically copied to /Users/zoki/hytale/server/mods/
+# JAR is in: hytale-plugin/build/libs/
+# Copy manually to your Hytale server's mods/ directory
 ```
+
+**Note:** You can configure auto-copy by setting up the `copyToHytale` task in `build.gradle` with your Hytale server path.
 
 ## Project Structure
 
 ```
-hytale-voice-chat/
+hytale-voicechat/
 ├── voice-client/           # Go GUI client (Fyne + PortAudio)
 ├── hytale-plugin/          # Hytale plugin with integrated UDP voice server
 │   ├── common/             # Shared code (models, packets, config)
 │   ├── docs/               # Plugin documentation
 │   ├── src/                # Plugin source code
-│   ├── hytalefiles/        # (local, not committed)
-│   │   ├── HytaleServer.jar
-│   │   ├── HytaleServer.aot
-│   │   └── Assets.zip
 │   └── build.gradle        # Build configuration
 ├── README.md               # Architecture overview
 └── .gitignore
@@ -75,9 +72,9 @@ hytale-voice-chat/
 
 ## Important Notes
 
-- **hytale-plugin/hytalefiles/** is in .gitignore - add locally
+- Use the Hytale Server JAR from your Hytale installation
 - All changes are committed to git for version control
-- Use `git push` to sync with private repository
+- Use `git push` to sync with repository
 
 ## Development
 
