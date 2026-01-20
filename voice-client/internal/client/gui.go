@@ -47,6 +47,7 @@ type GUI struct {
 	pttKeyEntry       *widget.Entry
 	pttHoldBtn        *HoldButton
 	pttToggleMode     *widget.Check
+	networkStatsLabel *widget.Label
 	uiReady           bool
 }
 
@@ -348,6 +349,13 @@ func (gui *GUI) setupUI() {
 
 	gui.applySavedSettings()
 	gui.uiReady = true
+	
+	// Network statistics display
+	gui.networkStatsLabel = widget.NewLabel("Network: Disconnected")
+	gui.networkStatsLabel.Alignment = fyne.TextAlignCenter
+	
+	// Start network stats update timer
+	go gui.updateNetworkStatsLoop()
 
 	connectionBox := container.NewVBox(
 		widget.NewLabel("Connection"),
@@ -356,6 +364,9 @@ func (gui *GUI) setupUI() {
 		gui.connectBtn,
 		container.NewHBox(gui.testToneBtn, gui.posTestBtn),
 		gui.statusLabel,
+		widget.NewSeparator(),
+		widget.NewLabel("Network Quality:"),
+		gui.networkStatsLabel,
 	)
 
 	settingsBox := container.NewVBox(
@@ -674,5 +685,42 @@ func (gui *GUI) handlePTTKey(ev *fyne.KeyEvent, down bool) {
 	} else {
 		gui.voiceClient.SetPTTActive(false)
 		gui.statusLabel.SetText("PTT released (key)")
+	}
+}
+
+// updateNetworkStatsLoop periodically updates network statistics display
+func (gui *GUI) updateNetworkStatsLoop() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	
+	for range ticker.C {
+		if gui.voiceClient == nil || !gui.voiceClient.connected.Load() {
+			gui.runOnUI(func() {
+				if gui.networkStatsLabel != nil {
+					gui.networkStatsLabel.SetText("Network: Disconnected")
+				}
+			})
+			continue
+		}
+		
+		stats := gui.voiceClient.GetNetworkStats()
+		if stats == nil {
+			continue
+		}
+		
+		loss := stats.GetPacketLossPercent()
+		jitter := stats.GetAverageJitter()
+		quality := stats.GetNetworkQuality()
+		received := stats.GetTotalPacketsReceived()
+		lost := stats.GetTotalPacketsLost()
+		
+		text := fmt.Sprintf("%s | Loss: %.1f%% | Jitter: %.1fms\nRx: %d | Lost: %d",
+			quality, loss, jitter, received, lost)
+		
+		gui.runOnUI(func() {
+			if gui.networkStatsLabel != nil {
+				gui.networkStatsLabel.SetText(text)
+			}
+		})
 	}
 }

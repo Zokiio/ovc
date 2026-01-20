@@ -235,10 +235,6 @@ func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, 
 }
 
 func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, error) {
-	if len(data) == 0 {
-		return make([]int16, am.frameSize), nil
-	}
-
 	switch codec {
 	case AudioCodecOpus:
 		if !am.useOpus || am.decoder == nil {
@@ -246,11 +242,28 @@ func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, err
 		}
 		am.decodeMu.Lock()
 		pcm := make([]int16, am.frameSize)
-		n, err := am.decoder.Decode(data, pcm)
-		am.decodeMu.Unlock()
-		if err != nil {
-			return nil, err
+		
+		// Support PLC: decode with nil data to synthesize missing frame
+		var n int
+		var err error
+		if data == nil || len(data) == 0 {
+			// Opus PLC: synthesize frame based on previous audio
+			n, err = am.decoder.Decode(nil, pcm)
+			if err != nil {
+				am.decodeMu.Unlock()
+				// Fallback to silence if PLC fails
+				return make([]int16, am.frameSize), nil
+			}
+		} else {
+			// Normal decode
+			n, err = am.decoder.Decode(data, pcm)
+			if err != nil {
+				am.decodeMu.Unlock()
+				return nil, err
+			}
 		}
+		am.decodeMu.Unlock()
+		
 		if n < len(pcm) {
 			padded := make([]int16, am.frameSize)
 			copy(padded, pcm[:n])
@@ -260,6 +273,9 @@ func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, err
 		}
 		return pcm, nil
 	case AudioCodecPCM:
+		if len(data) == 0 {
+			return make([]int16, am.frameSize), nil
+		}
 		return decodePCM(data, am.frameSize), nil
 	default:
 		return nil, fmt.Errorf("unknown codec: %d", codec)

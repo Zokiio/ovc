@@ -52,22 +52,31 @@ type VoiceClient struct {
 	rxDone            chan struct{}
 	txDone            chan struct{}
 	mu                sync.Mutex
+	
+	// Packet Loss Concealment
+	networkStats      *NetworkStats
+	jitterBuffer      *JitterBuffer
+	jitterBufferMs    int
+	plcEnabled        atomic.Bool
 }
 
 func NewVoiceClient() *VoiceClient {
 	vc := &VoiceClient{
-		clientID:     uuid.New(),
-		rxDone:       make(chan struct{}, 1),
-		txDone:       make(chan struct{}, 1),
-		codec:        AudioCodecOpus,
-		pttKey:       "Space",
-		masterVolume: 1.0,
-		micGain:      1.0,
+		clientID:       uuid.New(),
+		rxDone:         make(chan struct{}, 1),
+		txDone:         make(chan struct{}, 1),
+		codec:          AudioCodecOpus,
+		pttKey:         "Space",
+		masterVolume:   1.0,
+		micGain:        1.0,
+		networkStats:   NewNetworkStats(),
+		jitterBufferMs: 80, // Default 80ms jitter buffer
 	}
 	vc.vadEnabled.Store(true)
 	vc.vadThreshold.Store(vadThresholdDefault)
 	vc.vadHangoverFrames.Store(vadHangoverFramesDefault)
 	vc.pttEnabled.Store(false)
+	vc.plcEnabled.Store(true) // PLC enabled by default
 	return vc
 }
 
@@ -107,6 +116,34 @@ func (vc *VoiceClient) SetPushToTalk(enabled bool, key string) {
 
 func (vc *VoiceClient) SetPTTActive(active bool) {
 	vc.pttActive.Store(active)
+}
+
+// SetPLC enables or disables Packet Loss Concealment
+func (vc *VoiceClient) SetPLC(enabled bool) {
+	vc.plcEnabled.Store(enabled)
+}
+
+// SetJitterBufferSize sets the jitter buffer size in milliseconds (20-200ms)
+func (vc *VoiceClient) SetJitterBufferSize(ms int) {
+	if ms < 20 {
+		ms = 20
+	}
+	if ms > 200 {
+		ms = 200
+	}
+	vc.mu.Lock()
+	vc.jitterBufferMs = ms
+	// Recreate jitter buffer if connected
+	if vc.connected.Load() && vc.audioManager != nil {
+		outputChan := vc.audioManager.GetOutputChannel()
+		vc.jitterBuffer = NewJitterBuffer(vc.audioManager, outputChan, positionalMaxDistance, ms)
+	}
+	vc.mu.Unlock()
+}
+
+// GetNetworkStats returns the current network statistics
+func (vc *VoiceClient) GetNetworkStats() *NetworkStats {
+	return vc.networkStats
 }
 
 func (vc *VoiceClient) SetMasterVolume(vol float64) {
@@ -240,6 +277,13 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 		return fmt.Errorf("failed to resolve server address: %w", err)
 	}
 	vc.serverUDPAddr = serverUDPAddr
+	
+	// Initialize jitter buffer if PLC is enabled
+	if vc.plcEnabled.Load() {
+		outputChan := audioManager.GetOutputChannel()
+		vc.jitterBuffer = NewJitterBuffer(audioManager, outputChan, positionalMaxDistance, vc.jitterBufferMs)
+		log.Printf("Jitter buffer initialized (size=%dms)", vc.jitterBufferMs)
+	}
 
 	// Retry logic for authentication with exponential backoff
 	const maxRetries = 3
@@ -433,6 +477,24 @@ func (vc *VoiceClient) receiveLoop() {
 
 	buffer := make([]byte, 4096)
 	packetCount := 0
+	
+	// Start jitter buffer playback timer if PLC is enabled
+	var jitterTicker *time.Ticker
+	if vc.plcEnabled.Load() && vc.jitterBuffer != nil {
+		jitterTicker = time.NewTicker(20 * time.Millisecond) // 20ms frame time
+		defer jitterTicker.Stop()
+		
+		go func() {
+			for range jitterTicker.C {
+				if !vc.connected.Load() {
+					return
+				}
+				if vc.jitterBuffer != nil {
+					vc.jitterBuffer.PlayNextPacket()
+				}
+			}
+		}()
+	}
 
 	for vc.connected.Load() {
 		n, _, err := vc.socket.ReadFromUDP(buffer)
@@ -451,16 +513,35 @@ func (vc *VoiceClient) receiveLoop() {
 			continue
 		}
 
-		codec, audioData, pos, ok := parseAudioPayload(buffer[:n])
+		codec, audioData, pos, seqNum, ok := parseAudioPayloadWithSeq(buffer[:n])
 		if !ok {
 			continue
+		}
+		
+		// Track packet for network statistics
+		if vc.networkStats != nil {
+			lostPackets := vc.networkStats.RecordPacket(seqNum)
+			if lostPackets > 0 {
+				log.Printf("Detected %d lost packet(s) before seq %d", lostPackets, seqNum)
+			}
 		}
 
 		packetCount++
 		if packetCount%100 == 1 {
-			log.Printf("Received audio packet #%d, size=%d bytes", packetCount, len(audioData))
+			loss := 0.0
+			if vc.networkStats != nil {
+				loss = vc.networkStats.GetPacketLossPercent()
+			}
+			log.Printf("Received audio packet #%d, size=%d bytes, loss=%.2f%%", packetCount, len(audioData), loss)
 		}
 
+		// Use jitter buffer if PLC is enabled
+		if vc.plcEnabled.Load() && vc.jitterBuffer != nil {
+			vc.jitterBuffer.AddPacket(seqNum, audioData, codec, pos)
+			continue
+		}
+
+		// Direct playback (legacy path without PLC)
 		if vc.audioManager != nil {
 			samples, err := vc.audioManager.DecodeAudio(codec, audioData)
 			if err != nil {
@@ -745,13 +826,18 @@ func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
 }
 
 func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
+	codec, audioData, pos, _, ok := parseAudioPayloadWithSeq(data)
+	return codec, audioData, pos, ok
+}
+
+func parseAudioPayloadWithSeq(data []byte) (byte, []byte, *[3]float32, uint32, bool) {
 	if len(data) < audioHeaderLegacy {
-		return AudioCodecPCM, nil, nil, false
+		return AudioCodecPCM, nil, nil, 0, false
 	}
 
 	packetType := data[0]
 	if packetType != PacketTypeAudio && packetType != PacketTypeTestAudio {
-		return AudioCodecPCM, nil, nil, false
+		return AudioCodecPCM, nil, nil, 0, false
 	}
 
 	codecByte := data[1]
@@ -759,12 +845,13 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
 	hasPos := (codecByte & 0x80) != 0
 	if baseCodec == AudioCodecOpus || baseCodec == AudioCodecPCM {
 		if len(data) < audioHeaderWithCodec {
-			return AudioCodecPCM, nil, nil, false
+			return AudioCodecPCM, nil, nil, 0, false
 		}
+		seqNum := binary.BigEndian.Uint32(data[18:22])
 		audioLen := binary.BigEndian.Uint32(data[22:26])
 		totalLen := audioHeaderWithCodec + int(audioLen)
 		if totalLen > len(data) || audioLen == 0 {
-			return AudioCodecPCM, nil, nil, false
+			return AudioCodecPCM, nil, nil, 0, false
 		}
 		var pos *[3]float32
 		if hasPos && len(data) >= totalLen+12 {
@@ -777,13 +864,13 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
 		} else if !hasPos {
 			log.Printf("[AUDIO_RX] hasPos=false (broadcast/non-positional)")
 		}
-		return baseCodec, data[26:totalLen], pos, true
+		return baseCodec, data[26:totalLen], pos, seqNum, true
 	}
 
 	audioLen := binary.BigEndian.Uint32(data[21:25])
 	totalLen := audioHeaderLegacy + int(audioLen)
 	if totalLen > len(data) || audioLen == 0 {
-		return AudioCodecPCM, nil, nil, false
+		return AudioCodecPCM, nil, nil, 0, false
 	}
-	return AudioCodecPCM, data[25:totalLen], nil, true
+	return AudioCodecPCM, data[25:totalLen], nil, 0, true
 }
