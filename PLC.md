@@ -14,7 +14,13 @@ Packet Loss Concealment (PLC) is a critical feature for maintaining audio qualit
 - Opus encoder configured with in-band FEC
 - Default setting: 10% expected packet loss
 - Configurable range: 0-20%
-- Adds redundant data to packets for recovery
+- Adds redundant data to packets for increased resilience
+
+**Note on FEC Implementation:**
+- Server-side FEC encoding is fully functional and increases stream robustness
+- Client-side FEC decoding is limited by opus4j library API (doesn't expose FEC decode flag)
+- Primary packet loss mitigation comes from PLC, with FEC providing additional redundancy
+- Even without client-side FEC decoding, server-side FEC improves overall quality
 
 **Implementation**: `OpusCodec.java`
 ```java

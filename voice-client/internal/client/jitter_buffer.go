@@ -6,6 +6,11 @@ import (
 	"time"
 )
 
+const (
+	// maxConsecutivePLCFrames is the maximum number of PLC frames to generate before skipping
+	maxConsecutivePLCFrames = 5
+)
+
 // JitterBufferPacket represents a packet in the jitter buffer
 type JitterBufferPacket struct {
 	sequenceNumber uint32
@@ -149,8 +154,8 @@ func (jb *JitterBuffer) PlayNextPacket() bool {
 
 		// If packet is very late and we should play next available
 		if nextPacket.sequenceNumber > expectedSeq && age >= jb.minDelay*2 {
-			// Fill gap with PLC
-			for seq := expectedSeq; seq < nextPacket.sequenceNumber && seq < expectedSeq+5; seq++ {
+			// Fill gap with PLC (limit consecutive PLC frames to avoid long silence)
+			for seq := expectedSeq; seq < nextPacket.sequenceNumber && seq < expectedSeq+maxConsecutivePLCFrames; seq++ {
 				jb.playPLC()
 				jb.lastPlayed = seq
 			}

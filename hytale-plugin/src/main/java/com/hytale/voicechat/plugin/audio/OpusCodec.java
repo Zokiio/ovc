@@ -83,25 +83,23 @@ public class OpusCodec implements Closeable {
      * Decode audio using Forward Error Correction from next packet.
      * Call this when a packet is lost and the next packet contains FEC data.
      * 
-     * Note: The current opus4j library version may not fully support FEC decoding.
-     * This method attempts FEC recovery but falls back to PLC if unavailable.
-     * For best packet loss handling, combine server-side FEC (encoding) with
-     * client-side PLC (this method).
+     * Note: The current implementation is limited by the opus4j library's API.
+     * A complete FEC implementation would use opus_decode() with decode_fec=1
+     * to extract redundant data from the next packet. However, since opus4j
+     * doesn't expose the FEC decoding flag, this method currently falls back
+     * to standard PLC.
      * 
-     * @param nextPacketOpusData the next packet's Opus data containing FEC
-     * @return decoded audio frame reconstructed from FEC data or PLC interpolation
+     * Server-side FEC encoding is still beneficial as it increases the robustness
+     * of the audio stream, even if client-side FEC decoding is not fully utilized.
+     * The primary packet loss mitigation comes from the PLC functionality.
+     * 
+     * @param nextPacketOpusData the next packet's Opus data (unused in current implementation)
+     * @return decoded audio frame using PLC interpolation
      */
     public short[] decodeFEC(byte[] nextPacketOpusData) {
-        if (nextPacketOpusData == null || nextPacketOpusData.length == 0) {
-            return decodePLC();
-        }
-        try {
-            // Attempt to decode FEC data from next packet to recover lost frame
-            // If opus4j doesn't expose FEC decoding API, this falls back to PLC
-            return decoder.decode(nextPacketOpusData);
-        } catch (Exception e) {
-            return decodePLC();
-        }
+        // Current limitation: opus4j doesn't expose FEC decode flag
+        // Fallback to PLC which is the primary packet loss mitigation
+        return decodePLC();
     }
     
     /**
