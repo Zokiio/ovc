@@ -17,6 +17,22 @@ Proximity-based voice chat for Hytale with a Go desktop client and a Java plugin
 
 ## Quick Start
 
+### Build Everything
+
+```bash
+make all
+```
+
+Or build components individually:
+
+```bash
+# Build the plugin
+make build-plugin
+
+# Build the client
+make build-client
+```
+
 ### Build the Hytale Plugin
 
 ```bash
@@ -51,6 +67,7 @@ hytale-voice-chat/
 │   ├── src/               # Plugin source code
 │   ├── build.gradle       # Gradle build configuration
 │   └── settings.gradle    # Gradle settings
+├── Makefile               # Root build commands
 ├── README.md              # This file
 └── .gitignore             # Git ignore rules
 ```
