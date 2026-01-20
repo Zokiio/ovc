@@ -31,25 +31,27 @@ cp /path/to/Assets.zip hytale-plugin/hytalefiles/
 ### 3. Build the project
 
 ```bash
+cd hytale-plugin
 ./gradlew clean build
 ```
 
 Gradle builds the shared library and the Hytale plugin:
 - `common` - Shared models and packets
-- `hytale-plugin` - Hytale server plugin with integrated voice server
+- Plugin JAR with all dependencies
 
 ### 4. Run components
 
-**Go Voice Client:**
+**Voice Client:**
 ```bash
-cd go-client
+cd voice-client
 go build -o HytaleVoiceChat ./cmd/voice-client
 ./HytaleVoiceChat
 ```
 
 **Build Plugin for Deployment:**
 ```bash
-./gradlew :hytale-plugin:build
+cd hytale-plugin
+./gradlew build
 # JAR is automatically copied to /Users/zoki/hytale/server/mods/
 ```
 
@@ -57,15 +59,18 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 
 ```
 hytale-voice-chat/
-├── common/                 # Shared code (models, packets, config)
-├── go-client/              # Go GUI client (Fyne + PortAudio)
+├── voice-client/           # Go GUI client (Fyne + PortAudio)
 ├── hytale-plugin/          # Hytale plugin with integrated UDP voice server
-│   └── hytalefiles/        # (local, not committed)
-│       ├── HytaleServer.jar
-│       ├── HytaleServer.aot
-│       └── Assets.zip
-├── README.md              # Architecture overview
-└── TEST.md                # Testing guide
+│   ├── common/             # Shared code (models, packets, config)
+│   ├── docs/               # Plugin documentation
+│   ├── src/                # Plugin source code
+│   ├── hytalefiles/        # (local, not committed)
+│   │   ├── HytaleServer.jar
+│   │   ├── HytaleServer.aot
+│   │   └── Assets.zip
+│   └── build.gradle        # Build configuration
+├── README.md               # Architecture overview
+└── .gitignore
 ```
 
 ## Important Notes
@@ -76,5 +81,5 @@ hytale-voice-chat/
 
 ## Development
 
-See [README.md](README.md) for architecture details.
+See [README.md](../../README.md) for architecture details.
 See [TEST.md](TEST.md) for testing procedures.
