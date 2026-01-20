@@ -18,15 +18,15 @@ type JitterBufferPacket struct {
 
 // JitterBuffer reorders packets and handles packet loss with PLC
 type JitterBuffer struct {
-	mu             sync.Mutex
-	packets        packetHeap
-	maxSize        int
-	minDelay       time.Duration
-	lastPlayed     uint32
-	initialized    bool
-	audioManager   *SimpleAudioManager
-	outputChan     chan<- []int16
-	maxDistance    float64
+	mu           sync.Mutex
+	packets      packetHeap
+	maxSize      int
+	minDelay     time.Duration
+	lastPlayed   uint32
+	initialized  bool
+	audioManager *SimpleAudioManager
+	outputChan   chan<- []int16
+	maxDistance  float64
 }
 
 // packetHeap implements heap.Interface for sequence-ordered packets
@@ -63,7 +63,7 @@ func NewJitterBuffer(audioManager *SimpleAudioManager, outputChan chan<- []int16
 	if bufferMs > 200 {
 		bufferMs = 200 // Maximum 200ms
 	}
-	
+
 	jb := &JitterBuffer{
 		packets:      make(packetHeap, 0, bufferMs/20), // ~1 packet per 20ms
 		maxSize:      bufferMs / 20,
@@ -80,18 +80,18 @@ func NewJitterBuffer(audioManager *SimpleAudioManager, outputChan chan<- []int16
 func (jb *JitterBuffer) AddPacket(sequenceNumber uint32, audioData []byte, codec byte, position *[3]float32) {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
-	
+
 	// Initialize on first packet
 	if !jb.initialized {
 		jb.lastPlayed = sequenceNumber - 1
 		jb.initialized = true
 	}
-	
+
 	// Discard duplicate or very old packets
 	if sequenceNumber <= jb.lastPlayed {
 		return
 	}
-	
+
 	// Create packet
 	packet := &JitterBufferPacket{
 		sequenceNumber: sequenceNumber,
@@ -100,10 +100,10 @@ func (jb *JitterBuffer) AddPacket(sequenceNumber uint32, audioData []byte, codec
 		position:       position,
 		timestamp:      time.Now(),
 	}
-	
+
 	// Add to heap
 	heap.Push(&jb.packets, packet)
-	
+
 	// Limit buffer size (drop oldest packets if full)
 	for jb.packets.Len() > jb.maxSize {
 		heap.Pop(&jb.packets)
@@ -114,20 +114,20 @@ func (jb *JitterBuffer) AddPacket(sequenceNumber uint32, audioData []byte, codec
 func (jb *JitterBuffer) PlayNextPacket() bool {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
-	
+
 	if !jb.initialized {
 		return false
 	}
-	
+
 	expectedSeq := jb.lastPlayed + 1
-	
+
 	// Check if we have the expected packet
 	if jb.packets.Len() > 0 {
 		nextPacket := jb.packets[0]
-		
+
 		// Check if oldest packet is old enough to play
 		age := time.Since(nextPacket.timestamp)
-		
+
 		// If we have the expected packet and minimum delay passed
 		if nextPacket.sequenceNumber == expectedSeq && age >= jb.minDelay {
 			packet := heap.Pop(&jb.packets).(*JitterBufferPacket)
@@ -135,7 +135,7 @@ func (jb *JitterBuffer) PlayNextPacket() bool {
 			jb.playPacket(packet)
 			return true
 		}
-		
+
 		// If packet is very late and we should play next available
 		if nextPacket.sequenceNumber > expectedSeq && age >= jb.minDelay*2 {
 			// Fill gap with PLC
@@ -157,7 +157,7 @@ func (jb *JitterBuffer) PlayNextPacket() bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -166,20 +166,20 @@ func (jb *JitterBuffer) playPacket(packet *JitterBufferPacket) {
 	if jb.audioManager == nil || jb.outputChan == nil {
 		return
 	}
-	
+
 	samples, err := jb.audioManager.DecodeAudio(packet.codec, packet.audioData)
 	if err != nil {
 		// If decode fails, use PLC
 		jb.playPLC()
 		return
 	}
-	
+
 	// Apply spatial audio if position data available
 	stereo := spatialize(samples, packet.position, jb.maxDistance)
 	if stereo == nil {
 		return // Too far away
 	}
-	
+
 	// Send to output
 	select {
 	case jb.outputChan <- stereo:
@@ -193,7 +193,7 @@ func (jb *JitterBuffer) playPLC() {
 	if jb.audioManager == nil || jb.outputChan == nil {
 		return
 	}
-	
+
 	// Use Opus PLC by decoding with nil data
 	// The Opus decoder will synthesize a plausible frame
 	samples, err := jb.audioManager.DecodeAudio(AudioCodecOpus, nil)
@@ -201,7 +201,7 @@ func (jb *JitterBuffer) playPLC() {
 		// Fallback to silence
 		samples = make([]int16, 960)
 	}
-	
+
 	// PLC frames are mono and should be converted to stereo with no panning
 	stereo := spatialize(samples, nil, jb.maxDistance)
 	if stereo == nil {
@@ -211,7 +211,7 @@ func (jb *JitterBuffer) playPLC() {
 			stereo[2*i+1] = samples[i]
 		}
 	}
-	
+
 	// Send to output
 	select {
 	case jb.outputChan <- stereo:
@@ -224,7 +224,7 @@ func (jb *JitterBuffer) playPLC() {
 func (jb *JitterBuffer) Flush() {
 	jb.mu.Lock()
 	defer jb.mu.Unlock()
-	
+
 	jb.packets = make(packetHeap, 0, jb.maxSize)
 	heap.Init(&jb.packets)
 }

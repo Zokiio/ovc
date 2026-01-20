@@ -13,17 +13,17 @@ type NetworkStats struct {
 	packetsOutOfOrder   uint64
 	lastSequenceNumber  uint32
 	sequenceInitialized bool
-	
+
 	// Rolling window for packet loss calculation
-	recentPackets     uint64
-	recentLost        uint64
-	windowSize        uint64
-	
+	recentPackets uint64
+	recentLost    uint64
+	windowSize    uint64
+
 	// Jitter and latency tracking
-	lastPacketTime    time.Time
-	jitterSum         float64
-	jitterCount       int64
-	avgJitter         float64
+	lastPacketTime time.Time
+	jitterSum      float64
+	jitterCount    int64
+	avgJitter      float64
 }
 
 // NewNetworkStats creates a new network statistics tracker
@@ -37,9 +37,9 @@ func NewNetworkStats() *NetworkStats {
 func (ns *NetworkStats) RecordPacket(sequenceNumber uint32) (lost int) {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
-	
+
 	now := time.Now()
-	
+
 	// Initialize on first packet
 	if !ns.sequenceInitialized {
 		ns.lastSequenceNumber = sequenceNumber
@@ -49,10 +49,10 @@ func (ns *NetworkStats) RecordPacket(sequenceNumber uint32) (lost int) {
 		ns.recentPackets++
 		return 0
 	}
-	
+
 	// Calculate expected sequence number
 	expectedSeq := ns.lastSequenceNumber + 1
-	
+
 	// Check for packet loss or reordering
 	var lostPackets int
 	if sequenceNumber > expectedSeq {
@@ -66,11 +66,11 @@ func (ns *NetworkStats) RecordPacket(sequenceNumber uint32) (lost int) {
 		// Don't count as received in expected order
 		return 0
 	}
-	
+
 	ns.packetsReceived++
 	ns.recentPackets++
 	ns.lastSequenceNumber = sequenceNumber
-	
+
 	// Calculate jitter (inter-arrival time variation)
 	if !ns.lastPacketTime.IsZero() {
 		interval := now.Sub(ns.lastPacketTime).Seconds()
@@ -86,13 +86,13 @@ func (ns *NetworkStats) RecordPacket(sequenceNumber uint32) (lost int) {
 		}
 	}
 	ns.lastPacketTime = now
-	
+
 	// Maintain rolling window
 	if ns.recentPackets > ns.windowSize {
 		ns.recentPackets = ns.windowSize
 		ns.recentLost = uint64(float64(ns.recentLost) * 0.9) // Decay old losses
 	}
-	
+
 	return lostPackets
 }
 
@@ -100,11 +100,11 @@ func (ns *NetworkStats) RecordPacket(sequenceNumber uint32) (lost int) {
 func (ns *NetworkStats) GetPacketLossPercent() float64 {
 	ns.mu.RLock()
 	defer ns.mu.RUnlock()
-	
+
 	if ns.recentPackets == 0 {
 		return 0.0
 	}
-	
+
 	return (float64(ns.recentLost) / float64(ns.recentPackets)) * 100.0
 }
 
@@ -139,7 +139,7 @@ func (ns *NetworkStats) GetAverageJitter() float64 {
 // GetNetworkQuality returns a quality rating: "Excellent", "Good", "Fair", "Poor"
 func (ns *NetworkStats) GetNetworkQuality() string {
 	loss := ns.GetPacketLossPercent()
-	
+
 	if loss < 1.0 {
 		return "Excellent"
 	} else if loss < 3.0 {
@@ -155,7 +155,7 @@ func (ns *NetworkStats) GetNetworkQuality() string {
 func (ns *NetworkStats) Reset() {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
-	
+
 	ns.packetsReceived = 0
 	ns.packetsLost = 0
 	ns.packetsOutOfOrder = 0
