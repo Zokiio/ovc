@@ -64,8 +64,9 @@ hytale-voice-chat/
 │       ├── HytaleServer.jar
 │       ├── HytaleServer.aot
 │       └── Assets.zip
+├── docs/                  # Java plugin documentation
 ├── README.md              # Architecture overview
-└── TEST.md                # Testing guide
+└── ...
 ```
 
 ## Important Notes
@@ -76,5 +77,5 @@ hytale-voice-chat/
 
 ## Development
 
-See [README.md](README.md) for architecture details.
+See [README.md](../README.md) for architecture details.
 See [TEST.md](TEST.md) for testing procedures.
