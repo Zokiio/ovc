@@ -7,7 +7,9 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
+import com.hytale.voicechat.plugin.command.VoiceProximityCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
+import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -30,6 +32,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
     private int voicePort;
+    private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -53,12 +56,14 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Register event system for player join/quit tracking
             EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker));
+            EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
             
             // Initialize event listener
             eventListener = new PlayerEventListener(positionTracker);
             
             // Initialize and start UDP voice server
             udpServer = new UDPSocketManager(voicePort);
+            udpServer.setProximityDistance(proximityDistance);
             udpServer.setPositionTracker(positionTracker);
             udpServer.setEventListener(eventListener);
             udpServer.start();
@@ -66,7 +71,10 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Start position tracking
             positionTracker.start();
             
-            logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort);
+            // Register commands
+            getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
+            
+            logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
             logger.atSevere().log("Failed to setup Hytale Voice Chat Plugin: " + e.getMessage());
             e.printStackTrace();
@@ -99,18 +107,18 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     /**
      * Handle player movement
      */
-    public void onPlayerMove(UUID playerId, String playerName, double x, double y, double z, String worldId) {
+    public void onPlayerMove(UUID playerId, String playerName, double x, double y, double z, double yaw, double pitch, String worldId) {
         if (positionTracker != null) {
-            positionTracker.updatePosition(playerId, playerName, x, y, z, worldId);
+            positionTracker.updatePosition(playerId, playerName, x, y, z, yaw, pitch, worldId);
         }
     }
     
     /**
      * Handle player join
      */
-    public void onPlayerJoin(UUID playerId, String playerName, double x, double y, double z, String worldId) {
+    public void onPlayerJoin(UUID playerId, String playerName, double x, double y, double z, double yaw, double pitch, String worldId) {
         if (positionTracker != null) {
-            PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, worldId);
+            PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, yaw, pitch, worldId);
             positionTracker.addPlayer(position);
             logger.atInfo().log("Player joined voice chat: " + playerName + " (" + playerId + ")");
         }
@@ -131,6 +139,23 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     public void configure(int voicePort) {
         this.voicePort = voicePort;
+    }
+
+    /**
+     * Configure proximity distance (blocks)
+     */
+    public void configureProximity(double proximityDistance) {
+        this.proximityDistance = Math.max(1.0, Math.min(proximityDistance, NetworkConfig.MAX_VOICE_DISTANCE));
+        if (udpServer != null) {
+            udpServer.setProximityDistance(this.proximityDistance);
+        }
+    }
+
+    /**
+     * Get current proximity distance (blocks)
+     */
+    public double getProximityDistance() {
+        return proximityDistance;
     }
 
     // TODO: Register Hytale event listeners when API becomes available

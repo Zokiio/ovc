@@ -42,8 +42,8 @@ public class PlayerPositionTracker {
     /**
      * Update a player's position
      */
-    public void updatePosition(UUID playerId, String playerName, double x, double y, double z, String worldId) {
-        PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, worldId);
+    public void updatePosition(UUID playerId, String playerName, double x, double y, double z, double yaw, double pitch, String worldId) {
+        PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, yaw, pitch, worldId);
         playerPositions.put(playerId, position);
     }
 
