@@ -5,7 +5,7 @@ A lightweight voice chat client for Hytale written in Go.
 ## Building
 
 ### Prerequisites
-- Go 1.23+
+- Go 1.24+
 - PortAudio development libraries
   - **macOS**: `brew install portaudio`
   - **Windows (MSYS2)**:
@@ -70,25 +70,29 @@ Logs are written to:
 
 ## Features
 
-- Lightweight GUI built with Fyne
-- UDP audio streaming
-- Microphone and speaker selection
-- Config persistence for server, username, and devices
-- Opus codec support (planned)
-- Cross-platform (Windows, macOS, Linux)
-- Single executable (no Java required!)
+- ✅ Lightweight GUI built with Fyne
+- ✅ UDP audio streaming
+- ✅ Microphone and speaker selection
+- ✅ Config persistence for server, username, and devices
+- ✅ Opus codec support
+- ✅ Cross-platform (Windows, macOS, Linux)
+- ✅ Single executable (no Java required!)
+- ✅ Real-time audio capture and playback (48kHz, 16-bit, mono)
+- ✅ Full-duplex streaming (simultaneous send/receive)
 
 ## Protocol
 
-Connects to Hytale voice server using the same packet format as Java client:
-- Authentication handshake
-- Audio packet streaming
+Connects to Hytale voice server using shared packet format:
+- Authentication handshake with username mapping
+- Opus-encoded audio packet streaming
 - Server acknowledgment
+- Proximity-based audio routing (30 block range)
 
 ## TODO
 
-- [ ] Opus codec integration
-- [ ] Audio transmit loop
-- [ ] Audio receive loop
+- [ ] Voice Activity Detection (VAD)
+- [ ] Echo cancellation
+- [ ] 3D positional audio
+- [ ] Push-to-talk mode
 - [ ] Connection status UI improvements
-- [ ] Error handling UI
+- [ ] Packet loss recovery

@@ -5,15 +5,16 @@
 ✅ **Working:**
 - Username-based authentication
 - Real-time audio capture from microphone (48kHz, 16-bit, mono)
+- Opus codec compression and decompression
 - UDP packet transmission with sequence numbers
 - Audio reception and playback
 - Full-duplex streaming (simultaneous send/receive)
 - Proximity-based routing on server (30 block range)
+- Low bandwidth usage (~24-48 Kbps per client)
 
 ⚠️ **Not Yet Implemented:**
-- Opus codec compression (sending raw PCM - high bandwidth!)
 - OpenAL 3D positional audio
-- Actual Hytale player event hooks
+- Full Hytale player event hooks (positions tracked but not from Hytale API)
 - Voice Activity Detection (always transmitting)
 
 ## Testing Locally
@@ -21,10 +22,11 @@
 ### 1. Start the Plugin (Server)
 ```bash
 # Build and copy to Hytale server
-./gradlew :hytale-plugin:build
+cd hytale-plugin
+./gradlew build
 
-# The plugin JAR is auto-copied to:
-# /Users/zoki/hytale/server/mods/hytale-plugin-1.0.0-SNAPSHOT.jar
+# Copy JAR to your Hytale server's mods/ directory:
+# hytale-plugin/build/libs/hytale-voice-chat-1.0.0-SNAPSHOT.jar
 
 # Start Hytale server
 # Plugin will log: "UDP socket listening on port 24454"
@@ -34,7 +36,7 @@
 
 **Terminal 1 - Start Client #1:**
 ```bash
-cd go-client
+cd voice-client
 go build -o HytaleVoiceChat ./cmd/voice-client
 ./HytaleVoiceChat
 ```
@@ -45,7 +47,7 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 
 **Terminal 2 - Start Client #2:**
 ```bash
-cd go-client
+cd voice-client
 ./HytaleVoiceChat
 ```
 - Username: `Bob`
@@ -77,7 +79,7 @@ DEBUG: Routed audio from Alice to 1 nearby players
 
 - **Without Hytale integration:** All clients hear each other (broadcast mode)
 - **With player positions:** Only clients within 30 blocks hear each other
-- **Audio quality:** Raw PCM (uncompressed) - clear but uses ~1.5 Mbps bandwidth
+- **Audio quality:** Opus compressed - clear and efficient (~24-48 Kbps bandwidth)
 - **Latency:** ~20-50ms depending on network
 
 ### 5. Troubleshooting
@@ -105,30 +107,32 @@ DEBUG: Routed audio from Alice to 1 nearby players
 
 ## Network Analysis
 
-**Bandwidth per client (uncompressed PCM):**
+**Bandwidth per client (with Opus compression):**
 - Sample rate: 48000 Hz
 - Bit depth: 16 bits = 2 bytes
 - Channels: 1 (mono)
-- **Bandwidth:** 48000 × 2 = 96,000 bytes/sec ≈ 768 Kbps
+- Opus bitrate: 24-48 Kbps
+- **Bandwidth:** ~24-48 Kbps (compressed)
 
-**With Opus codec (future):**
-- Typical voice: 24-32 Kbps
-- High quality: 48-64 Kbps
-- **Bandwidth reduction:** ~12-32x smaller
+**Comparison to uncompressed:**
+- Uncompressed PCM: 768 Kbps
+- Opus compressed: 24-48 Kbps
+- **Bandwidth reduction:** ~12-32x smaller ✅
 
 ## Current Limitations
 
-1. **No compression:** Using ~768 Kbps per client
+1. ✅ **No compression:** ~~Using ~768 Kbps per client~~ → Now using Opus at 24-48 Kbps
 2. **No VAD:** Always transmitting (even silence)
 3. **No echo cancellation:** May hear yourself through other clients
 4. **Mono only:** No stereo or 3D positioning yet
 5. **No packet loss recovery:** Lost packets = audio gaps
 6. **Fixed 30-block range:** Not configurable yet
+7. **Player positions not from Hytale:** Positions are tracked but not integrated with actual player movement
 
 ## Next Steps for Testing
 
-1. **Add Opus codec:**
-   - Reduce bandwidth to 24-48 Kbps
+1. ✅ **Add Opus codec:**
+   - Bandwidth reduced to 24-48 Kbps
    - Better for real network conditions
    
 2. **Mock player positions:**
@@ -145,15 +149,19 @@ DEBUG: Routed audio from Alice to 1 nearby players
    - Hook player movement for position updates
    - Test with players in different worlds
 
+5. **Add Voice Activity Detection:**
+   - Detect silence and skip transmission
+   - Reduce bandwidth when not speaking
+
 ## Success Criteria
 
 - ✅ Two clients can talk to each other
 - ✅ Audio is clear and real-time
 - ✅ Authentication works (username linking)
 - ✅ Server routes packets correctly
-- ⏳ Opus codec reduces bandwidth
+- ✅ Opus codec reduces bandwidth
 - ⏳ 3D audio positions players in space
-- ⏳ Only players within 30 blocks hear each other
+- ⏳ Only players within 30 blocks hear each other (needs Hytale integration)
 
 ## Example Test Session
 

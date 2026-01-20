@@ -38,7 +38,7 @@ UDPSocketManager receives packet:
 AudioPacket {
     packetType: 0x02
     senderId: UUID (from authentication)
-    audioData: byte[]
+    audioData: byte[] (Opus-encoded)
     sequenceNumber: int
 }
 ```

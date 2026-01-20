@@ -114,8 +114,8 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 ## 🛠️ Development
 
 ### Prerequisites
-- **Voice Client**: Go 1.23+, PortAudio
-- **Hytale Plugin**: Java 25+, Gradle, Hytale Server API files
+- **Voice Client**: Go 1.24+, PortAudio
+- **Hytale Plugin**: Java 25, Gradle, Hytale Server API files
 
 ### Building Both Components
 ```bash

@@ -31,7 +31,7 @@ Hytale Server:
 ```
 Voice Client (Steve's computer):
 - GUI opens
-- Username field: "Steve" (pre-filled)
+- Username field: "Steve" (user enters manually)
 - Server: localhost:24454
 - [Connect] clicked
 ```
@@ -77,7 +77,7 @@ Plugin:
 Voice Client -> Plugin:
 AudioPacket {
     clientId: aaaaaaaa-bbbb... (Steve's client)
-    audioData: [raw PCM bytes]
+    audioData: [Opus-encoded bytes]
     sequenceNumber: 1
 }
 
