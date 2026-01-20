@@ -48,11 +48,19 @@ hytale-voice-chat/
 ```
 ## Go Client
 
-For those looking to use the Go client, please refer to the following details from the go-client's README:
+The Go client provides a lightweight, cross-platform desktop application for voice chat.
 
-[Go Client README](https://github.com/yourusername/go-client)
+![Voice Client Screenshot](.github/images/voice-client-screenshot.png)
 
-Make sure to follow the installation and usage instructions provided there.
+**Features:**
+- Server connection management
+- Audio device selection (microphone and speaker)
+- Voice Activity Detection (VAD) with adjustable threshold
+- Push-to-Talk (PTT) mode with customizable keybinds
+- Volume controls for input and output
+- Audio testing capabilities
+
+For detailed build instructions and platform-specific information, see the [Go Client README](go-client/README.md).
 
 ## Java Client
 
