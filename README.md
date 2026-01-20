@@ -4,7 +4,7 @@ Proximity-based voice chat for Hytale with a Go desktop client and a Java plugin
 
 ## Components
 
-- **Go Client** (`go-client/`)
+- **Go Client** (`voice-client/`)
   - Cross-platform GUI built with Fyne
   - Captures microphone audio, sends UDP packets, and plays received audio
   - Stores server/device preferences and writes logs to the user config folder
@@ -43,7 +43,7 @@ cd hytale-plugin
 ### Build the Go Client
 
 ```bash
-cd go-client
+cd voice-client
 go build -o HytaleVoiceChat ./cmd/voice-client
 ```
 
@@ -54,14 +54,14 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 ```
 
 For detailed instructions, see:
-- [Go Client README](go-client/README.md)
+- [Go Client README](voice-client/README.md)
 - [Hytale Plugin README](hytale-plugin/README.md)
 
 ## Project Structure
 
 ```
 hytale-voice-chat/
-├── go-client/             # Go GUI client (Fyne + PortAudio)
+├── voice-client/          # Go GUI client (Fyne + PortAudio)
 ├── hytale-plugin/         # Java plugin with integrated UDP server
 │   ├── common/            # Shared models + packet formats
 │   ├── src/               # Plugin source code

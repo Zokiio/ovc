@@ -6,7 +6,7 @@ all: build-client build-plugin
 # Build the Go client
 build-client:
 	@echo "Building Go client..."
-	cd go-client && $(MAKE) build
+	cd voice-client && $(MAKE) build
 
 # Build the Hytale plugin
 build-plugin:
@@ -16,7 +16,7 @@ build-plugin:
 # Clean build artifacts
 clean:
 	@echo "Cleaning Go client..."
-	cd go-client && $(MAKE) clean
+	cd voice-client && $(MAKE) clean
 	@echo "Cleaning Hytale plugin..."
 	cd hytale-plugin && ./gradlew clean
 

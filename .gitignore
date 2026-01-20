@@ -34,6 +34,6 @@ hs_err_pid*
 logs/
 *.log
 # Go client executables
-go-client/HytaleVoiceChat
-go-client/HytaleVoiceChat.exe
-go-client/fyne-cross/
+voice-client/HytaleVoiceChat
+voice-client/HytaleVoiceChat.exe
+voice-client/fyne-cross/
