@@ -17,6 +17,8 @@ The voice client is a **standalone desktop application** that players install on
 - UDP-based communication with the server
 - No Java installation required
 
+![Voice Client Screenshot](.github/images/voice-client-screenshot.png)
+
 ### Quick Start
 ```bash
 cd voice-client
