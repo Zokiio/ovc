@@ -4,6 +4,7 @@ import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.packet.AudioPacket;
 import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
+import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
@@ -26,6 +27,7 @@ public class UDPSocketManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final int port;
+    private volatile double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
     private final Map<UUID, InetSocketAddress> clients;
     private final Map<String, UUID> usernameToClientUUID; // username -> voice client UUID
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
@@ -39,6 +41,10 @@ public class UDPSocketManager {
         this.clients = new ConcurrentHashMap<>();
         this.usernameToClientUUID = new ConcurrentHashMap<>();
         this.clientToPlayerUUID = new ConcurrentHashMap<>();
+    }
+
+    public void setProximityDistance(double proximityDistance) {
+        this.proximityDistance = proximityDistance;
     }
     
     public void setPositionTracker(PlayerPositionTracker tracker) {
@@ -73,7 +79,7 @@ public class UDPSocketManager {
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
         logger.atInfo().log("  VOICE SERVER STARTED");
         logger.atInfo().log("  UDP Port: " + port);
-        logger.atInfo().log("  Proximity Range: 30 blocks");
+        logger.atInfo().log("  Proximity Range: " + proximityDistance + " blocks");
         logger.atInfo().log("  Ready for connections...");
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
@@ -93,7 +99,7 @@ public class UDPSocketManager {
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
 
-    private static class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
+    private class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
         private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
         private final Map<UUID, InetSocketAddress> clients;
         private final Map<String, UUID> usernameToClientUUID;
@@ -131,8 +137,11 @@ public class UDPSocketManager {
                     case 0x01: // Authentication packet
                         handleAuthentication(ctx, data, packet.sender());
                         break;
-                    case 0x02: // Audio packet
-                        handleAudio(ctx, data, packet.sender());
+                    case 0x02: // Audio packet (positional routing)
+                        handleAudio(ctx, data, packet.sender(), false);
+                        break;
+                    case 0x05: // Test audio broadcast (non-positional)
+                        handleAudio(ctx, data, packet.sender(), true);
                         break;
                     case 0x04: // Disconnect packet
                         handleDisconnect(ctx, data, packet.sender());
@@ -142,7 +151,7 @@ public class UDPSocketManager {
                 }
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error processing voice packet", e);
+                logger.atSevere().withCause(e).log("Error processing voice packet");
             }
         }
         
@@ -203,7 +212,7 @@ public class UDPSocketManager {
                 sendAuthAck(ctx, clientId, sender, true, "Authentication accepted");
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error handling authentication", e);
+                logger.atSevere().withCause(e).log("Error handling authentication");
             }
         }
         
@@ -256,7 +265,7 @@ public class UDPSocketManager {
                 logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error handling disconnect", e);
+                logger.atSevere().withCause(e).log("Error handling disconnect");
             }
         }
         
@@ -272,29 +281,42 @@ public class UDPSocketManager {
             return new UUID(msb, lsb);
         }
         
-        private void handleAudio(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+        private void handleAudio(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender, boolean forceBroadcast) {
             try {
                 AudioPacket audioPacket = AudioPacket.deserialize(data);
                 UUID senderId = audioPacket.getSenderId();
-                
-                // Verify client is registered
+
+                // Verify client is registered; attempt to heal only if address matches an existing client
                 InetSocketAddress registered = clients.get(senderId);
                 if (registered == null) {
-                    logger.atWarning().log("Received audio from unregistered client: " + senderId);
-                    return;
+                    UUID addressMatch = findClientByAddress(sender);
+                    if (addressMatch != null) {
+                        logger.atWarning().log("Received audio with mismatched UUID " + senderId + " from " + sender + "; treating as " + addressMatch);
+                        senderId = addressMatch;
+                        registered = clients.get(addressMatch);
+                        audioPacket = cloneWithSender(audioPacket, addressMatch);
+                    } else {
+                        logger.atWarning().log("Received audio from unregistered client: " + senderId + " at " + sender + " (clients=" + clients.size() + ")");
+                        return;
+                    }
                 }
 
-                // Drop packets if sender address doesn't match the registered endpoint to prevent spoofing
+                // If the address changed (e.g., NAT rebinding), update the mapping only for the known clientId
                 if (!registered.equals(sender)) {
-                    logger.atWarning().log("Dropping spoofed audio packet for client " + senderId + " from " + sender);
-                    return;
+                    logger.atInfo().log("Updating client " + senderId + " address from " + registered + " to " + sender);
+                    clients.put(senderId, sender);
+                    registered = sender;
                 }
                 
-                // Route packet based on proximity
-                routePacket(ctx, audioPacket, sender);
+                if (forceBroadcast || positionTracker == null) {
+                    broadcastToAll(ctx, audioPacket, sender);
+                } else {
+                    // Route packet based on proximity
+                    routePacket(ctx, audioPacket, sender);
+                }
                 
             } catch (Exception e) {
-                logger.atSevere().log("Error handling audio packet", e);
+                logger.atSevere().withCause(e).log("Error handling audio packet");
             }
         }
 
@@ -310,6 +332,17 @@ public class UDPSocketManager {
             // Get Hytale player UUID from voice client UUID
             UUID playerUUID = clientToPlayerUUID.get(clientId);
             if (playerUUID == null) {
+                // Try to resolve lazily from username mapping if the player joined after voice auth
+                String username = findUsernameByClientId(clientId);
+                if (username != null) {
+                    playerUUID = positionTracker.getPlayerUUIDByUsername(username);
+                    if (playerUUID != null) {
+                        clientToPlayerUUID.put(clientId, playerUUID);
+                        logger.atFine().log("Linked voice client " + clientId + " to player " + playerUUID + " (" + username + ")");
+                    }
+                }
+            }
+            if (playerUUID == null) {
                 logger.atFine().log("Voice client " + clientId + " not linked to player - broadcasting to all");
                 broadcastToAll(ctx, packet, sender);
                 return;
@@ -318,17 +351,15 @@ public class UDPSocketManager {
             // Get sender's position
             PlayerPosition senderPos = positionTracker.getPlayerPosition(playerUUID);
             if (senderPos == null) {
-                logger.atFine().log("Player " + playerUUID + " position not found");
-                return; // Sender not in game
+                logger.atInfo().log("Positional fallback: no position for player " + playerUUID + " (client=" + clientId + ")");
+                broadcastToAll(ctx, packet, sender);
+                return; // Sender not in game / not tracked yet
             }
             
-            // Route to nearby players only
-            byte[] data = packet.serialize();
-            ByteBuf buf = ctx.alloc().buffer(data.length);
-            buf.writeBytes(data);
-            
+            // Route to nearby players only, embedding relative offset per recipient
             int routedCount = 0;
             Map<UUID, PlayerPosition> allPlayers = positionTracker.getPlayerPositions();
+            int tracked = allPlayers.size();
             
             for (Map.Entry<UUID, PlayerPosition> entry : allPlayers.entrySet()) {
                 UUID otherPlayerUUID = entry.getKey();
@@ -336,27 +367,65 @@ public class UDPSocketManager {
                 
                 if (!otherPlayerUUID.equals(playerUUID)) { // Don't send to self
                     double distance = senderPos.distanceTo(position);
+                    logger.atInfo().log("[ROUTE_CHECK] recipient=" + position.getPlayerName() + " distance=" + String.format("%.2f", distance) + " maxProximity=" + proximityDistance);
                     
-                    // Only send if within proximity distance (30 blocks default)
-                    if (distance <= 30.0) {
+                    // Only send if within proximity distance
+                    if (distance <= proximityDistance) {
                         // Find voice client for this player
                         UUID otherClientId = findClientByPlayerUUID(otherPlayerUUID);
+                        logger.atInfo().log("[ROUTE_LOOKUP] recipient=" + position.getPlayerName() + " playerUUID=" + otherPlayerUUID + " clientUUID=" + otherClientId);
+                        
                         if (otherClientId != null) {
                             InetSocketAddress clientAddr = clients.get(otherClientId);
+                            logger.atInfo().log("[ROUTE_ADDRESS] recipient=" + position.getPlayerName() + " clientUUID=" + otherClientId + " address=" + clientAddr);
+                            
                             if (clientAddr != null) {
-                                ctx.writeAndFlush(new DatagramPacket(buf.copy(), clientAddr));
+                                float dx = (float) (senderPos.getX() - position.getX());
+                                float dy = (float) (senderPos.getY() - position.getY());
+                                float dz = (float) (senderPos.getZ() - position.getZ());
+
+                                float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
+
+                                logger.atInfo().log("[ROTATION] sender=" + senderPos.getPlayerName() + "(" + String.format("%.2f", senderPos.getX()) + "," + String.format("%.2f", senderPos.getY()) + "," + String.format("%.2f", senderPos.getZ()) + ") listener=" + position.getPlayerName() + "(" + String.format("%.2f", position.getX()) + "," + String.format("%.2f", position.getY()) + "," + String.format("%.2f", position.getZ()) + ") yaw=" + String.format("%.2f", position.getYaw()) + "° pitch=" + String.format("%.2f", position.getPitch()) + "° world=(" + String.format("%.2f", dx) + "," + String.format("%.2f", dy) + "," + String.format("%.2f", dz) + ") rotated=(" + String.format("%.2f", rotated[0]) + "," + String.format("%.2f", rotated[1]) + "," + String.format("%.2f", rotated[2]) + ")");
+
+                                // Optimize: write directly to ByteBuf to avoid intermediate byte array allocation
+                                int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
+                                ByteBuf buf = ctx.alloc().buffer(packetSize);
+                                packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
+                                ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                 routedCount++;
+                                logger.atInfo().log("[ROUTED] sender=" + senderPos.getPlayerName() + " -> recipient=" + position.getPlayerName());
                             }
                         }
                     }
                 }
             }
             
-            if (routedCount > 0) {
-                logger.atFine().log("▶ Audio routed from " + senderPos.getPlayerName() + " to " + routedCount + " nearby player(s)");
-            }
+            logger.atInfo().log("Positional route: sender=" + senderPos.getPlayerName() + " tracked=" + tracked + " routed=" + routedCount + " pos=" + senderPos.getX() + "," + senderPos.getY() + "," + senderPos.getZ());
             
-            buf.release();
+        }
+        
+        private AudioPacket withRelativePosition(AudioPacket packet, float dx, float dy, float dz) {
+            return new AudioPacket(packet.getSenderId(), packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(), dx, dy, dz);
+        }
+
+        private float[] rotateToListenerFrame(float dx, float dy, float dz, double yawDeg, double pitchDeg) {
+            double yaw = Math.toRadians(yawDeg);
+            double pitch = Math.toRadians(pitchDeg);
+
+            // Yaw: rotate around Y so +Z is forward for listener
+            double cosY = Math.cos(-yaw);
+            double sinY = Math.sin(-yaw);
+            double rx = dx * cosY - dz * sinY;
+            double rz = dx * sinY + dz * cosY;
+
+            // Pitch: rotate around X to account for looking up/down
+            double cosP = Math.cos(-pitch);
+            double sinP = Math.sin(-pitch);
+            double ry = dy * cosP - rz * sinP;
+            double rz2 = dy * sinP + rz * cosP;
+
+            return new float[]{(float) rx, (float) ry, (float) rz2};
         }
         
         private UUID findClientByPlayerUUID(UUID playerUUID) {
@@ -366,6 +435,32 @@ public class UDPSocketManager {
                 }
             }
             return null;
+        }
+
+        private String findUsernameByClientId(UUID clientId) {
+            for (Map.Entry<String, UUID> entry : usernameToClientUUID.entrySet()) {
+                if (entry.getValue().equals(clientId)) {
+                    return entry.getKey();
+                }
+            }
+            return null;
+        }
+
+        private UUID findClientByAddress(InetSocketAddress address) {
+            for (Map.Entry<UUID, InetSocketAddress> entry : clients.entrySet()) {
+                if (entry.getValue().equals(address)) {
+                    return entry.getKey();
+                }
+            }
+            return null;
+        }
+
+        private AudioPacket cloneWithSender(AudioPacket packet, UUID senderId) {
+            if (packet.hasPosition()) {
+                return new AudioPacket(senderId, packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(),
+                        packet.getPosX(), packet.getPosY(), packet.getPosZ());
+            }
+            return new AudioPacket(senderId, packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber());
         }
         
         private void broadcastToAll(ChannelHandlerContext ctx, AudioPacket packet, InetSocketAddress sender) {
@@ -392,7 +487,7 @@ public class UDPSocketManager {
                 ctx.writeAndFlush(new DatagramPacket(buf, address));
                 logger.atFine().log("Sent authentication acknowledgment to " + address);
             } catch (Exception e) {
-                logger.atSevere().log("Error sending authentication acknowledgment", e);
+                logger.atSevere().withCause(e).log("Error sending authentication acknowledgment");
             }
         }
     }

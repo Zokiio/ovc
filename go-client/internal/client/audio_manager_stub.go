@@ -9,6 +9,10 @@ import (
 )
 
 const DefaultDeviceLabel = "Default (system)"
+const (
+	AudioCodecPCM  byte = 0x00
+	AudioCodecOpus byte = 0x01
+)
 
 // SimpleAudioManager is a stub for non-CGO builds.
 type SimpleAudioManager struct {
@@ -35,11 +39,11 @@ func (am *SimpleAudioManager) Stop() error {
 	return nil
 }
 
-func (am *SimpleAudioManager) EncodeAudio(_ []int16) ([]byte, error) {
+func (am *SimpleAudioManager) EncodeAudio(_ byte, _ []int16) ([]byte, error) {
 	return []byte{}, nil
 }
 
-func (am *SimpleAudioManager) DecodeAudio(_ []byte) ([]int16, error) {
+func (am *SimpleAudioManager) DecodeAudio(_ byte, _ []byte) ([]int16, error) {
 	return make([]int16, am.frameSize), nil
 }
 

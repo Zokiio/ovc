@@ -32,14 +32,14 @@ public class PlayerEventListener {
      * Called when a player joins the server
      * TODO: Hook to Hytale PlayerJoinEvent
      */
-    public void onPlayerJoin(UUID playerUUID, String username, double x, double y, double z, String worldId) {
+    public void onPlayerJoin(UUID playerUUID, String username, double x, double y, double z, double yaw, double pitch, String worldId) {
         logger.atInfo().log("Player joined: " + username + " (UUID: " + playerUUID + ")");
         
         // Map username to Hytale player UUID
         usernameToPlayerUUID.put(username, playerUUID);
         
         // Add player to position tracker
-        positionTracker.updatePosition(playerUUID, username, x, y, z, worldId);
+        positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
     }
     
     /**
@@ -61,17 +61,17 @@ public class PlayerEventListener {
      * Note: This should be throttled or only fire on significant movement
      * to avoid excessive updates (e.g., every 100ms or 1 block movement)
      */
-    public void onPlayerMove(UUID playerUUID, String username, double x, double y, double z, String worldId) {
-        positionTracker.updatePosition(playerUUID, username, x, y, z, worldId);
+    public void onPlayerMove(UUID playerUUID, String username, double x, double y, double z, double yaw, double pitch, String worldId) {
+        positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
     }
     
     /**
      * Called when a player teleports
      * TODO: Hook to Hytale PlayerTeleportEvent
      */
-    public void onPlayerTeleport(UUID playerUUID, String username, double x, double y, double z, String worldId) {
+    public void onPlayerTeleport(UUID playerUUID, String username, double x, double y, double z, double yaw, double pitch, String worldId) {
         logger.atFine().log("Player teleported: " + username + " to (" + x + ", " + y + ", " + z + ") in " + worldId);
-        positionTracker.updatePosition(playerUUID, username, x, y, z, worldId);
+        positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
     }
     
     /**

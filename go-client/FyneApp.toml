@@ -1,0 +1,15 @@
+Website = "https://hytale.com"
+
+[Details]
+  Name = "Hytale Voice Chat"
+  ID = "com.hytale.voicechat"
+  Version = "1.0.0"
+  Build = 1
+
+[Windows]
+  CompanyName = "Hytale Voice Chat"
+  FileDescription = "Voice Chat Client for Hytale"
+  InternalName = "voice-client"
+  LegalCopyright = "Copyright © 2026"
+  OriginalFilename = "voice-client.exe"
+  ProductName = "Hytale Voice Chat"

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -17,34 +18,176 @@ const (
 	PacketTypeAudio          = 0x02
 	PacketTypeAuthAck        = 0x03
 	PacketTypeDisconnect     = 0x04
+	PacketTypeTestAudio      = 0x05
 	AuthTimeoutSeconds       = 5
+	audioHeaderLegacy        = 25
+	audioHeaderWithCodec     = 26
+	vadThresholdDefault      = 1200
+	vadHangoverFramesDefault = 30 // default hangover frames (~1.5 seconds at 20ms per frame)
+	positionalMaxDistance    = 30.0
 )
 
 type VoiceClient struct {
-	clientID       uuid.UUID
-	username       string
-	serverAddr     string
-	serverPort     int
-	serverUDPAddr  *net.UDPAddr
-	socket         *net.UDPConn
-	audioManager   *SimpleAudioManager
-	connected      atomic.Bool
-	sequenceNumber atomic.Uint32
-	rxDone         chan struct{}
-	txDone         chan struct{}
-	mu             sync.Mutex
+	clientID          uuid.UUID
+	username          string
+	serverAddr        string
+	serverPort        int
+	serverUDPAddr     *net.UDPAddr
+	socket            *net.UDPConn
+	audioManager      *SimpleAudioManager
+	codec             byte
+	vadEnabled        atomic.Bool
+	vadThreshold      atomic.Uint32
+	vadHangoverFrames atomic.Uint32
+	vadActive         bool
+	vadHangover       int
+	vadStateCB        atomic.Value // func(enabled bool, active bool)
+	pttEnabled        atomic.Bool
+	pttActive         atomic.Bool
+	pttKey            string
+	masterVolume      float64
+	micGain           float64
+	connected         atomic.Bool
+	sequenceNumber    atomic.Uint32
+	rxDone            chan struct{}
+	txDone            chan struct{}
+	mu                sync.Mutex
 }
 
 func NewVoiceClient() *VoiceClient {
-	return &VoiceClient{
-		clientID: uuid.New(),
-		rxDone:   make(chan struct{}, 1),
-		txDone:   make(chan struct{}, 1),
+	vc := &VoiceClient{
+		clientID:     uuid.New(),
+		rxDone:       make(chan struct{}, 1),
+		txDone:       make(chan struct{}, 1),
+		codec:        AudioCodecOpus,
+		pttKey:       "Space",
+		masterVolume: 1.0,
+		micGain:      1.0,
 	}
+	vc.vadEnabled.Store(true)
+	vc.vadThreshold.Store(vadThresholdDefault)
+	vc.vadHangoverFrames.Store(vadHangoverFramesDefault)
+	vc.pttEnabled.Store(false)
+	return vc
 }
 
 func (vc *VoiceClient) GetClientID() uuid.UUID {
 	return vc.clientID
+}
+
+func (vc *VoiceClient) SetVAD(enabled bool, threshold int) {
+	vc.vadEnabled.Store(enabled)
+	if threshold <= 0 {
+		threshold = vadThresholdDefault
+	}
+	vc.vadThreshold.Store(uint32(threshold))
+	vc.notifyVADState()
+}
+
+func (vc *VoiceClient) SetVADHangover(frames int) {
+	if frames < 0 {
+		frames = 0
+	}
+	if frames > 200 {
+		frames = 200
+	}
+	vc.vadHangoverFrames.Store(uint32(frames))
+}
+
+func (vc *VoiceClient) SetPushToTalk(enabled bool, key string) {
+	vc.pttEnabled.Store(enabled)
+	if key != "" {
+		vc.pttKey = key
+	}
+	if enabled {
+		vc.vadEnabled.Store(false)
+		vc.notifyVADState()
+	}
+}
+
+func (vc *VoiceClient) SetPTTActive(active bool) {
+	vc.pttActive.Store(active)
+}
+
+func (vc *VoiceClient) SetMasterVolume(vol float64) {
+	if vol < 0 {
+		vol = 0
+	}
+	if vol > 4.0 {
+		vol = 4.0
+	}
+	vc.mu.Lock()
+	vc.masterVolume = vol
+	if vc.audioManager != nil {
+		vc.audioManager.SetOutputGain(vol)
+	}
+	vc.mu.Unlock()
+}
+
+func (vc *VoiceClient) SetMicGain(gain float64) {
+	if gain < 0 {
+		gain = 0
+	}
+	if gain > 4.0 {
+		gain = 4.0
+	}
+	vc.mu.Lock()
+	vc.micGain = gain
+	if vc.audioManager != nil {
+		vc.audioManager.SetMicGain(gain)
+	}
+	vc.mu.Unlock()
+}
+
+func (vc *VoiceClient) SwitchAudioDevices(inputDeviceLabel string, outputDeviceLabel string) error {
+	vc.mu.Lock()
+	if !vc.connected.Load() {
+		vc.mu.Unlock()
+		return fmt.Errorf("not connected")
+	}
+	current := vc.audioManager
+	vc.mu.Unlock()
+
+	newManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel)
+	if err != nil {
+		return err
+	}
+
+	if current != nil {
+		_ = current.Stop()
+	}
+
+	if err := newManager.Start(); err != nil {
+		return fmt.Errorf("failed to start new audio: %w", err)
+	}
+	newManager.SetOutputGain(vc.masterVolume)
+	newManager.SetMicGain(vc.micGain)
+
+	vc.mu.Lock()
+	vc.audioManager = newManager
+	if newManager.useOpus && newManager.encoder != nil && newManager.decoder != nil {
+		vc.codec = AudioCodecOpus
+	} else {
+		vc.codec = AudioCodecPCM
+	}
+	vc.mu.Unlock()
+
+	return nil
+}
+
+func (vc *VoiceClient) newAudioManager(inputDeviceLabel string, outputDeviceLabel string) (*SimpleAudioManager, error) {
+	am, err := NewSimpleAudioManager()
+	if err != nil {
+		return nil, err
+	}
+	am.SetInputDeviceLabel(inputDeviceLabel)
+	am.SetOutputDeviceLabel(outputDeviceLabel)
+	return am, nil
+}
+
+// SetVADStateListener registers a callback invoked when VAD enabled/active state changes.
+func (vc *VoiceClient) SetVADStateListener(fn func(enabled bool, active bool)) {
+	vc.vadStateCB.Store(fn)
 }
 
 func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string, outputDeviceLabel string) error {
@@ -62,16 +205,23 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 	log.Printf("Connecting to voice server at %s:%d as user '%s'", serverAddr, serverPort, username)
 
 	// Initialize audio manager
-	audioManager, err := NewSimpleAudioManager()
+	audioManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel)
 	if err != nil {
 		return fmt.Errorf("failed to initialize audio: %w", err)
 	}
-	audioManager.SetInputDeviceLabel(inputDeviceLabel)
-	audioManager.SetOutputDeviceLabel(outputDeviceLabel)
-	vc.audioManager = audioManager
-
-	if err := vc.audioManager.Start(); err != nil {
+	if audioManager == nil {
+		return fmt.Errorf("audio manager unavailable")
+	}
+	if err := audioManager.Start(); err != nil {
 		return fmt.Errorf("failed to start audio: %w", err)
+	}
+	vc.audioManager = audioManager
+	vc.audioManager.SetOutputGain(vc.masterVolume)
+	vc.audioManager.SetMicGain(vc.micGain)
+
+	vc.codec = AudioCodecPCM
+	if audioManager.useOpus && audioManager.encoder != nil && audioManager.decoder != nil {
+		vc.codec = AudioCodecOpus
 	}
 
 	// Create UDP socket
@@ -91,30 +241,48 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 	}
 	vc.serverUDPAddr = serverUDPAddr
 
-	// Send authentication packet
-	if err := vc.sendAuthentication(); err != nil {
-		vc.socket.Close()
-		vc.audioManager.Stop()
-		return fmt.Errorf("failed to send authentication: %w", err)
+	// Retry logic for authentication with exponential backoff
+	const maxRetries = 3
+	var lastErr error
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if attempt > 1 {
+			log.Printf("Authentication attempt %d/%d", attempt, maxRetries)
+			time.Sleep(time.Duration(math.Pow(2, float64(attempt-2))) * time.Second)
+		}
+
+		// Send authentication packet
+		if err := vc.sendAuthentication(); err != nil {
+			lastErr = err
+			continue
+		}
+
+		// Wait for server acknowledgment
+		socket.SetReadDeadline(time.Now().Add(time.Duration(AuthTimeoutSeconds) * time.Second))
+		if err := vc.waitForAcknowledgment(); err != nil {
+			lastErr = err
+			if attempt < maxRetries {
+				continue
+			}
+			vc.socket.Close()
+			vc.audioManager.Stop()
+			return fmt.Errorf("server did not acknowledge authentication after %d attempts: %w", maxRetries, err)
+		}
+
+		// Success
+		log.Println("Server acknowledged connection")
+		vc.connected.Store(true)
+		socket.SetReadDeadline(time.Time{})
+
+		// Start goroutines
+		go vc.transmitLoop()
+		go vc.receiveLoop()
+
+		return nil
 	}
 
-	// Wait for server acknowledgment
-	socket.SetReadDeadline(time.Now().Add(time.Duration(AuthTimeoutSeconds) * time.Second))
-	if err := vc.waitForAcknowledgment(); err != nil {
-		vc.socket.Close()
-		vc.audioManager.Stop()
-		return fmt.Errorf("server did not acknowledge authentication: %w", err)
-	}
-
-	log.Println("Server acknowledged connection")
-	vc.connected.Store(true)
-	socket.SetReadDeadline(time.Time{})
-
-	// Start goroutines
-	go vc.transmitLoop()
-	go vc.receiveLoop()
-
-	return nil
+	vc.socket.Close()
+	vc.audioManager.Stop()
+	return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
 }
 
 func (vc *VoiceClient) SendTestTone(duration time.Duration) error {
@@ -125,6 +293,50 @@ func (vc *VoiceClient) SendTestTone(duration time.Duration) error {
 		return fmt.Errorf("audio not initialized")
 	}
 	return vc.audioManager.SendTestTone(duration, 1000)
+}
+
+// SendBroadcastTestTone sends a test tone as a broadcast (non-positional) packet to all clients.
+func (vc *VoiceClient) SendBroadcastTestTone(duration time.Duration) error {
+	if !vc.connected.Load() {
+		return fmt.Errorf("not connected")
+	}
+
+	// Generate and send tone frames directly so they bypass VAD and are marked as broadcast/test.
+	frameSize := 960
+	sampleRate := 48000
+	frameDuration := time.Duration(float64(time.Second) * float64(frameSize) / float64(sampleRate))
+	totalFrames := int(duration / frameDuration)
+	if totalFrames < 1 {
+		totalFrames = 1
+	}
+
+	phase := 0.0
+	phaseInc := 2 * math.Pi * 1000 / float64(sampleRate)
+	amplitude := 0.2 * float64(math.MaxInt16)
+
+	for i := 0; i < totalFrames; i++ {
+		samples := make([]int16, frameSize)
+		for j := 0; j < frameSize; j++ {
+			samples[j] = int16(math.Sin(phase) * amplitude)
+			phase += phaseInc
+			if phase >= 2*math.Pi {
+				phase -= 2 * math.Pi
+			}
+		}
+
+		audioData, err := vc.audioManager.EncodeAudio(vc.codec, samples)
+		if err != nil {
+			return fmt.Errorf("encode test tone: %w", err)
+		}
+
+		if err := vc.sendAudioPacketWithType(audioData, PacketTypeTestAudio); err != nil {
+			return fmt.Errorf("send test tone: %w", err)
+		}
+
+		time.Sleep(frameDuration)
+	}
+
+	return nil
 }
 
 func (vc *VoiceClient) Disconnect() error {
@@ -231,15 +443,15 @@ func (vc *VoiceClient) receiveLoop() {
 			continue
 		}
 
-		if n < 25 {
+		if n < audioHeaderLegacy {
 			continue
 		}
 
-		if buffer[0] != PacketTypeAudio {
+		if buffer[0] != PacketTypeAudio && buffer[0] != PacketTypeTestAudio {
 			continue
 		}
 
-		audioData, ok := extractAudioPayload(buffer[:n])
+		codec, audioData, pos, ok := parseAudioPayload(buffer[:n])
 		if !ok {
 			continue
 		}
@@ -250,36 +462,56 @@ func (vc *VoiceClient) receiveLoop() {
 		}
 
 		if vc.audioManager != nil {
-			samples, err := vc.audioManager.DecodeAudio(audioData)
+			samples, err := vc.audioManager.DecodeAudio(codec, audioData)
 			if err != nil {
 				log.Printf("Error decoding audio: %v", err)
 				continue
 			}
 
+			stereo := spatialize(samples, pos, positionalMaxDistance)
+			if stereo == nil {
+				continue
+			}
+
 			select {
-			case vc.audioManager.GetOutputChannel() <- samples:
+			case vc.audioManager.GetOutputChannel() <- stereo:
 			default:
 				if packetCount%100 == 1 {
 					log.Printf("Output channel full, dropping packet")
 				}
 			}
 		}
+
 	}
 }
 
 func (vc *VoiceClient) transmitLoop() {
 	defer func() { vc.txDone <- struct{}{} }()
 
-	inputChan := vc.audioManager.GetInputChannel()
-
 	for vc.connected.Load() {
+		inputChan := vc.getInputChannel()
+		if inputChan == nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+
 		select {
 		case samples := <-inputChan:
 			if len(samples) == 0 {
 				continue
 			}
 
-			audioData, err := vc.audioManager.EncodeAudio(samples)
+			if vc.pttEnabled.Load() {
+				if !vc.pttActive.Load() {
+					continue
+				}
+			} else {
+				if !vc.shouldTransmit(samples) {
+					continue
+				}
+			}
+
+			audioData, err := vc.audioManager.EncodeAudio(vc.codec, samples)
 			if err != nil {
 				log.Printf("Error encoding audio: %v", err)
 				continue
@@ -297,18 +529,195 @@ func (vc *VoiceClient) transmitLoop() {
 	}
 }
 
+func (vc *VoiceClient) getInputChannel() <-chan []int16 {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	if vc.audioManager == nil {
+		return nil
+	}
+	return vc.audioManager.GetInputChannel()
+}
+
 func (vc *VoiceClient) sendAudioPacket(audioData []byte) error {
+	return vc.sendAudioPacketWithType(audioData, PacketTypeAudio)
+}
+
+func (vc *VoiceClient) sendAudioPacketWithType(audioData []byte, packetType byte) error {
 	seqNum := vc.sequenceNumber.Add(1) - 1
 
-	packet := make([]byte, 25+len(audioData))
-	packet[0] = PacketTypeAudio
-	copy(packet[1:17], vc.clientID[:])
-	binary.BigEndian.PutUint32(packet[17:21], seqNum)
-	binary.BigEndian.PutUint32(packet[21:25], uint32(len(audioData)))
-	copy(packet[25:], audioData)
+	packet := make([]byte, audioHeaderWithCodec+len(audioData))
+	packet[0] = packetType
+	packet[1] = vc.codec
+	copy(packet[2:18], vc.clientID[:])
+	binary.BigEndian.PutUint32(packet[18:22], seqNum)
+	binary.BigEndian.PutUint32(packet[22:26], uint32(len(audioData)))
+	copy(packet[26:], audioData)
 
 	_, err := vc.socket.WriteToUDP(packet, vc.serverUDPAddr)
 	return err
+}
+
+func (vc *VoiceClient) shouldTransmit(samples []int16) bool {
+	if !vc.vadEnabled.Load() {
+		return true
+	}
+
+	prevActive := vc.vadActive
+	threshold := float64(vc.vadThreshold.Load())
+	rms := calculateRMS(samples)
+	if rms >= threshold {
+		vc.vadActive = true
+		vc.vadHangover = int(vc.vadHangoverFrames.Load())
+		if prevActive != vc.vadActive {
+			vc.notifyVADState()
+		}
+		return true
+	}
+
+	if vc.vadActive {
+		if vc.vadHangover > 0 {
+			vc.vadHangover--
+			if prevActive != vc.vadActive {
+				vc.notifyVADState()
+			}
+			return true
+		}
+		vc.vadActive = false
+		if prevActive != vc.vadActive {
+			vc.notifyVADState()
+		}
+	}
+
+	return false
+}
+
+func (vc *VoiceClient) notifyVADState() {
+	cb, ok := vc.vadStateCB.Load().(func(bool, bool))
+	if !ok || cb == nil {
+		return
+	}
+	cb(vc.vadEnabled.Load(), vc.vadActive)
+}
+
+func calculateRMS(samples []int16) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, s := range samples {
+		v := float64(s)
+		sum += v * v
+	}
+	return math.Sqrt(sum / float64(len(samples)))
+}
+
+func attenuationForDistance(maxDistance float64, x, y, z float32) float64 {
+	d := math.Sqrt(float64(x*x + y*y + z*z))
+	if d <= 0 {
+		return 1.0
+	}
+	if d >= maxDistance {
+		return 0.0
+	}
+	f := 1.0 - (d / maxDistance)
+	return f * f // gentle rolloff
+}
+
+func applyAttenuation(samples []int16, factor float64) []int16 {
+	if factor >= 0.9999 {
+		return samples
+	}
+	if factor <= 0 {
+		return nil
+	}
+	out := make([]int16, len(samples))
+	maxVal := float64(math.MaxInt16)
+	minVal := float64(math.MinInt16)
+	for i, s := range samples {
+		scaled := float64(s) * factor
+		if scaled > maxVal {
+			scaled = maxVal
+		} else if scaled < minVal {
+			scaled = minVal
+		}
+		out[i] = int16(scaled)
+	}
+	return out
+}
+
+func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	att := 1.0
+	pan := 0.0
+	elev := 0.0
+
+	if pos != nil {
+		d := math.Sqrt(float64(pos[0]*pos[0] + pos[1]*pos[1] + pos[2]*pos[2]))
+		if d >= maxDistance {
+			return nil
+		}
+		if d > 0 {
+			att = 1.0 - (d / maxDistance)
+			att *= att
+
+			lr := math.Hypot(float64(pos[0]), float64(pos[2]))
+			if lr > 0 {
+				pan = float64(pos[0]) / lr
+			}
+
+			elevAngle := math.Atan2(float64(pos[1]), lr) // radians, -pi/2..pi/2
+			elev = elevAngle / (math.Pi / 2)             // normalize to -1..1
+			if elev < -1 {
+				elev = -1
+			} else if elev > 1 {
+				elev = 1
+			}
+		}
+		panPreview := 1.0 + 1.2*elev
+		log.Printf("[SPATIALIZE] pos=(%.2f,%.2f,%.2f) dist=%.2f att=%.3f pan=%.3f elevNorm=%.3f panScale=%.3f", pos[0], pos[1], pos[2], d, att, pan, elev, panPreview)
+	}
+
+	// Equal-power panning with stronger elevation widening: above = wider, below = narrower
+	panScale := 1.0 + 1.2*elev
+	if panScale < 0.35 {
+		panScale = 0.35
+	}
+	if panScale > 1.8 {
+		panScale = 1.8
+	}
+	pan *= panScale
+	if pan < -1 {
+		pan = -1
+	}
+	if pan > 1 {
+		pan = 1
+	}
+	leftGain := att * math.Sqrt((1.0-pan)*0.5)
+	rightGain := att * math.Sqrt((1.0+pan)*0.5)
+
+	out := make([]int16, len(samples)*2)
+	for i, s := range samples {
+		v := float64(s)
+		l := v * leftGain
+		r := v * rightGain
+		if l > math.MaxInt16 {
+			l = math.MaxInt16
+		} else if l < math.MinInt16 {
+			l = math.MinInt16
+		}
+		if r > math.MaxInt16 {
+			r = math.MaxInt16
+		} else if r < math.MinInt16 {
+			r = math.MinInt16
+		}
+		out[2*i] = int16(l)
+		out[2*i+1] = int16(r)
+	}
+
+	return out
 }
 
 func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
@@ -335,17 +744,46 @@ func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
 	return ackClientID, accepted, message, true
 }
 
-func extractAudioPayload(data []byte) ([]byte, bool) {
-	if len(data) < 25 {
-		return nil, false
+func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
+	if len(data) < audioHeaderLegacy {
+		return AudioCodecPCM, nil, nil, false
 	}
-	if data[0] != PacketTypeAudio {
-		return nil, false
+
+	packetType := data[0]
+	if packetType != PacketTypeAudio && packetType != PacketTypeTestAudio {
+		return AudioCodecPCM, nil, nil, false
 	}
+
+	codecByte := data[1]
+	baseCodec := codecByte & 0x7F
+	hasPos := (codecByte & 0x80) != 0
+	if baseCodec == AudioCodecOpus || baseCodec == AudioCodecPCM {
+		if len(data) < audioHeaderWithCodec {
+			return AudioCodecPCM, nil, nil, false
+		}
+		audioLen := binary.BigEndian.Uint32(data[22:26])
+		totalLen := audioHeaderWithCodec + int(audioLen)
+		if totalLen > len(data) || audioLen == 0 {
+			return AudioCodecPCM, nil, nil, false
+		}
+		var pos *[3]float32
+		if hasPos && len(data) >= totalLen+12 {
+			pos = &[3]float32{
+				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen : totalLen+4])),
+				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+4 : totalLen+8])),
+				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+8 : totalLen+12])),
+			}
+			log.Printf("[AUDIO_RX] hasPos=true position=(%.2f,%.2f,%.2f)", pos[0], pos[1], pos[2])
+		} else if !hasPos {
+			log.Printf("[AUDIO_RX] hasPos=false (broadcast/non-positional)")
+		}
+		return baseCodec, data[26:totalLen], pos, true
+	}
+
 	audioLen := binary.BigEndian.Uint32(data[21:25])
-	totalLen := 25 + int(audioLen)
+	totalLen := audioHeaderLegacy + int(audioLen)
 	if totalLen > len(data) || audioLen == 0 {
-		return nil, false
+		return AudioCodecPCM, nil, nil, false
 	}
-	return data[25:totalLen], true
+	return AudioCodecPCM, data[25:totalLen], nil, true
 }
