@@ -21,14 +21,13 @@ Thumbs.db
 # Hytale API files (too large, add locally)
 hytale-plugin/hytalefiles/
 
-
 # Java
 *.class
 *.war
 *.ear
 hs_err_pid*
 
-# Exclude application JARs but keep gradle wrapper
+# Exclude all JARs except gradle wrapper
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
 
