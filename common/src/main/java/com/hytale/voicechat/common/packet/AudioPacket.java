@@ -1,5 +1,6 @@
 package com.hytale.voicechat.common.packet;
 
+import io.netty.buffer.ByteBuf;
 import java.nio.ByteBuffer;
 import java.util.UUID;
 
@@ -7,6 +8,10 @@ import java.util.UUID;
  * Packet containing encoded audio data
  */
 public class AudioPacket extends VoicePacket {
+    private static final byte POSITION_FLAG = (byte) 0x80;
+    private static final int PACKET_HEADER_SIZE = 1 + 1 + 16 + 4 + 4; // type + codec + senderId + seqNum + audioLen
+    private static final int POSITION_DATA_SIZE = 12; // 3 floats (x, y, z)
+    
     private final byte[] audioData;
     private final int sequenceNumber;
     private final byte codec;
@@ -62,11 +67,11 @@ public class AudioPacket extends VoicePacket {
 
     @Override
     public byte[] serialize() {
-        int extra = hasPosition() ? 12 : 0;
-        ByteBuffer buffer = ByteBuffer.allocate(1 + 1 + 16 + 4 + 4 + audioData.length + extra);
+        int extra = hasPosition() ? POSITION_DATA_SIZE : 0;
+        ByteBuffer buffer = ByteBuffer.allocate(PACKET_HEADER_SIZE + audioData.length + extra);
         byte codecByte = codec;
         if (hasPosition()) {
-            codecByte |= (byte) 0x80; // flag indicates trailing position
+            codecByte |= POSITION_FLAG; // flag indicates trailing position
         }
 
         buffer.put((byte) 0x02); // Packet type: AUDIO
@@ -83,6 +88,40 @@ public class AudioPacket extends VoicePacket {
             buffer.putFloat(posZ);
         }
         return buffer.array();
+    }
+
+    /**
+     * Serialize this packet with custom position data directly to a ByteBuf.
+     * This avoids creating intermediate byte arrays and reduces GC pressure.
+     * Useful for broadcasting packets with position data relative to each recipient.
+     * 
+     * @param buf the ByteBuf to write to
+     * @param posX the X position coordinate
+     * @param posY the Y position coordinate
+     * @param posZ the Z position coordinate
+     */
+    public void serializeToByteBufWithPosition(ByteBuf buf, float posX, float posY, float posZ) {
+        byte codecByte = (byte) (codec | POSITION_FLAG); // Set position flag
+        
+        buf.writeByte(0x02); // Packet type: AUDIO
+        buf.writeByte(codecByte);
+        buf.writeLong(getSenderId().getMostSignificantBits());
+        buf.writeLong(getSenderId().getLeastSignificantBits());
+        buf.writeInt(sequenceNumber);
+        buf.writeInt(audioData.length);
+        buf.writeBytes(audioData);
+        buf.writeFloat(posX);
+        buf.writeFloat(posY);
+        buf.writeFloat(posZ);
+    }
+    
+    /**
+     * Calculate the serialized size of an AudioPacket with position data.
+     * @param audioDataLength the length of the audio data
+     * @return the total serialized packet size
+     */
+    public static int getSerializedSizeWithPosition(int audioDataLength) {
+        return PACKET_HEADER_SIZE + audioDataLength + POSITION_DATA_SIZE;
     }
 
     public static AudioPacket deserialize(byte[] data) {

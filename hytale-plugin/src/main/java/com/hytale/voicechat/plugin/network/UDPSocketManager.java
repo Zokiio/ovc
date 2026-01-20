@@ -388,10 +388,10 @@ public class UDPSocketManager {
 
                                 logger.atInfo().log("[ROTATION] sender=" + senderPos.getPlayerName() + "(" + String.format("%.2f", senderPos.getX()) + "," + String.format("%.2f", senderPos.getY()) + "," + String.format("%.2f", senderPos.getZ()) + ") listener=" + position.getPlayerName() + "(" + String.format("%.2f", position.getX()) + "," + String.format("%.2f", position.getY()) + "," + String.format("%.2f", position.getZ()) + ") yaw=" + String.format("%.2f", position.getYaw()) + "° pitch=" + String.format("%.2f", position.getPitch()) + "° world=(" + String.format("%.2f", dx) + "," + String.format("%.2f", dy) + "," + String.format("%.2f", dz) + ") rotated=(" + String.format("%.2f", rotated[0]) + "," + String.format("%.2f", rotated[1]) + "," + String.format("%.2f", rotated[2]) + ")");
 
-                                AudioPacket relativePacket = withRelativePosition(packet, rotated[0], rotated[1], rotated[2]);
-                                byte[] data = relativePacket.serialize();
-                                ByteBuf buf = ctx.alloc().buffer(data.length);
-                                buf.writeBytes(data);
+                                // Optimize: write directly to ByteBuf to avoid intermediate byte array allocation
+                                int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
+                                ByteBuf buf = ctx.alloc().buffer(packetSize);
+                                packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
                                 ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                 routedCount++;
                                 logger.atInfo().log("[ROUTED] sender=" + senderPos.getPlayerName() + " -> recipient=" + position.getPlayerName());
