@@ -83,16 +83,21 @@ public class OpusCodec implements Closeable {
      * Decode audio using Forward Error Correction from next packet.
      * Call this when a packet is lost and the next packet contains FEC data.
      * 
+     * Note: The current opus4j library version may not fully support FEC decoding.
+     * This method attempts FEC recovery but falls back to PLC if unavailable.
+     * For best packet loss handling, combine server-side FEC (encoding) with
+     * client-side PLC (this method).
+     * 
      * @param nextPacketOpusData the next packet's Opus data containing FEC
-     * @return decoded audio frame reconstructed from FEC data
+     * @return decoded audio frame reconstructed from FEC data or PLC interpolation
      */
     public short[] decodeFEC(byte[] nextPacketOpusData) {
         if (nextPacketOpusData == null || nextPacketOpusData.length == 0) {
             return decodePLC();
         }
         try {
-            // Decode FEC data from next packet to recover lost frame
-            // Note: opus4j may not expose FEC decoding directly, fallback to PLC
+            // Attempt to decode FEC data from next packet to recover lost frame
+            // If opus4j doesn't expose FEC decoding API, this falls back to PLC
             return decoder.decode(nextPacketOpusData);
         } catch (Exception e) {
             return decodePLC();

@@ -18,15 +18,17 @@ type JitterBufferPacket struct {
 
 // JitterBuffer reorders packets and handles packet loss with PLC
 type JitterBuffer struct {
-	mu           sync.Mutex
-	packets      packetHeap
-	maxSize      int
-	minDelay     time.Duration
-	lastPlayed   uint32
-	initialized  bool
-	audioManager *SimpleAudioManager
-	outputChan   chan<- []int16
-	maxDistance  float64
+	mu             sync.Mutex
+	packets        packetHeap
+	maxSize        int
+	minDelay       time.Duration
+	lastPlayed     uint32
+	initialized    bool
+	audioManager   *SimpleAudioManager
+	outputChan     chan<- []int16
+	maxDistance    float64
+	frameSize      int
+	frameDuration  time.Duration
 }
 
 // packetHeap implements heap.Interface for sequence-ordered packets
@@ -63,14 +65,23 @@ func NewJitterBuffer(audioManager *SimpleAudioManager, outputChan chan<- []int16
 	if bufferMs > 200 {
 		bufferMs = 200 // Maximum 200ms
 	}
+	
+	// Use audio manager's frame size, or default to 960 samples at 48kHz (20ms)
+	frameSize := 960
+	if audioManager != nil {
+		frameSize = audioManager.frameSize
+	}
+	frameDuration := time.Duration(float64(time.Second) * float64(frameSize) / 48000.0)
 
 	jb := &JitterBuffer{
-		packets:      make(packetHeap, 0, bufferMs/20), // ~1 packet per 20ms
-		maxSize:      bufferMs / 20,
-		minDelay:     time.Duration(bufferMs) * time.Millisecond,
-		audioManager: audioManager,
-		outputChan:   outputChan,
-		maxDistance:  maxDistance,
+		packets:       make(packetHeap, 0, bufferMs/20), // ~1 packet per 20ms
+		maxSize:       bufferMs / 20,
+		minDelay:      time.Duration(bufferMs) * time.Millisecond,
+		audioManager:  audioManager,
+		outputChan:    outputChan,
+		maxDistance:   maxDistance,
+		frameSize:     frameSize,
+		frameDuration: frameDuration,
 	}
 	heap.Init(&jb.packets)
 	return jb
@@ -196,10 +207,12 @@ func (jb *JitterBuffer) playPLC() {
 
 	// Use Opus PLC by decoding with nil data
 	// The Opus decoder will synthesize a plausible frame
+	// Note: We default to Opus codec for PLC since it has built-in PLC support
+	// If the client is using PCM, this will return silence which is acceptable
 	samples, err := jb.audioManager.DecodeAudio(AudioCodecOpus, nil)
 	if err != nil {
-		// Fallback to silence
-		samples = make([]int16, 960)
+		// Fallback to silence with correct frame size
+		samples = make([]int16, jb.frameSize)
 	}
 
 	// PLC frames are mono and should be converted to stereo with no panning

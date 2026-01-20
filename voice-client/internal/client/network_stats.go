@@ -5,6 +5,17 @@ import (
 	"time"
 )
 
+const (
+	// defaultWindowSize is the number of recent packets to track for rolling statistics
+	defaultWindowSize = 1000
+	
+	// decayFactor is the decay rate for old packet loss in rolling window
+	decayFactor = 0.9
+	
+	// expectedFrameDuration is the expected time between audio frames (20ms)
+	expectedFrameDuration = 0.020 // seconds
+)
+
 // NetworkStats tracks network quality metrics
 type NetworkStats struct {
 	mu                  sync.RWMutex
@@ -29,7 +40,7 @@ type NetworkStats struct {
 // NewNetworkStats creates a new network statistics tracker
 func NewNetworkStats() *NetworkStats {
 	return &NetworkStats{
-		windowSize: 1000, // Track last 1000 packets for rolling average
+		windowSize: defaultWindowSize, // Track last 1000 packets for rolling average
 	}
 }
 
@@ -74,8 +85,7 @@ func (ns *NetworkStats) RecordPacket(sequenceNumber uint32) (lost int) {
 	// Calculate jitter (inter-arrival time variation)
 	if !ns.lastPacketTime.IsZero() {
 		interval := now.Sub(ns.lastPacketTime).Seconds()
-		expectedInterval := 0.020 // 20ms frame time
-		jitter := interval - expectedInterval
+		jitter := interval - expectedFrameDuration
 		if jitter < 0 {
 			jitter = -jitter
 		}
@@ -90,7 +100,7 @@ func (ns *NetworkStats) RecordPacket(sequenceNumber uint32) (lost int) {
 	// Maintain rolling window
 	if ns.recentPackets > ns.windowSize {
 		ns.recentPackets = ns.windowSize
-		ns.recentLost = uint64(float64(ns.recentLost) * 0.9) // Decay old losses
+		ns.recentLost = uint64(float64(ns.recentLost) * decayFactor) // Decay old losses
 	}
 
 	return lostPackets
