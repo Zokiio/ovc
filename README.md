@@ -1,69 +1,133 @@
 # Hytale Voice Chat
 
-Proximity-based voice chat for Hytale with a Go desktop client and a Java plugin
-that runs the UDP voice server inside the game.
+Proximity-based voice chat system for Hytale with two independent components:
+- **Voice Client**: Lightweight desktop voice client written in Go
+- **Hytale Plugin**: Server-side plugin with integrated UDP voice server written in Java
 
-## Components
+---
 
-- **Go Client** (`go-client/`)
-  - Cross-platform GUI built with Fyne.
-  - Captures microphone audio, sends UDP packets, and plays received audio.
-  - Stores server/device preferences and writes logs to the user config folder.
-- **Hytale Plugin** (`hytale-plugin/`)
-  - Netty UDP server for voice packets.
-  - Tracks players and routes audio by proximity when positions are available.
-- **Common** (`common/`)
-  - Shared packet formats and models used by the server/plugin.
+## 🎮 Voice Client
 
-## Quick Start
+The voice client is a **standalone desktop application** that players install on their computers to enable voice chat.
 
-1. Build the plugin and start your Hytale server:
-   ```bash
-   ./gradlew :hytale-plugin:build
-   ```
-2. Build the Go client:
-   ```bash
-   cd go-client
-   go build -o HytaleVoiceChat ./cmd/voice-client
-   ```
-3. Run the client and connect to your server:
-   ```bash
-   ./HytaleVoiceChat
-   ```
-
-For platform-specific build steps, config locations, and log locations, see:
-[`go-client/README.md`](go-client/README.md).
-
-## Project Structure
-
-```
-hytale-voice-chat/
-├── common/                # Shared models + packet formats
-├── go-client/             # Go GUI client (Fyne + PortAudio)
-├── hytale-plugin/         # Hytale plugin with integrated UDP server
-│   └── hytalefiles/        # (local, not committed)
-├── README.md
-├── SETUP.md
-└── TEST.md
-```
-## Go Client
-
-The Go client provides a lightweight, cross-platform desktop application for voice chat.
+### Features
+- Cross-platform GUI (Windows, macOS, Linux)
+- Built with Go + Fyne UI framework
+- Microphone capture and audio playback using PortAudio
+- UDP-based communication with the server
+- No Java installation required
 
 ![Voice Client Screenshot](.github/images/voice-client-screenshot.png)
 
-**Features:**
-- Server connection management
-- Audio device selection (microphone and speaker)
-- Voice Activity Detection (VAD) with adjustable threshold
-- Push-to-Talk (PTT) mode with customizable keybinds
-- Volume controls for input and output
-- Audio testing capabilities
+### Quick Start
+```bash
+cd voice-client
+go build -o HytaleVoiceChat ./cmd/voice-client
+./HytaleVoiceChat
+```
 
-For detailed build instructions and platform-specific information, see the [Go Client README](go-client/README.md).
+**📖 Full documentation:** [`voice-client/README.md`](voice-client/README.md)
 
-## Java Client
+---
 
-To run the Java client, ensure you are using Java version 25 Temurin. Other versions such as Java 17+ may work but are not officially supported. 
+## 🔌 Hytale Plugin
 
-For more information, check the official Java documentation.
+The Java plugin runs **inside the Hytale server** and handles voice routing based on player proximity.
+
+### Features
+- Netty-based UDP server for voice packets
+- Proximity-based audio routing (configurable range)
+- Player position tracking via Hytale API
+- Authentication and session management
+
+### Quick Start
+```bash
+cd hytale-plugin
+./gradlew build
+
+# Plugin JAR will be in: build/libs/
+# Copy to your Hytale server's mods/ folder
+```
+
+**📖 Full documentation:** [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md)
+
+---
+
+## 📂 Project Structure
+
+```
+hytale-voice-chat/
+├── voice-client/          # Go desktop client (standalone app)
+│   ├── cmd/               # CLI entry points
+│   ├── internal/          # Go client implementation
+│   └── README.md          # Go client documentation
+│
+├── hytale-plugin/         # Java server plugin
+│   ├── src/               # Plugin source code
+│   ├── common/            # Shared Java models
+│   ├── docs/              # Plugin documentation
+│   ├── build.gradle       # Build configuration
+│   └── gradlew            # Gradle wrapper
+│
+├── .gitignore
+└── README.md              # This file
+```
+
+---
+
+## 🚀 Getting Started
+
+### For Players (Client Setup)
+1. Download the voice client for your platform
+2. Run `HytaleVoiceChat` executable
+3. Enter your Hytale username and server address
+4. Click "Connect" and start talking!
+
+See [`voice-client/README.md`](voice-client/README.md) for detailed instructions.
+
+### For Server Admins (Plugin Setup)
+1. Build the plugin:
+   ```bash
+   cd hytale-plugin
+   ./gradlew build
+   ```
+2. Copy JAR from `hytale-plugin/build/libs/` to your Hytale server's `mods/` folder
+3. Start/restart the Hytale server
+4. Configure settings in `config/voicechat.yml` (if needed)
+
+See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed instructions.
+
+---
+
+## 📚 Documentation
+
+- **Voice Client**: See [`voice-client/README.md`](voice-client/README.md)
+- **Hytale Plugin**: See [`hytale-plugin/docs/`](hytale-plugin/docs/) directory for detailed guides:
+  - [Setup Guide](hytale-plugin/docs/SETUP.md)
+  - [Testing Guide](hytale-plugin/docs/TEST.md)
+  - [Audio Testing](hytale-plugin/docs/AUDIO_TESTING.md)
+  - [Authentication Flow](hytale-plugin/docs/AUTHENTICATION.md)
+  - [Test Scenarios](hytale-plugin/docs/TEST_SCENARIOS.md)
+
+---
+
+## 🛠️ Development
+
+### Prerequisites
+- **Voice Client**: Go 1.23+, PortAudio
+- **Hytale Plugin**: Java 25+, Gradle, Hytale Server API files
+
+### Building Both Components
+```bash
+# Build Java plugin
+cd hytale-plugin && ./gradlew build
+
+# Build Go client
+cd voice-client && go build -o HytaleVoiceChat ./cmd/voice-client
+```
+
+---
+
+## 📝 License
+
+This project is for educational/personal use with Hytale.
