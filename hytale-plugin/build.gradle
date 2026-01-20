@@ -1,3 +1,49 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.hytale.voicechat'
+version = '1.0.0-SNAPSHOT'
+
+allprojects {
+    apply plugin: 'java'
+    
+    repositories {
+        mavenCentral()
+        maven { url = 'https://maven.maxhenkel.de/repository/public' }
+        maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+    }
+    
+    java {
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
+    }
+    
+    tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+    }
+}
+
+subprojects {
+    group = rootProject.group
+    version = rootProject.version
+    
+    dependencies {
+        // Logging
+        implementation 'org.slf4j:slf4j-api:2.0.9'
+        implementation 'ch.qos.logback:logback-classic:1.4.11'
+        
+        // Testing
+        testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+        testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    }
+    
+    test {
+        useJUnitPlatform()
+    }
+}
+
+// Plugin-specific dependencies
 dependencies {
     implementation project(':common')
     
@@ -10,9 +56,6 @@ dependencies {
     
     // JSON processing
     implementation "com.google.code.gson:gson:${gson_version}"
-    
-    // HTTP client (removed - no longer needed)
-    // implementation "com.squareup.okhttp3:okhttp:4.12.0"
 }
 
 // Configure JAR to include dependencies (fat JAR)
