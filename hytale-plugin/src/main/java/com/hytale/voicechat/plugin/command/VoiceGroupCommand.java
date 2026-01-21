@@ -7,23 +7,24 @@ import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredAr
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractCommandCollection;
 import com.hypixel.hytale.server.core.command.system.basecommands.CommandBase;
-import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.common.model.Group;
+import com.hytale.voicechat.plugin.GroupManager;
 
 import javax.annotation.Nonnull;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Command collection to manage voice groups: /voicegroup create|join|leave|list
  */
 public class VoiceGroupCommand extends AbstractCommandCollection {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+    private final GroupManager groupManager;
 
     public VoiceGroupCommand(GroupManager groupManager) {
         super("voicegroup", "Manage voice chat groups");
+        this.groupManager = groupManager;
         addAliases("vgroup", "group");
-        
+
         addSubCommand(new CreateSubCommand(groupManager));
         addSubCommand(new JoinSubCommand(groupManager));
         addSubCommand(new LeaveSubCommand(groupManager));
