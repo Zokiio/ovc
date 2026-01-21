@@ -5,6 +5,9 @@ import com.hytale.voicechat.common.model.Group;
 import com.hytale.voicechat.common.packet.AudioPacket;
 import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
+import com.hytale.voicechat.common.packet.GroupManagementPacket;
+import com.hytale.voicechat.common.packet.GroupStatePacket;
+import com.hytale.voicechat.common.packet.GroupListPacket;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
@@ -18,6 +21,8 @@ import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -156,6 +161,12 @@ public class UDPSocketManager {
                         break;
                     case 0x04: // Disconnect packet
                         handleDisconnect(ctx, data, packet.sender());
+                        break;
+                    case 0x06: // Group management packet
+                        handleGroupManagement(ctx, data, packet.sender());
+                        break;
+                    case 0x08: // Group list query packet
+                        handleGroupListQuery(ctx, data, packet.sender());
                         break;
                     default:
                         logger.atWarning().log("Unknown packet type: " + packetType);
@@ -485,6 +496,138 @@ public class UDPSocketManager {
                         packet.getPosX(), packet.getPosY(), packet.getPosZ());
             }
             return new AudioPacket(senderId, packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber());
+        }
+        
+        private void handleGroupManagement(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+            try {
+                if (groupManager == null) {
+                    logger.atWarning().log("Group management received but GroupManager not initialized");
+                    return;
+                }
+                
+                GroupManagementPacket packet = GroupManagementPacket.deserialize(data);
+                UUID playerId = packet.getSenderId();
+                
+                // Get player UUID from voice client UUID
+                UUID playerUUID = clientToPlayerUUID.get(playerId);
+                if (playerUUID == null) {
+                    String username = findUsernameByClientId(playerId);
+                    if (username != null && positionTracker != null) {
+                        playerUUID = positionTracker.getPlayerUUIDByUsername(username);
+                        if (playerUUID != null) {
+                            clientToPlayerUUID.put(playerId, playerUUID);
+                        }
+                    }
+                }
+                
+                if (playerUUID == null) {
+                    logger.atWarning().log("Group management from unlinked voice client: " + playerId);
+                    return;
+                }
+                
+                Group affectedGroup = null;
+                String logMessage = "";
+                
+                switch (packet.getOperation()) {
+                    case CREATE:
+                        affectedGroup = groupManager.createGroup(packet.getGroupName(), packet.isPermanent());
+                        if (affectedGroup != null) {
+                            groupManager.joinGroup(playerUUID, affectedGroup.getGroupId());
+                            logMessage = "Group created: " + packet.getGroupName();
+                        }
+                        break;
+                    
+                    case JOIN:
+                        if (groupManager.joinGroup(playerUUID, packet.getGroupId())) {
+                            affectedGroup = groupManager.getGroup(packet.getGroupId());
+                            logMessage = "Player joined group";
+                        }
+                        break;
+                    
+                    case LEAVE:
+                        affectedGroup = groupManager.getPlayerGroup(playerUUID);
+                        if (groupManager.leaveGroup(playerUUID)) {
+                            logMessage = "Player left group";
+                        }
+                        break;
+                }
+                
+                if (!logMessage.isEmpty()) {
+                    logger.atInfo().log(logMessage);
+                }
+                
+                // Send updated group state to all clients
+                if (affectedGroup != null) {
+                    broadcastGroupState(ctx, affectedGroup);
+                }
+                
+            } catch (Exception e) {
+                logger.atSevere().withCause(e).log("Error handling group management packet");
+            }
+        }
+        
+        private void handleGroupListQuery(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+            try {
+                if (groupManager == null) {
+                    logger.atWarning().log("Group list query received but GroupManager not initialized");
+                    return;
+                }
+                
+                GroupListPacket packet = GroupListPacket.deserialize(data);
+                
+                // Build group list response
+                List<GroupListPacket.GroupData> groupDataList = new ArrayList<>();
+                for (Group group : groupManager.listGroups()) {
+                    groupDataList.add(new GroupListPacket.GroupData(
+                        group.getGroupId(),
+                        group.getName(),
+                        group.getMemberCount()
+                    ));
+                }
+                
+                // Send response back to client
+                GroupListPacket response = new GroupListPacket(packet.getSenderId(), groupDataList);
+                byte[] responseData = response.serialize();
+                ByteBuf buf = ctx.alloc().buffer(responseData.length);
+                buf.writeBytes(responseData);
+                ctx.writeAndFlush(new DatagramPacket(buf, sender));
+                
+                logger.atFine().log("Sent group list to " + sender + " with " + groupDataList.size() + " groups");
+                
+            } catch (Exception e) {
+                logger.atSevere().withCause(e).log("Error handling group list query");
+            }
+        }
+        
+        private void broadcastGroupState(ChannelHandlerContext ctx, Group group) {
+            try {
+                GroupStatePacket packet = new GroupStatePacket(
+                    UUID.fromString("00000000-0000-0000-0000-000000000000"), // Server UUID
+                    group.getGroupId(),
+                    group.getName(),
+                    new ArrayList<>(group.getMembers())
+                );
+                
+                byte[] data = packet.serialize();
+                ByteBuf buf = ctx.alloc().buffer(data.length);
+                buf.writeBytes(data);
+                
+                // Send to all group members
+                for (UUID memberId : group.getMembers()) {
+                    UUID clientId = findClientByPlayerUUID(memberId);
+                    if (clientId != null) {
+                        InetSocketAddress clientAddr = clients.get(clientId);
+                        if (clientAddr != null) {
+                            ctx.writeAndFlush(new DatagramPacket(buf.copy(), clientAddr));
+                        }
+                    }
+                }
+                
+                buf.release();
+                
+            } catch (Exception e) {
+                logger.atSevere().withCause(e).log("Error broadcasting group state");
+            }
         }
         
         private void broadcastToAll(ChannelHandlerContext ctx, AudioPacket packet, InetSocketAddress sender) {
