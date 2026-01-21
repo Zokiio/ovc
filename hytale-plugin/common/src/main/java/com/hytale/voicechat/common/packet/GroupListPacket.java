@@ -173,6 +173,14 @@ public class GroupListPacket extends VoicePacket {
                 String name = new String(nameBytes, StandardCharsets.UTF_8);
                 
                 int memberCount = buffer.getInt();
+                if (memberCount < 0) {
+                    throw new IllegalArgumentException("Invalid GroupListPacket: negative member count at index " + i);
+                }
+                
+                // Reasonable upper limit for member count to prevent memory exhaustion
+                if (memberCount > NetworkConfig.MAX_GROUP_MEMBER_COUNT) {
+                    throw new IllegalArgumentException("Invalid GroupListPacket: member count exceeds maximum of " + NetworkConfig.MAX_GROUP_MEMBER_COUNT + " at index " + i);
+                }
                 
                 groupDataList.add(new GroupData(groupId, name, memberCount));
             }
