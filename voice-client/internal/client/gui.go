@@ -631,10 +631,22 @@ func (gui *GUI) applySavedSettings() {
 		gui.vadCheck.Enable()
 	}
 
-	// Apply NAT settings (default to true if not in config)
-	gui.enableUPnPCheck.SetChecked(gui.savedConfig.EnableUPnP)
-	gui.enableSTUNCheck.SetChecked(gui.savedConfig.EnableSTUN)
-	gui.voiceClient.SetNATTraversal(gui.enableUPnPCheck.Checked, gui.enableSTUNCheck.Checked)
+	// Apply NAT settings
+	// For old configs that don't have these fields, default to true (enabled)
+	enableUPnP := gui.savedConfig.EnableUPnP
+	enableSTUN := gui.savedConfig.EnableSTUN
+
+	// If both are false and this looks like an old config without NAT settings,
+	// default both to true (intended default behavior)
+	if !enableUPnP && !enableSTUN && gui.savedConfig.Server != "" {
+		log.Println("[GUI] Old config detected, enabling NAT traversal by default")
+		enableUPnP = true
+		enableSTUN = true
+	}
+
+	gui.enableUPnPCheck.SetChecked(enableUPnP)
+	gui.enableSTUNCheck.SetChecked(enableSTUN)
+	gui.voiceClient.SetNATTraversal(enableUPnP, enableSTUN)
 }
 
 func (gui *GUI) parsePort() int {

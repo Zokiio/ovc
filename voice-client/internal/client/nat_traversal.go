@@ -173,8 +173,13 @@ func (nt *NATTraversal) performSTUNRequest(localAddr *net.UDPAddr, stunServer st
 		return nil, fmt.Errorf("failed to resolve STUN server: %w", err)
 	}
 
-	// Create UDP connection
-	conn, err := net.ListenUDP("udp", localAddr)
+	// Create UDP connection with ephemeral port to avoid conflicts
+	// Use IP from localAddr but let OS assign port (0)
+	ephemeralAddr := &net.UDPAddr{
+		IP:   localAddr.IP,
+		Port: 0, // Let OS assign an available port
+	}
+	conn, err := net.ListenUDP("udp", ephemeralAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create UDP socket: %w", err)
 	}
