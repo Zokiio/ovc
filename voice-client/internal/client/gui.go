@@ -631,22 +631,11 @@ func (gui *GUI) applySavedSettings() {
 		gui.vadCheck.Enable()
 	}
 
-	// Apply NAT settings
-	// For old configs that don't have these fields, default to true (enabled)
-	enableUPnP := gui.savedConfig.EnableUPnP
-	enableSTUN := gui.savedConfig.EnableSTUN
-
-	// If both are false and this looks like an old config without NAT settings,
-	// default both to true (intended default behavior)
-	if !enableUPnP && !enableSTUN && gui.savedConfig.Server != "" {
-		log.Println("[GUI] Old config detected, enabling NAT traversal by default")
-		enableUPnP = true
-		enableSTUN = true
-	}
-
-	gui.enableUPnPCheck.SetChecked(enableUPnP)
-	gui.enableSTUNCheck.SetChecked(enableSTUN)
-	gui.voiceClient.SetNATTraversal(enableUPnP, enableSTUN)
+	// Apply NAT settings from saved configuration
+	// Use helper methods that default to true if not set in config
+	gui.enableUPnPCheck.SetChecked(gui.savedConfig.GetEnableUPnP())
+	gui.enableSTUNCheck.SetChecked(gui.savedConfig.GetEnableSTUN())
+	gui.voiceClient.SetNATTraversal(gui.savedConfig.GetEnableUPnP(), gui.savedConfig.GetEnableSTUN())
 }
 
 func (gui *GUI) parsePort() int {
@@ -741,6 +730,8 @@ func (gui *GUI) updateNATStatus() {
 
 // saveConfigWithNAT saves configuration including NAT settings
 func (gui *GUI) saveConfigWithNAT(enableUPnP bool, enableSTUN bool) {
+	upnpPtr := &enableUPnP
+	stunPtr := &enableSTUN
 	cfg := ClientConfig{
 		Server:       gui.serverInput.Text,
 		Port:         gui.parsePort(),
@@ -753,8 +744,8 @@ func (gui *GUI) saveConfigWithNAT(enableUPnP bool, enableSTUN bool) {
 		MicGain:      gui.micGainSlider.Value,
 		PushToTalk:   gui.modeRadio.Selected == "Push-to-Talk",
 		PTTKey:       gui.pttKeyEntry.Text,
-		EnableUPnP:   enableUPnP,
-		EnableSTUN:   enableSTUN,
+		EnableUPnP:   upnpPtr,
+		EnableSTUN:   stunPtr,
 	}
 	if err := saveClientConfig(cfg); err != nil {
 		log.Printf("Failed to save config: %v", err)
@@ -776,13 +767,13 @@ func (gui *GUI) onNATDiagnosticsClicked() {
 
 				// Start with connection quality
 				switch natInfo.Type {
-				case "Open":
+				case NATTypeOpen:
 					statusText = "✓ Excellent connection"
-				case "Moderate":
+				case NATTypeModerate:
 					statusText = "✓ Good connection"
-				case "Strict":
+				case NATTypeStrict:
 					statusText = "⚠ Limited connection"
-				case "Symmetric", "Blocked":
+				case NATTypeSymmetric, NATTypeBlocked:
 					statusText = "✗ Connection issues detected"
 				default:
 					statusText = "Connection status unknown"

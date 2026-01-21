@@ -105,14 +105,13 @@ The voice client now includes automatic NAT traversal to eliminate the need for 
    - ✅ Enable UPnP Port Mapping
    - ✅ Enable STUN Discovery
 
-2. **Check Status**: After connecting, view your NAT status in the connection panel
+2. **Check Status**: After connecting, view your connection status in the connection panel
 
-3. **Run Diagnostics**: Click "Run NAT Diagnostics" to see:
-   - NAT Type (connection quality indicator)
-   - Public IP and port
-   - Local IP and port
-   - UPnP availability status
-   - STUN response status
+3. **Connection Info**: Click "Connection Info" to see:
+   - Connection quality (Excellent/Good/Limited)
+   - Router configuration status
+   - Your public IP address
+   - Any connection issues or recommendations
 
 ### Troubleshooting
 

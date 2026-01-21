@@ -55,6 +55,14 @@ func NewNATTraversal() *NATTraversal {
 
 // SetupPortMapping attempts to set up UPnP port mapping for the given local port
 func (nt *NATTraversal) SetupPortMapping(localPort int, externalPort int, description string) error {
+	// Validate port numbers are within valid range
+	if localPort < 1 || localPort > 65535 {
+		return fmt.Errorf("invalid local port %d: must be between 1 and 65535", localPort)
+	}
+	if externalPort < 1 || externalPort > 65535 {
+		return fmt.Errorf("invalid external port %d: must be between 1 and 65535", externalPort)
+	}
+
 	nt.localPort = localPort
 	nt.externalPort = externalPort
 
@@ -354,7 +362,7 @@ func getLocalIP() (string, error) {
 }
 
 // SetupNATWithRetry attempts to set up NAT traversal with automatic retry
-func SetupNATWithRetry(ctx context.Context, localPort int, externalPort int, description string, enableUPnP bool, enableSTUN bool) (*NATTraversal, *NATInfo, error) {
+func SetupNATWithRetry(localPort int, externalPort int, description string, enableUPnP bool, enableSTUN bool) (*NATTraversal, *NATInfo, error) {
 	nt := NewNATTraversal()
 
 	// Get local IP for binding

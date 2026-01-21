@@ -20,9 +20,25 @@ type ClientConfig struct {
 	PushToTalk   bool    `json:"pushToTalk"`
 	PTTKey       string  `json:"pttKey"`
 
-	// NAT Traversal settings
-	EnableUPnP bool `json:"enableUPnP"`
-	EnableSTUN bool `json:"enableSTUN"`
+	// NAT Traversal settings (using pointers to distinguish unset from explicitly false)
+	EnableUPnP *bool `json:"enableUPnP,omitempty"`
+	EnableSTUN *bool `json:"enableSTUN,omitempty"`
+}
+
+// GetEnableUPnP returns the UPnP setting, defaulting to true if not set
+func (c *ClientConfig) GetEnableUPnP() bool {
+	if c.EnableUPnP == nil {
+		return true // Default to enabled
+	}
+	return *c.EnableUPnP
+}
+
+// GetEnableSTUN returns the STUN setting, defaulting to true if not set
+func (c *ClientConfig) GetEnableSTUN() bool {
+	if c.EnableSTUN == nil {
+		return true // Default to enabled
+	}
+	return *c.EnableSTUN
 }
 
 func loadClientConfig() (ClientConfig, error) {

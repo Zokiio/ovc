@@ -71,26 +71,24 @@ The client automatically detects and classifies your NAT configuration:
 After connecting, the client displays:
 
 ```
-NAT: Moderate (UPnP Mapped) | Public: 203.0.113.45:24454
+Connection: Good ✓
 ```
 
-### Settings Checkboxes
+### Settings Checkbox
 
-- ☑ **Enable UPnP Port Mapping** - Automatic port forwarding
-- ☑ **Enable STUN Discovery** - Public IP detection
+- ☑ **Automatic Router Setup (Recommended)** - Automatically enables UPnP port mapping and STUN discovery for best connectivity
 
-Both are **enabled by default** for best user experience.
+When this option is enabled (default), the client will attempt to configure your router via UPnP and use STUN to discover your public endpoint without requiring manual configuration.
 
-### NAT Diagnostics Button
+### Connection Info Button
 
-Click "Run NAT Diagnostics" to see detailed information:
+Click "Connection Info" to see detailed information in a user-friendly format:
 
 ```
-NAT Type: Moderate
-Public: 203.0.113.45:24454
-Local: 192.168.1.100:51234
-UPnP: true (Mapped)
-STUN: true
+✓ Good connection
+✓ Router configured automatically
+
+Your IP: 203.0.113.45
 ```
 
 ## Configuration

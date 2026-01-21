@@ -1,7 +1,6 @@
 package client
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -297,11 +296,10 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 	// Setup NAT traversal if enabled
 	if vc.enableUPnP || vc.enableSTUN {
 		log.Printf("[NAT] Setting up NAT traversal (UPnP=%v, STUN=%v)...", vc.enableUPnP, vc.enableSTUN)
-		ctx := context.Background()
 
 		// Use localPort for both internal and external mapping
 		// This way the client receives on the same port it's already bound to
-		natTraversal, natInfo, err := SetupNATWithRetry(ctx, localPort, localPort, "Hytale Voice Chat", vc.enableUPnP, vc.enableSTUN)
+		natTraversal, natInfo, err := SetupNATWithRetry(localPort, localPort, "Hytale Voice Chat", vc.enableUPnP, vc.enableSTUN)
 		if err != nil {
 			log.Printf("[NAT] NAT traversal setup failed: %v", err)
 			// Continue anyway - NAT traversal is optional
