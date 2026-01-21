@@ -1,8 +1,9 @@
 package com.hytale.voicechat.common.model;
 
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Represents a voice group for non-spatial group communication
@@ -18,7 +19,7 @@ public class Group {
         this.groupId = groupId;
         this.name = name;
         this.isPermanent = isPermanent;
-        this.members = new HashSet<>();
+        this.members = ConcurrentHashMap.newKeySet();
         this.createdAt = System.currentTimeMillis();
     }
 
@@ -31,7 +32,7 @@ public class Group {
     }
 
     public Set<UUID> getMembers() {
-        return members;
+        return Collections.unmodifiableSet(members);
     }
 
     public boolean isPermanent() {

@@ -148,9 +148,11 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
                 return;
             }
 
+            String groupName = current.getName();
+
             if (groupManager.leaveGroup(playerId)) {
-                context.sendMessage(Message.raw("Left group: " + current.getName()));
-                logger.atInfo().log(context.sender().getDisplayName() + " left group: " + current.getName());
+                context.sendMessage(Message.raw("Left group: " + groupName));
+                logger.atInfo().log(context.sender().getDisplayName() + " left group: " + groupName);
             } else {
                 context.sendMessage(Message.raw("Failed to leave group."));
             }
