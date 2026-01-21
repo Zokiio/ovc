@@ -1,10 +1,12 @@
 package com.hytale.voicechat.plugin.network;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
+import com.hytale.voicechat.common.model.Group;
 import com.hytale.voicechat.common.packet.AudioPacket;
 import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import com.hytale.voicechat.common.network.NetworkConfig;
+import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
@@ -33,6 +35,7 @@ public class UDPSocketManager {
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
+    private GroupManager groupManager;
     private EventLoopGroup group;
     private Channel channel;
 
@@ -54,6 +57,10 @@ public class UDPSocketManager {
     public void setEventListener(PlayerEventListener listener) {
         this.eventListener = listener;
     }
+    
+    public void setGroupManager(GroupManager manager) {
+        this.groupManager = manager;
+    }
 
     public void start() throws InterruptedException {
         group = new NioEventLoopGroup();
@@ -70,7 +77,8 @@ public class UDPSocketManager {
                             usernameToClientUUID, 
                             clientToPlayerUUID,
                             positionTracker,
-                            eventListener
+                            eventListener,
+                            groupManager
                         ));
                     }
                 });
@@ -106,17 +114,20 @@ public class UDPSocketManager {
         private final Map<UUID, UUID> clientToPlayerUUID;
         private final PlayerPositionTracker positionTracker;
         private final PlayerEventListener eventListener;
+        private final GroupManager groupManager;
 
         public VoicePacketHandler(Map<UUID, InetSocketAddress> clients, 
                                   Map<String, UUID> usernameToClientUUID,
                                   Map<UUID, UUID> clientToPlayerUUID,
                                   PlayerPositionTracker positionTracker,
-                                  PlayerEventListener eventListener) {
+                                  PlayerEventListener eventListener,
+                                  GroupManager groupManager) {
             this.clients = clients;
             this.usernameToClientUUID = usernameToClientUUID;
             this.clientToPlayerUUID = clientToPlayerUUID;
             this.positionTracker = positionTracker;
             this.eventListener = eventListener;
+            this.groupManager = groupManager;
         }
 
         @Override
@@ -356,52 +367,65 @@ public class UDPSocketManager {
                 return; // Sender not in game / not tracked yet
             }
             
-            // Route to nearby players only, embedding relative offset per recipient
+            // Route to nearby players and group members
             int routedCount = 0;
+            int groupRoutedCount = 0;
             Map<UUID, PlayerPosition> allPlayers = positionTracker.getPlayerPositions();
             int tracked = allPlayers.size();
+            
+            // Get sender's group (if any)
+            Group senderGroup = groupManager != null ? groupManager.getPlayerGroup(playerUUID) : null;
             
             for (Map.Entry<UUID, PlayerPosition> entry : allPlayers.entrySet()) {
                 UUID otherPlayerUUID = entry.getKey();
                 PlayerPosition position = entry.getValue();
                 
                 if (!otherPlayerUUID.equals(playerUUID)) { // Don't send to self
+                    boolean inSameGroup = senderGroup != null && senderGroup.hasMember(otherPlayerUUID);
                     double distance = senderPos.distanceTo(position);
-                    logger.atInfo().log("[ROUTE_CHECK] recipient=" + position.getPlayerName() + " distance=" + String.format("%.2f", distance) + " maxProximity=" + proximityDistance);
+                    boolean inProximity = distance <= proximityDistance;
                     
-                    // Only send if within proximity distance
-                    if (distance <= proximityDistance) {
+                    // Send if in same group OR within proximity distance
+                    if (inSameGroup || inProximity) {
                         // Find voice client for this player
                         UUID otherClientId = findClientByPlayerUUID(otherPlayerUUID);
-                        logger.atInfo().log("[ROUTE_LOOKUP] recipient=" + position.getPlayerName() + " playerUUID=" + otherPlayerUUID + " clientUUID=" + otherClientId);
                         
                         if (otherClientId != null) {
                             InetSocketAddress clientAddr = clients.get(otherClientId);
-                            logger.atInfo().log("[ROUTE_ADDRESS] recipient=" + position.getPlayerName() + " clientUUID=" + otherClientId + " address=" + clientAddr);
                             
                             if (clientAddr != null) {
-                                float dx = (float) (senderPos.getX() - position.getX());
-                                float dy = (float) (senderPos.getY() - position.getY());
-                                float dz = (float) (senderPos.getZ() - position.getZ());
+                                if (inSameGroup) {
+                                    // Group audio: send WITHOUT position (center-channel, non-spatial)
+                                    byte[] data = packet.serialize();
+                                    ByteBuf buf = ctx.alloc().buffer(data.length);
+                                    buf.writeBytes(data);
+                                    ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                    groupRoutedCount++;
+                                    logger.atInfo().log("[GROUP_ROUTED] sender=" + senderPos.getPlayerName() + " -> group_member=" + position.getPlayerName());
+                                }
+                                
+                                if (inProximity) {
+                                    // Proximity audio: send WITH position (spatial 3D)
+                                    float dx = (float) (senderPos.getX() - position.getX());
+                                    float dy = (float) (senderPos.getY() - position.getY());
+                                    float dz = (float) (senderPos.getZ() - position.getZ());
 
-                                float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
+                                    float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
 
-                                logger.atInfo().log("[ROTATION] sender=" + senderPos.getPlayerName() + "(" + String.format("%.2f", senderPos.getX()) + "," + String.format("%.2f", senderPos.getY()) + "," + String.format("%.2f", senderPos.getZ()) + ") listener=" + position.getPlayerName() + "(" + String.format("%.2f", position.getX()) + "," + String.format("%.2f", position.getY()) + "," + String.format("%.2f", position.getZ()) + ") yaw=" + String.format("%.2f", position.getYaw()) + "° pitch=" + String.format("%.2f", position.getPitch()) + "° world=(" + String.format("%.2f", dx) + "," + String.format("%.2f", dy) + "," + String.format("%.2f", dz) + ") rotated=(" + String.format("%.2f", rotated[0]) + "," + String.format("%.2f", rotated[1]) + "," + String.format("%.2f", rotated[2]) + ")");
-
-                                // Optimize: write directly to ByteBuf to avoid intermediate byte array allocation
-                                int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
-                                ByteBuf buf = ctx.alloc().buffer(packetSize);
-                                packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
-                                ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
-                                routedCount++;
-                                logger.atInfo().log("[ROUTED] sender=" + senderPos.getPlayerName() + " -> recipient=" + position.getPlayerName());
+                                    int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
+                                    ByteBuf buf = ctx.alloc().buffer(packetSize);
+                                    packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
+                                    ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                    routedCount++;
+                                    logger.atInfo().log("[PROXIMITY_ROUTED] sender=" + senderPos.getPlayerName() + " -> proximity=" + position.getPlayerName() + " distance=" + String.format("%.2f", distance));
+                                }
                             }
                         }
                     }
                 }
             }
             
-            logger.atInfo().log("Positional route: sender=" + senderPos.getPlayerName() + " tracked=" + tracked + " routed=" + routedCount + " pos=" + senderPos.getX() + "," + senderPos.getY() + "," + senderPos.getZ());
+            logger.atInfo().log("Route: sender=" + senderPos.getPlayerName() + " group=" + groupRoutedCount + " proximity=" + routedCount + " (tracked=" + tracked + ")");
             
         }
         
