@@ -631,13 +631,9 @@ func (gui *GUI) applySavedSettings() {
 		gui.vadCheck.Enable()
 	}
 
-	// Apply NAT settings
-	if gui.savedConfig.EnableUPnP {
-		gui.enableUPnPCheck.SetChecked(true)
-	}
-	if gui.savedConfig.EnableSTUN {
-		gui.enableSTUNCheck.SetChecked(true)
-	}
+	// Apply NAT settings (default to true if not in config)
+	gui.enableUPnPCheck.SetChecked(gui.savedConfig.EnableUPnP)
+	gui.enableSTUNCheck.SetChecked(gui.savedConfig.EnableSTUN)
 	gui.voiceClient.SetNATTraversal(gui.enableUPnPCheck.Checked, gui.enableSTUNCheck.Checked)
 }
 
