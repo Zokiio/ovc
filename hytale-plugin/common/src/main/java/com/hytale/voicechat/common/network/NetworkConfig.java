@@ -11,6 +11,12 @@ public class NetworkConfig {
     public static final int MAX_PACKET_SIZE = 1024;
     public static final double DEFAULT_PROXIMITY_DISTANCE = 30.0;
     public static final double MAX_VOICE_DISTANCE = 100.0;
+    
+    // Packet validation limits (realistic values for Hytale servers)
+    // Note: MAX_GROUP_NAME_LENGTH aligns with GroupManager's validation (32 chars)
+    public static final int MAX_GROUP_NAME_LENGTH = 32;
+    public static final int MAX_GROUP_MEMBER_COUNT = 200;
+    public static final int MAX_GROUP_COUNT = 100;
 
     private NetworkConfig() {
         // Utility class

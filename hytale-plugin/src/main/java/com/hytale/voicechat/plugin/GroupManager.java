@@ -2,6 +2,7 @@ package com.hytale.voicechat.plugin;
 
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hytale.voicechat.common.model.Group;
+import com.hytale.voicechat.common.network.NetworkConfig;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,7 +14,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GroupManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final int MIN_GROUP_NAME_LENGTH = 3;
-    private static final int MAX_GROUP_NAME_LENGTH = 32;
     private static final String GROUP_NAME_PATTERN = "^[a-zA-Z0-9 ]+$"; // Alphanumeric and spaces
 
     private final Map<UUID, Group> groups = new ConcurrentHashMap<>();
@@ -153,7 +153,7 @@ public class GroupManager {
             return false;
         }
 
-        if (groupName.length() < MIN_GROUP_NAME_LENGTH || groupName.length() > MAX_GROUP_NAME_LENGTH) {
+        if (groupName.length() < MIN_GROUP_NAME_LENGTH || groupName.length() > NetworkConfig.MAX_GROUP_NAME_LENGTH) {
             return false;
         }
 
