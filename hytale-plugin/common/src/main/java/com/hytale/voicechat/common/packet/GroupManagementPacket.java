@@ -142,7 +142,7 @@ public class GroupManagementPacket extends VoicePacket {
             
             // Reasonable upper limit for group name length to prevent memory exhaustion
             if (nameLength > 1000) {
-                throw new IllegalArgumentException("Malformed GroupManagementPacket: name length exceeds maximum " + nameLength);
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: name length exceeds maximum of 1000");
             }
 
             if (buffer.remaining() < nameLength) {

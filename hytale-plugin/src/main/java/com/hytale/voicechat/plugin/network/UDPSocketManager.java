@@ -40,7 +40,7 @@ public class UDPSocketManager {
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
-    private GroupManager groupManager;
+    private volatile GroupManager groupManager;
     private EventLoopGroup group;
     private Channel channel;
 

@@ -129,12 +129,12 @@ public class GroupListPacket extends VoicePacket {
 
             short groupCount = buffer.getShort();
             if (groupCount < 0) {
-                throw new IllegalArgumentException("Invalid GroupListPacket: negative group count " + groupCount);
+                throw new IllegalArgumentException("Invalid GroupListPacket: negative group count");
             }
             
             // Reasonable upper limit to prevent memory exhaustion
             if (groupCount > 10000) {
-                throw new IllegalArgumentException("Invalid GroupListPacket: group count exceeds maximum " + groupCount);
+                throw new IllegalArgumentException("Invalid GroupListPacket: group count exceeds maximum of 10000");
             }
 
             List<GroupData> groupDataList = new ArrayList<>();
@@ -152,12 +152,12 @@ public class GroupListPacket extends VoicePacket {
                 
                 short nameLength = buffer.getShort();
                 if (nameLength < 0) {
-                    throw new IllegalArgumentException("Invalid GroupListPacket: negative name length " + nameLength + " at index " + i);
+                    throw new IllegalArgumentException("Invalid GroupListPacket: negative name length at index " + i);
                 }
                 
                 // Reasonable upper limit for group name length
                 if (nameLength > 1000) {
-                    throw new IllegalArgumentException("Invalid GroupListPacket: name length exceeds maximum " + nameLength + " at index " + i);
+                    throw new IllegalArgumentException("Invalid GroupListPacket: name length exceeds maximum of 1000 at index " + i);
                 }
 
                 // Now need nameLength bytes for the name and 4 bytes for memberCount
