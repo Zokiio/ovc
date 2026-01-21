@@ -1,5 +1,7 @@
 package com.hytale.voicechat.common.packet;
 
+import com.hytale.voicechat.common.network.NetworkConfig;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
@@ -141,8 +143,8 @@ public class GroupManagementPacket extends VoicePacket {
             }
             
             // Reasonable upper limit for group name length to prevent memory exhaustion
-            if (nameLength > 1000) {
-                throw new IllegalArgumentException("Malformed GroupManagementPacket: name length exceeds maximum of 1000");
+            if (nameLength > NetworkConfig.MAX_GROUP_NAME_LENGTH) {
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: name length exceeds maximum of " + NetworkConfig.MAX_GROUP_NAME_LENGTH);
             }
 
             if (buffer.remaining() < nameLength) {
