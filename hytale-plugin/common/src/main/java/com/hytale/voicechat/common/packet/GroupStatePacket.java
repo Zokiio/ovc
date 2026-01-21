@@ -92,7 +92,7 @@ public class GroupStatePacket extends VoicePacket {
         
         // Reasonable upper limit for group name length to prevent memory exhaustion
         if (nameLength > 1000) {
-            throw new IllegalArgumentException("Malformed GroupStatePacket: group name length exceeds maximum " + nameLength);
+            throw new IllegalArgumentException("Malformed GroupStatePacket: group name length exceeds maximum of 1000");
         }
 
         if (buffer.remaining() < nameLength) {
@@ -114,7 +114,7 @@ public class GroupStatePacket extends VoicePacket {
         
         // Reasonable upper limit for member count to prevent memory exhaustion
         if (memberCount > 10000) {
-            throw new IllegalArgumentException("Malformed GroupStatePacket: member count exceeds maximum " + memberCount);
+            throw new IllegalArgumentException("Malformed GroupStatePacket: member count exceeds maximum of 10000");
         }
 
         // Check if we have enough data for all members
