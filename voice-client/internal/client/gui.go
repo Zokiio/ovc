@@ -36,6 +36,7 @@ type GUI struct {
 	testToneBtn       *widget.Button
 	posTestBtn        *widget.Button
 	statusLabel       *widget.Label
+	natStatusLabel    *widget.Label
 	volumeSlider      *widget.Slider
 	micGainSlider     *widget.Slider
 	vadCheck          *widget.Check
@@ -47,6 +48,9 @@ type GUI struct {
 	pttKeyEntry       *widget.Entry
 	pttHoldBtn        *HoldButton
 	pttToggleMode     *widget.Check
+	enableUPnPCheck   *widget.Check
+	enableSTUNCheck   *widget.Check
+	natDiagnosticsBtn *widget.Button
 	uiReady           bool
 }
 
@@ -245,6 +249,32 @@ func (gui *GUI) setupUI() {
 		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold(), gui.volumeSlider.Value, value, gui.modeRadio.Selected == "Push-to-Talk", gui.pttKeyEntry.Text)
 	}
 
+	// NAT Traversal controls
+	gui.enableUPnPCheck = widget.NewCheck("Enable UPnP Port Mapping", func(on bool) {
+		if !gui.uiReady {
+			return
+		}
+		enableSTUN := gui.enableSTUNCheck.Checked
+		gui.voiceClient.SetNATTraversal(on, enableSTUN)
+		gui.saveConfigWithNAT(on, enableSTUN)
+	})
+	gui.enableUPnPCheck.SetChecked(true) // Enable by default
+
+	gui.enableSTUNCheck = widget.NewCheck("Enable STUN Discovery", func(on bool) {
+		if !gui.uiReady {
+			return
+		}
+		enableUPnP := gui.enableUPnPCheck.Checked
+		gui.voiceClient.SetNATTraversal(enableUPnP, on)
+		gui.saveConfigWithNAT(enableUPnP, on)
+	})
+	gui.enableSTUNCheck.SetChecked(true) // Enable by default
+
+	gui.natStatusLabel = widget.NewLabel("NAT: Not connected")
+	gui.natStatusLabel.Alignment = fyne.TextAlignCenter
+
+	gui.natDiagnosticsBtn = widget.NewButton("Run NAT Diagnostics", gui.onNATDiagnosticsClicked)
+
 	gui.vadBar = canvas.NewRectangle(color.NRGBA{R: 180, G: 180, B: 180, A: 255})
 	gui.vadBar.Resize(fyne.NewSize(120, 10))
 	gui.vadStateLabel = widget.NewLabel("VAD: idle")
@@ -356,6 +386,11 @@ func (gui *GUI) setupUI() {
 		gui.connectBtn,
 		container.NewHBox(gui.testToneBtn, gui.posTestBtn),
 		gui.statusLabel,
+		widget.NewSeparator(),
+		gui.natStatusLabel,
+		gui.enableUPnPCheck,
+		gui.enableSTUNCheck,
+		gui.natDiagnosticsBtn,
 	)
 
 	settingsBox := container.NewVBox(
@@ -399,6 +434,7 @@ func (gui *GUI) onConnectClicked() {
 		gui.voiceClient.Disconnect()
 		gui.connectBtn.SetText("Connect")
 		gui.statusLabel.SetText("Disconnected")
+		gui.natStatusLabel.SetText("NAT: Not connected")
 		gui.setConnectionEditable(true)
 		return
 	}
@@ -437,6 +473,9 @@ func (gui *GUI) onConnectClicked() {
 			gui.connectBtn.SetText("Disconnect")
 			gui.connectBtn.Enable()
 			gui.setConnectionEditable(false)
+
+			// Update NAT status
+			gui.updateNATStatus()
 		})
 	}()
 }
@@ -591,6 +630,15 @@ func (gui *GUI) applySavedSettings() {
 		gui.modeRadio.SetSelected("Voice Activated")
 		gui.vadCheck.Enable()
 	}
+
+	// Apply NAT settings
+	if gui.savedConfig.EnableUPnP {
+		gui.enableUPnPCheck.SetChecked(true)
+	}
+	if gui.savedConfig.EnableSTUN {
+		gui.enableSTUNCheck.SetChecked(true)
+	}
+	gui.voiceClient.SetNATTraversal(gui.enableUPnPCheck.Checked, gui.enableSTUNCheck.Checked)
 }
 
 func (gui *GUI) parsePort() int {
@@ -675,4 +723,67 @@ func (gui *GUI) handlePTTKey(ev *fyne.KeyEvent, down bool) {
 		gui.voiceClient.SetPTTActive(false)
 		gui.statusLabel.SetText("PTT released (key)")
 	}
+}
+
+// updateNATStatus updates the NAT status label with current information
+func (gui *GUI) updateNATStatus() {
+	natStatus := gui.voiceClient.GetNATStatus()
+	gui.natStatusLabel.SetText(natStatus)
+}
+
+// saveConfigWithNAT saves configuration including NAT settings
+func (gui *GUI) saveConfigWithNAT(enableUPnP bool, enableSTUN bool) {
+	cfg := ClientConfig{
+		Server:       gui.serverInput.Text,
+		Port:         gui.parsePort(),
+		Username:     gui.usernameInput.Text,
+		MicLabel:     gui.micSelect.Selected,
+		SpeakerLabel: gui.speakerSelect.Selected,
+		VADEnabled:   gui.vadCheck.Checked,
+		VADThreshold: gui.currentVADThreshold(),
+		MasterVolume: gui.volumeSlider.Value,
+		MicGain:      gui.micGainSlider.Value,
+		PushToTalk:   gui.modeRadio.Selected == "Push-to-Talk",
+		PTTKey:       gui.pttKeyEntry.Text,
+		EnableUPnP:   enableUPnP,
+		EnableSTUN:   enableSTUN,
+	}
+	if err := saveClientConfig(cfg); err != nil {
+		log.Printf("Failed to save config: %v", err)
+	}
+}
+
+// onNATDiagnosticsClicked runs NAT diagnostics
+func (gui *GUI) onNATDiagnosticsClicked() {
+	gui.natDiagnosticsBtn.Disable()
+	gui.natStatusLabel.SetText("NAT: Running diagnostics...")
+
+	go func() {
+		natInfo := gui.voiceClient.GetNATInfo()
+
+		gui.runOnUI(func() {
+			if natInfo != nil {
+				statusText := fmt.Sprintf("NAT Type: %s", natInfo.Type)
+				if natInfo.PublicIP != "" {
+					statusText += fmt.Sprintf("\nPublic: %s:%d", natInfo.PublicIP, natInfo.PublicPort)
+				}
+				if natInfo.LocalIP != "" {
+					statusText += fmt.Sprintf("\nLocal: %s:%d", natInfo.LocalIP, natInfo.LocalPort)
+				}
+				statusText += fmt.Sprintf("\nUPnP: %v", natInfo.UPnPAvailable)
+				if natInfo.UPnPMapped {
+					statusText += " (Mapped)"
+				}
+				statusText += fmt.Sprintf("\nSTUN: %v", natInfo.STUNResponsive)
+				if natInfo.ErrorMessage != "" {
+					statusText += fmt.Sprintf("\nError: %s", natInfo.ErrorMessage)
+				}
+
+				gui.natStatusLabel.SetText(statusText)
+			} else {
+				gui.natStatusLabel.SetText("NAT: Diagnostics failed - not connected")
+			}
+			gui.natDiagnosticsBtn.Enable()
+		})
+	}()
 }

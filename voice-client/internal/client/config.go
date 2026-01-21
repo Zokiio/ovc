@@ -19,6 +19,11 @@ type ClientConfig struct {
 	MicGain      float64 `json:"micGain"`
 	PushToTalk   bool    `json:"pushToTalk"`
 	PTTKey       string  `json:"pttKey"`
+
+	// NAT Traversal settings
+	EnableUPnP     bool `json:"enableUPnP"`
+	EnableSTUN     bool `json:"enableSTUN"`
+	ManualPortOnly bool `json:"manualPortOnly"`
 }
 
 func loadClientConfig() (ClientConfig, error) {

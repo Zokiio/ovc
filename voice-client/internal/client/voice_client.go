@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -52,6 +53,12 @@ type VoiceClient struct {
 	rxDone            chan struct{}
 	txDone            chan struct{}
 	mu                sync.Mutex
+
+	// NAT Traversal
+	natTraversal *NATTraversal
+	natInfo      *NATInfo
+	enableUPnP   bool
+	enableSTUN   bool
 }
 
 func NewVoiceClient() *VoiceClient {
@@ -63,6 +70,8 @@ func NewVoiceClient() *VoiceClient {
 		pttKey:       "Space",
 		masterVolume: 1.0,
 		micGain:      1.0,
+		enableUPnP:   true, // Enable UPnP by default
+		enableSTUN:   true, // Enable STUN by default
 	}
 	vc.vadEnabled.Store(true)
 	vc.vadThreshold.Store(vadThresholdDefault)
@@ -185,6 +194,45 @@ func (vc *VoiceClient) newAudioManager(inputDeviceLabel string, outputDeviceLabe
 	return am, nil
 }
 
+// SetNATTraversal enables or disables NAT traversal features
+func (vc *VoiceClient) SetNATTraversal(enableUPnP bool, enableSTUN bool) {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	vc.enableUPnP = enableUPnP
+	vc.enableSTUN = enableSTUN
+	log.Printf("[NAT] NAT traversal settings: UPnP=%v, STUN=%v", enableUPnP, enableSTUN)
+}
+
+// GetNATInfo returns current NAT information
+func (vc *VoiceClient) GetNATInfo() *NATInfo {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+	return vc.natInfo
+}
+
+// GetNATStatus returns a human-readable NAT status string
+func (vc *VoiceClient) GetNATStatus() string {
+	vc.mu.Lock()
+	defer vc.mu.Unlock()
+
+	if vc.natInfo == nil {
+		return "NAT: Unknown"
+	}
+
+	status := fmt.Sprintf("NAT: %s", vc.natInfo.Type)
+	if vc.natInfo.UPnPMapped {
+		status += " (UPnP Mapped)"
+	} else if vc.natInfo.UPnPAvailable {
+		status += " (UPnP Available)"
+	}
+
+	if vc.natInfo.PublicIP != "" {
+		status += fmt.Sprintf(" | Public: %s:%d", vc.natInfo.PublicIP, vc.natInfo.PublicPort)
+	}
+
+	return status
+}
+
 // SetVADStateListener registers a callback invoked when VAD enabled/active state changes.
 func (vc *VoiceClient) SetVADStateListener(fn func(enabled bool, active bool)) {
 	vc.vadStateCB.Store(fn)
@@ -231,6 +279,29 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 		return fmt.Errorf("failed to create UDP socket: %w", err)
 	}
 	vc.socket = socket
+
+	// Get the local port that was assigned
+	localAddr := socket.LocalAddr().(*net.UDPAddr)
+	localPort := localAddr.Port
+	log.Printf("[NAT] Local UDP socket bound to port %d", localPort)
+
+	// Setup NAT traversal if enabled
+	if vc.enableUPnP || vc.enableSTUN {
+		log.Printf("[NAT] Setting up NAT traversal (UPnP=%v, STUN=%v)...", vc.enableUPnP, vc.enableSTUN)
+		ctx := context.Background()
+
+		natTraversal, natInfo, err := SetupNATWithRetry(ctx, localPort, serverPort, "Hytale Voice Chat")
+		if err != nil {
+			log.Printf("[NAT] NAT traversal setup failed: %v", err)
+			// Continue anyway - NAT traversal is optional
+		} else {
+			vc.natTraversal = natTraversal
+			vc.natInfo = natInfo
+			log.Printf("[NAT] NAT traversal setup complete: %s", vc.GetNATStatus())
+		}
+	} else {
+		log.Printf("[NAT] NAT traversal disabled by configuration")
+	}
 
 	// Resolve server address
 	serverUDPAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", serverAddr, serverPort))
@@ -360,6 +431,15 @@ func (vc *VoiceClient) Disconnect() error {
 
 	if vc.socket != nil {
 		vc.socket.Close()
+	}
+
+	// Clean up NAT traversal
+	if vc.natTraversal != nil {
+		if err := vc.natTraversal.RemovePortMapping(); err != nil {
+			log.Printf("[NAT] Warning: failed to remove port mapping: %v", err)
+		}
+		vc.natTraversal = nil
+		vc.natInfo = nil
 	}
 
 	select {
