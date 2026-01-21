@@ -299,20 +299,18 @@ func (nt *NATTraversal) GetNATInfo(localAddr *net.UDPAddr) (*NATInfo, error) {
 	info.UPnPAvailable = nt.isUPnPAvailable()
 	info.UPnPMapped = nt.mappingActive
 
-	// Try STUN discovery
-	publicAddr, err := nt.DiscoverPublicEndpoint(localAddr)
-	if err == nil {
-		info.STUNResponsive = true
-		info.PublicIP = publicAddr.IP.String()
-		info.PublicPort = publicAddr.Port
-	} else {
-		info.ErrorMessage = fmt.Sprintf("STUN failed: %v", err)
-	}
-
-	// Detect NAT type
+	// Detect NAT type (this also performs STUN discovery)
 	natType, err := nt.DetectNATType(localAddr)
 	if err == nil {
 		info.Type = natType
+		// DetectNATType already performed STUN and updated nt.publicEndpoint
+		if nt.publicEndpoint != nil {
+			info.STUNResponsive = true
+			info.PublicIP = nt.publicEndpoint.IP.String()
+			info.PublicPort = nt.publicEndpoint.Port
+		}
+	} else {
+		info.ErrorMessage = fmt.Sprintf("NAT detection failed: %v", err)
 	}
 
 	log.Printf("[NAT] NAT Info: Type=%s, Public=%s:%d, Local=%s:%d, UPnP=%v, STUN=%v",
@@ -351,25 +349,52 @@ func getLocalIP() (string, error) {
 }
 
 // SetupNATWithRetry attempts to set up NAT traversal with automatic retry
-func SetupNATWithRetry(ctx context.Context, localPort int, externalPort int, description string) (*NATTraversal, *NATInfo, error) {
+func SetupNATWithRetry(ctx context.Context, localPort int, externalPort int, description string, enableUPnP bool, enableSTUN bool) (*NATTraversal, *NATInfo, error) {
 	nt := NewNATTraversal()
 
-	// Get local address for STUN
+	// Get local IP for binding
+	localIP, err := getLocalIP()
+	if err != nil {
+		log.Printf("[NAT] Warning: failed to get local IP, using IPv4zero: %v", err)
+		localIP = "0.0.0.0"
+	}
+
+	// Get local address for STUN with actual local IP
 	localAddr := &net.UDPAddr{
-		IP:   net.IPv4zero,
+		IP:   net.ParseIP(localIP),
 		Port: localPort,
 	}
 
-	// First, try to get NAT info
-	info, err := nt.GetNATInfo(localAddr)
-	if err != nil {
-		log.Printf("[NAT] Failed to get NAT info: %v", err)
-		// Continue anyway, we'll try UPnP
+	// Try to get NAT info if STUN is enabled
+	var info *NATInfo
+	if enableSTUN {
+		info, err = nt.GetNATInfo(localAddr)
+		if err != nil {
+			log.Printf("[NAT] Failed to get NAT info: %v", err)
+			// Create a basic info structure
+			info = &NATInfo{
+				Type:           NATTypeUnknown,
+				LocalIP:        localIP,
+				LocalPort:      localPort,
+				UPnPAvailable:  false,
+				STUNResponsive: false,
+			}
+		}
+	} else {
+		log.Printf("[NAT] STUN disabled by configuration")
+		// Create a basic info structure without STUN data
+		info = &NATInfo{
+			Type:           NATTypeUnknown,
+			LocalIP:        localIP,
+			LocalPort:      localPort,
+			UPnPAvailable:  nt.isUPnPAvailable(),
+			STUNResponsive: false,
+		}
 	}
 
-	// Try UPnP port mapping if available
-	if info != nil && info.UPnPAvailable {
-		log.Printf("[NAT] UPnP is available, attempting port mapping...")
+	// Try UPnP port mapping if enabled and available
+	if enableUPnP && info != nil && info.UPnPAvailable {
+		log.Printf("[NAT] UPnP is available and enabled, attempting port mapping...")
 		err := nt.SetupPortMapping(localPort, externalPort, description)
 		if err != nil {
 			log.Printf("[NAT] UPnP port mapping failed: %v", err)
@@ -385,7 +410,11 @@ func SetupNATWithRetry(ctx context.Context, localPort int, externalPort int, des
 			}
 		}
 	} else {
-		log.Printf("[NAT] UPnP not available, manual port forwarding required")
+		if !enableUPnP {
+			log.Printf("[NAT] UPnP disabled by configuration")
+		} else {
+			log.Printf("[NAT] UPnP not available, manual port forwarding may be required")
+		}
 	}
 
 	return nt, info, nil

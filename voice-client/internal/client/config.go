@@ -21,9 +21,8 @@ type ClientConfig struct {
 	PTTKey       string  `json:"pttKey"`
 
 	// NAT Traversal settings
-	EnableUPnP     bool `json:"enableUPnP"`
-	EnableSTUN     bool `json:"enableSTUN"`
-	ManualPortOnly bool `json:"manualPortOnly"`
+	EnableUPnP bool `json:"enableUPnP"`
+	EnableSTUN bool `json:"enableSTUN"`
 }
 
 func loadClientConfig() (ClientConfig, error) {

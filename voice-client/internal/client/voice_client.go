@@ -290,7 +290,7 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 		log.Printf("[NAT] Setting up NAT traversal (UPnP=%v, STUN=%v)...", vc.enableUPnP, vc.enableSTUN)
 		ctx := context.Background()
 
-		natTraversal, natInfo, err := SetupNATWithRetry(ctx, localPort, serverPort, "Hytale Voice Chat")
+		natTraversal, natInfo, err := SetupNATWithRetry(ctx, localPort, serverPort, "Hytale Voice Chat", vc.enableUPnP, vc.enableSTUN)
 		if err != nil {
 			log.Printf("[NAT] NAT traversal setup failed: %v", err)
 			// Continue anyway - NAT traversal is optional
