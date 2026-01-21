@@ -22,6 +22,14 @@ The voice client is a **standalone desktop application** that players install on
 ### Quick Start
 ```bash
 cd voice-client
+
+# Windows (PowerShell) - requires MSYS2 MinGW
+$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+$env:CGO_ENABLED = "1"
+go build -o HytaleVoiceChat.exe ./cmd/voice-client
+./HytaleVoiceChat.exe
+
+# macOS/Linux
 go build -o HytaleVoiceChat ./cmd/voice-client
 ./HytaleVoiceChat
 ```
@@ -114,7 +122,7 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 ## 🛠️ Development
 
 ### Prerequisites
-- **Voice Client**: Go 1.24+, PortAudio
+- **Voice Client**: Go 1.25+, PortAudio
 - **Hytale Plugin**: Java 25, Gradle, Hytale Server API files
 
 ### Building Both Components

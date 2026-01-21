@@ -5,18 +5,29 @@ A lightweight voice chat client for Hytale written in Go.
 ## Building
 
 ### Prerequisites
-- Go 1.24+
-- PortAudio development libraries
-  - **macOS**: `brew install portaudio`
+- Go 1.25+
+- PortAudio and Opus development libraries
+  - **macOS**: `brew install portaudio opus`
   - **Windows (MSYS2)**:
     - Install MSYS2 from https://www.msys2.org/
-    - Open **MSYS2 MINGW64** and run:
-      - `pacman -Syu`
-      - `pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-pkg-config mingw-w64-x86_64-portaudio`
-  - **Linux**: `apt-get install portaudio19-dev`
+    - Open **MSYS2 MINGW64** terminal and run:
+      ```bash
+      pacman -Syu
+      pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-pkg-config mingw-w64-x86_64-portaudio mingw-w64-x86_64-opus mingw-w64-x86_64-opusfile
+      ```
+    - **Important**: Add MSYS2 MinGW to your PATH (should be first):
+      - Add `C:\msys64\mingw64\bin` to your System PATH environment variable
+      - Or set temporarily in PowerShell: `$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"`
+  - **Linux**: `apt-get install portaudio19-dev libopus-dev libopusfile-dev`
 
 ### Build for current platform
 ```bash
+# On Windows (PowerShell), ensure MSYS2 MinGW is in PATH and CGO is enabled:
+$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+$env:CGO_ENABLED = "1"
+go build -o HytaleVoiceChat.exe ./cmd/voice-client
+
+# On macOS/Linux:
 go build -o HytaleVoiceChat ./cmd/voice-client
 ```
 
@@ -27,9 +38,8 @@ GOOS=windows GOARCH=amd64 go build -o HytaleVoiceChat.exe ./cmd/voice-client
 
 ### Build for Windows (GUI, no console window)
 ```powershell
-$env:Path="C:\msys64\mingw64\bin;$env:Path"
-$env:PKG_CONFIG="C:\msys64\mingw64\bin\pkg-config.exe"
-$env:CGO_ENABLED=1
+$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+$env:CGO_ENABLED = "1"
 go build -ldflags="-H=windowsgui" -o HytaleVoiceChat.exe ./cmd/voice-client
 ```
 
