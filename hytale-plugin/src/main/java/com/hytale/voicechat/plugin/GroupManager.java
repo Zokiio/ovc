@@ -175,9 +175,7 @@ public class GroupManager {
      */
     public void shutdown() {
         logger.atInfo().log("Shutting down GroupManager");
-        groups.values().stream()
-                .filter(g -> !g.isPermanent())
-                .forEach(g -> groups.remove(g.getGroupId()));
+        groups.entrySet().removeIf(entry -> !entry.getValue().isPermanent());
         playerGroupMapping.clear();
         logger.atInfo().log("GroupManager shutdown complete");
     }
