@@ -103,8 +103,17 @@ public class GroupManagementPacket extends VoicePacket {
     }
 
     public static GroupManagementPacket deserialize(byte[] data) {
+        if (data == null) {
+            throw new IllegalArgumentException("Malformed GroupManagementPacket: data is null");
+        }
+
         ByteBuffer buffer = ByteBuffer.wrap(data);
         
+        // Header: 1 byte (packetType) + 16 bytes (player UUID) + 1 byte (operation)
+        if (buffer.remaining() < 1 + 16 + 1) {
+            throw new IllegalArgumentException("Malformed GroupManagementPacket: insufficient data for header");
+        }
+
         byte packetType = buffer.get(); // Should be 0x06
         if (packetType != 0x06) {
             throw new IllegalArgumentException("Invalid packet type for GroupManagementPacket: " + packetType);
@@ -118,15 +127,39 @@ public class GroupManagementPacket extends VoicePacket {
         OperationType operation = OperationType.fromValue(opValue);
         
         if (operation == OperationType.CREATE) {
+            // CREATE requires: 1 byte (isPermanent) + 2 bytes (nameLength)
+            if (buffer.remaining() < 1 + 2) {
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: insufficient data for CREATE operation");
+            }
+
             byte isPermanentByte = buffer.get();
             boolean isPermanent = isPermanentByte == 0x01;
+            
             short nameLength = buffer.getShort();
+            if (nameLength < 0) {
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: negative name length");
+            }
+            
+            // Reasonable upper limit for group name length to prevent memory exhaustion
+            if (nameLength > 1000) {
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: name length exceeds maximum " + nameLength);
+            }
+
+            if (buffer.remaining() < nameLength) {
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: insufficient data for group name");
+            }
+
             byte[] nameBytes = new byte[nameLength];
             buffer.get(nameBytes);
             String groupName = new String(nameBytes, StandardCharsets.UTF_8);
             
             return new GroupManagementPacket(playerId, groupName, isPermanent);
         } else {
+            // JOIN or LEAVE require: 16 bytes (group UUID)
+            if (buffer.remaining() < 16) {
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: insufficient data for group UUID");
+            }
+
             long groupMostSig = buffer.getLong();
             long groupLeastSig = buffer.getLong();
             UUID groupId = new UUID(groupMostSig, groupLeastSig);

@@ -61,8 +61,17 @@ public class GroupStatePacket extends VoicePacket {
     }
 
     public static GroupStatePacket deserialize(byte[] data) {
+        if (data == null) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: data is null");
+        }
+
         ByteBuffer buffer = ByteBuffer.wrap(data);
         
+        // Header: 1 byte (packetType) + 16 bytes (server UUID) + 16 bytes (group UUID) + 2 bytes (name length)
+        if (buffer.remaining() < 1 + 16 + 16 + 2) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: insufficient data for header");
+        }
+
         byte packetType = buffer.get(); // Should be 0x07
         if (packetType != 0x07) {
             throw new IllegalArgumentException("Invalid packet type for GroupStatePacket: " + packetType);
@@ -77,11 +86,42 @@ public class GroupStatePacket extends VoicePacket {
         UUID groupId = new UUID(groupMostSig, groupLeastSig);
         
         short nameLength = buffer.getShort();
+        if (nameLength < 0) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: negative group name length");
+        }
+        
+        // Reasonable upper limit for group name length to prevent memory exhaustion
+        if (nameLength > 1000) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: group name length exceeds maximum " + nameLength);
+        }
+
+        if (buffer.remaining() < nameLength) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: insufficient data for group name");
+        }
+
         byte[] nameBytes = new byte[nameLength];
         buffer.get(nameBytes);
         String groupName = new String(nameBytes, StandardCharsets.UTF_8);
         
+        if (buffer.remaining() < 2) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: insufficient data for member count");
+        }
+
         short memberCount = buffer.getShort();
+        if (memberCount < 0) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: negative member count");
+        }
+        
+        // Reasonable upper limit for member count to prevent memory exhaustion
+        if (memberCount > 10000) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: member count exceeds maximum " + memberCount);
+        }
+
+        // Check if we have enough data for all members
+        if (buffer.remaining() < memberCount * 16) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: insufficient data for all members");
+        }
+
         List<UUID> memberIds = new ArrayList<>(memberCount);
         
         for (int i = 0; i < memberCount; i++) {

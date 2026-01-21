@@ -12,19 +12,7 @@ import java.util.UUID;
  * Packet Type: 0x08
  */
 public class GroupListPacket extends VoicePacket {
-    private static class GroupInfo {
-        final UUID groupId;
-        final String name;
-        final int memberCount;
-
-        GroupInfo(UUID groupId, String name, int memberCount) {
-            this.groupId = groupId;
-            this.name = name;
-            this.memberCount = memberCount;
-        }
-    }
-
-    private final List<GroupInfo> groups;
+    private final List<GroupData> groups;
     private final boolean isQuery; // true if this is a query request, false if response
 
     // Constructor for response packet (with group list)
@@ -34,9 +22,7 @@ public class GroupListPacket extends VoicePacket {
         this.groups = new ArrayList<>();
         
         if (groupDataList != null) {
-            for (GroupData data : groupDataList) {
-                this.groups.add(new GroupInfo(data.groupId, data.name, data.memberCount));
-            }
+            this.groups.addAll(groupDataList);
         }
     }
 
@@ -63,11 +49,7 @@ public class GroupListPacket extends VoicePacket {
     }
 
     public List<GroupData> getGroups() {
-        List<GroupData> result = new ArrayList<>();
-        for (GroupInfo info : groups) {
-            result.add(new GroupData(info.groupId, info.name, info.memberCount));
-        }
-        return result;
+        return new ArrayList<>(groups);
     }
 
     public boolean isQuery() {
@@ -87,7 +69,7 @@ public class GroupListPacket extends VoicePacket {
         } else {
             // Response packet with group list
             int bufferSize = 1 + 16 + 1 + 2; // header + flags + count
-            for (GroupInfo group : groups) {
+            for (GroupData group : groups) {
                 byte[] nameBytes = group.name.getBytes(StandardCharsets.UTF_8);
                 bufferSize += 16 + 2 + nameBytes.length + 4; // groupId + nameLen + name + memberCount
             }
@@ -99,7 +81,7 @@ public class GroupListPacket extends VoicePacket {
             buffer.put((byte) 0x00); // Flag: is response
             buffer.putShort((short) groups.size());
             
-            for (GroupInfo group : groups) {
+            for (GroupData group : groups) {
                 byte[] nameBytes = group.name.getBytes(StandardCharsets.UTF_8);
                 buffer.putLong(group.groupId.getMostSignificantBits());
                 buffer.putLong(group.groupId.getLeastSignificantBits());
@@ -113,8 +95,17 @@ public class GroupListPacket extends VoicePacket {
     }
 
     public static GroupListPacket deserialize(byte[] data) {
+        if (data == null) {
+            throw new IllegalArgumentException("GroupListPacket data is null");
+        }
+
         ByteBuffer buffer = ByteBuffer.wrap(data);
         
+        // Header: 1 byte (packetType) + 16 bytes (sender UUID) + 1 byte (flag)
+        if (buffer.remaining() < 1 + 16 + 1) {
+            throw new IllegalArgumentException("Truncated GroupListPacket: insufficient data for header");
+        }
+
         byte packetType = buffer.get(); // Should be 0x08
         if (packetType != 0x08) {
             throw new IllegalArgumentException("Invalid packet type for GroupListPacket: " + packetType);
@@ -127,19 +118,54 @@ public class GroupListPacket extends VoicePacket {
         byte flag = buffer.get();
         
         if (flag == 0x01) {
-            // Query packet
+            // Query packet (no additional payload required)
             return new GroupListPacket(senderId);
         } else {
             // Response packet
+            // Need at least 2 bytes for groupCount
+            if (buffer.remaining() < 2) {
+                throw new IllegalArgumentException("Truncated GroupListPacket: missing group count");
+            }
+
             short groupCount = buffer.getShort();
+            if (groupCount < 0) {
+                throw new IllegalArgumentException("Invalid GroupListPacket: negative group count " + groupCount);
+            }
+            
+            // Reasonable upper limit to prevent memory exhaustion
+            if (groupCount > 10000) {
+                throw new IllegalArgumentException("Invalid GroupListPacket: group count exceeds maximum " + groupCount);
+            }
+
             List<GroupData> groupDataList = new ArrayList<>();
             
             for (int i = 0; i < groupCount; i++) {
+                // For each group we need at least:
+                // 16 bytes (group UUID) + 2 bytes (name length)
+                if (buffer.remaining() < 16 + 2) {
+                    throw new IllegalArgumentException("Truncated GroupListPacket: insufficient data for group header at index " + i);
+                }
+
                 long groupMostSig = buffer.getLong();
                 long groupLeastSig = buffer.getLong();
                 UUID groupId = new UUID(groupMostSig, groupLeastSig);
                 
                 short nameLength = buffer.getShort();
+                if (nameLength < 0) {
+                    throw new IllegalArgumentException("Invalid GroupListPacket: negative name length " + nameLength + " at index " + i);
+                }
+                
+                // Reasonable upper limit for group name length
+                if (nameLength > 1000) {
+                    throw new IllegalArgumentException("Invalid GroupListPacket: name length exceeds maximum " + nameLength + " at index " + i);
+                }
+
+                // Now need nameLength bytes for the name and 4 bytes for memberCount
+                if (buffer.remaining() < nameLength + 4) {
+                    throw new IllegalArgumentException(
+                            "Truncated GroupListPacket: insufficient data for group name and member count at index " + i);
+                }
+
                 byte[] nameBytes = new byte[nameLength];
                 buffer.get(nameBytes);
                 String name = new String(nameBytes, StandardCharsets.UTF_8);
