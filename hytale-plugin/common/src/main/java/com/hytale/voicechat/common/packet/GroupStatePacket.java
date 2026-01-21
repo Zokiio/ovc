@@ -1,5 +1,7 @@
 package com.hytale.voicechat.common.packet;
 
+import com.hytale.voicechat.common.network.NetworkConfig;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -91,8 +93,8 @@ public class GroupStatePacket extends VoicePacket {
         }
         
         // Reasonable upper limit for group name length to prevent memory exhaustion
-        if (nameLength > 1000) {
-            throw new IllegalArgumentException("Malformed GroupStatePacket: group name length exceeds maximum of 1000");
+        if (nameLength > NetworkConfig.MAX_GROUP_NAME_LENGTH) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: group name length exceeds maximum of " + NetworkConfig.MAX_GROUP_NAME_LENGTH);
         }
 
         if (buffer.remaining() < nameLength) {
@@ -113,8 +115,8 @@ public class GroupStatePacket extends VoicePacket {
         }
         
         // Reasonable upper limit for member count to prevent memory exhaustion
-        if (memberCount > 10000) {
-            throw new IllegalArgumentException("Malformed GroupStatePacket: member count exceeds maximum of 10000");
+        if (memberCount > NetworkConfig.MAX_GROUP_MEMBER_COUNT) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: member count exceeds maximum of " + NetworkConfig.MAX_GROUP_MEMBER_COUNT);
         }
 
         // Check if we have enough data for all members

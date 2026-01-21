@@ -1,5 +1,7 @@
 package com.hytale.voicechat.common.packet;
 
+import com.hytale.voicechat.common.network.NetworkConfig;
+
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -133,8 +135,8 @@ public class GroupListPacket extends VoicePacket {
             }
             
             // Reasonable upper limit to prevent memory exhaustion
-            if (groupCount > 10000) {
-                throw new IllegalArgumentException("Invalid GroupListPacket: group count exceeds maximum of 10000");
+            if (groupCount > NetworkConfig.MAX_GROUP_COUNT) {
+                throw new IllegalArgumentException("Invalid GroupListPacket: group count exceeds maximum of " + NetworkConfig.MAX_GROUP_COUNT);
             }
 
             List<GroupData> groupDataList = new ArrayList<>();
@@ -156,8 +158,8 @@ public class GroupListPacket extends VoicePacket {
                 }
                 
                 // Reasonable upper limit for group name length
-                if (nameLength > 1000) {
-                    throw new IllegalArgumentException("Invalid GroupListPacket: name length exceeds maximum of 1000 at index " + i);
+                if (nameLength > NetworkConfig.MAX_GROUP_NAME_LENGTH) {
+                    throw new IllegalArgumentException("Invalid GroupListPacket: name length exceeds maximum of " + NetworkConfig.MAX_GROUP_NAME_LENGTH + " at index " + i);
                 }
 
                 // Now need nameLength bytes for the name and 4 bytes for memberCount

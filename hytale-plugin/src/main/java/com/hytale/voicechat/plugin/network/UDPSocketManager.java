@@ -411,7 +411,7 @@ public class UDPSocketManager {
                             InetSocketAddress clientAddr = clients.get(otherClientId);
                             
                             if (clientAddr != null) {
-                                // Prefer spatial audio if both conditions are met
+                                // Send spatial audio if in proximity; otherwise send group audio if in group
                                 if (inProximity) {
                                     // Proximity audio: send WITH position (spatial 3D)
                                     float dx = (float) (senderPos.getX() - position.getX());
