@@ -249,18 +249,20 @@ func (gui *GUI) setupUI() {
 		gui.saveConfig(gui.serverInput.Text, gui.parsePort(), gui.usernameInput.Text, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold(), gui.volumeSlider.Value, value, gui.modeRadio.Selected == "Push-to-Talk", gui.pttKeyEntry.Text)
 	}
 
-	// NAT Traversal controls
-	gui.enableUPnPCheck = widget.NewCheck("Enable UPnP Port Mapping", func(on bool) {
+	// NAT Traversal controls - simplified for users
+	gui.enableUPnPCheck = widget.NewCheck("Automatic Router Setup (Recommended)", func(on bool) {
 		if !gui.uiReady {
 			return
 		}
-		enableSTUN := gui.enableSTUNCheck.Checked
-		gui.voiceClient.SetNATTraversal(on, enableSTUN)
-		gui.saveConfigWithNAT(on, enableSTUN)
+		// When users enable/disable automatic setup, both UPnP and STUN should be toggled together
+		gui.enableSTUNCheck.SetChecked(on)
+		gui.voiceClient.SetNATTraversal(on, on)
+		gui.saveConfigWithNAT(on, on)
 	})
 	gui.enableUPnPCheck.SetChecked(true) // Enable by default
 
-	gui.enableSTUNCheck = widget.NewCheck("Enable STUN Discovery", func(on bool) {
+	// Keep STUN check hidden for advanced users, but sync with UPnP
+	gui.enableSTUNCheck = widget.NewCheck("Advanced: Network Discovery", func(on bool) {
 		if !gui.uiReady {
 			return
 		}
@@ -270,10 +272,10 @@ func (gui *GUI) setupUI() {
 	})
 	gui.enableSTUNCheck.SetChecked(true) // Enable by default
 
-	gui.natStatusLabel = widget.NewLabel("NAT: Not connected")
+	gui.natStatusLabel = widget.NewLabel("Connection: Ready")
 	gui.natStatusLabel.Alignment = fyne.TextAlignCenter
 
-	gui.natDiagnosticsBtn = widget.NewButton("Run NAT Diagnostics", gui.onNATDiagnosticsClicked)
+	gui.natDiagnosticsBtn = widget.NewButton("Connection Info", gui.onNATDiagnosticsClicked)
 
 	gui.vadBar = canvas.NewRectangle(color.NRGBA{R: 180, G: 180, B: 180, A: 255})
 	gui.vadBar.Resize(fyne.NewSize(120, 10))
@@ -383,13 +385,11 @@ func (gui *GUI) setupUI() {
 		widget.NewLabel("Connection"),
 		widget.NewSeparator(),
 		form,
+		gui.enableUPnPCheck,
 		gui.connectBtn,
 		container.NewHBox(gui.testToneBtn, gui.posTestBtn),
 		gui.statusLabel,
-		widget.NewSeparator(),
 		gui.natStatusLabel,
-		gui.enableUPnPCheck,
-		gui.enableSTUNCheck,
 		gui.natDiagnosticsBtn,
 	)
 
@@ -434,7 +434,7 @@ func (gui *GUI) onConnectClicked() {
 		gui.voiceClient.Disconnect()
 		gui.connectBtn.SetText("Connect")
 		gui.statusLabel.SetText("Disconnected")
-		gui.natStatusLabel.SetText("NAT: Not connected")
+		gui.natStatusLabel.SetText("Connection: Ready")
 		gui.setConnectionEditable(true)
 		return
 	}
@@ -749,35 +749,54 @@ func (gui *GUI) saveConfigWithNAT(enableUPnP bool, enableSTUN bool) {
 	}
 }
 
-// onNATDiagnosticsClicked runs NAT diagnostics
+// onNATDiagnosticsClicked shows connection information
 func (gui *GUI) onNATDiagnosticsClicked() {
 	gui.natDiagnosticsBtn.Disable()
-	gui.natStatusLabel.SetText("NAT: Running diagnostics...")
+	gui.natStatusLabel.SetText("Checking connection...")
 
 	go func() {
 		natInfo := gui.voiceClient.GetNATInfo()
 
 		gui.runOnUI(func() {
 			if natInfo != nil {
-				statusText := fmt.Sprintf("NAT Type: %s", natInfo.Type)
-				if natInfo.PublicIP != "" {
-					statusText += fmt.Sprintf("\nPublic: %s:%d", natInfo.PublicIP, natInfo.PublicPort)
+				// Simplified user-friendly status
+				var statusText string
+
+				// Start with connection quality
+				switch natInfo.Type {
+				case "Open":
+					statusText = "✓ Excellent connection"
+				case "Moderate":
+					statusText = "✓ Good connection"
+				case "Strict":
+					statusText = "⚠ Limited connection"
+				case "Symmetric", "Blocked":
+					statusText = "✗ Connection issues detected"
+				default:
+					statusText = "Connection status unknown"
 				}
-				if natInfo.LocalIP != "" {
-					statusText += fmt.Sprintf("\nLocal: %s:%d", natInfo.LocalIP, natInfo.LocalPort)
-				}
-				statusText += fmt.Sprintf("\nUPnP: %v", natInfo.UPnPAvailable)
+
+				// Add automatic setup status
 				if natInfo.UPnPMapped {
-					statusText += " (Mapped)"
+					statusText += "\n✓ Router configured automatically"
+				} else if natInfo.UPnPAvailable {
+					statusText += "\n⚠ Router setup available but not used"
+				} else {
+					statusText += "\n⚠ Manual router setup may be needed"
 				}
-				statusText += fmt.Sprintf("\nSTUN: %v", natInfo.STUNResponsive)
+
+				// Add technical details for advanced users (if needed)
+				if natInfo.PublicIP != "" {
+					statusText += fmt.Sprintf("\n\nYour IP: %s", natInfo.PublicIP)
+				}
+
 				if natInfo.ErrorMessage != "" {
-					statusText += fmt.Sprintf("\nError: %s", natInfo.ErrorMessage)
+					statusText += fmt.Sprintf("\n\n⚠ %s", natInfo.ErrorMessage)
 				}
 
 				gui.natStatusLabel.SetText(statusText)
 			} else {
-				gui.natStatusLabel.SetText("NAT: Diagnostics failed - not connected")
+				gui.natStatusLabel.SetText("Please connect first to check status")
 			}
 			gui.natDiagnosticsBtn.Enable()
 		})

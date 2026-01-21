@@ -210,24 +210,33 @@ func (vc *VoiceClient) GetNATInfo() *NATInfo {
 	return vc.natInfo
 }
 
-// GetNATStatus returns a human-readable NAT status string
+// GetNATStatus returns a user-friendly connection status string
 func (vc *VoiceClient) GetNATStatus() string {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
 
 	if vc.natInfo == nil {
-		return "NAT: Unknown"
+		return "Connection: Checking..."
 	}
 
-	status := fmt.Sprintf("NAT: %s", vc.natInfo.Type)
+	// Provide user-friendly status based on NAT type
+	var status string
+	switch vc.natInfo.Type {
+	case NATTypeOpen:
+		status = "Connection: Excellent"
+	case NATTypeModerate:
+		status = "Connection: Good"
+	case NATTypeStrict:
+		status = "Connection: Limited"
+	case NATTypeSymmetric, NATTypeBlocked:
+		status = "Connection: Poor"
+	default:
+		status = "Connection: Unknown"
+	}
+
+	// Add automatic setup indicator
 	if vc.natInfo.UPnPMapped {
-		status += " (UPnP Mapped)"
-	} else if vc.natInfo.UPnPAvailable {
-		status += " (UPnP Available)"
-	}
-
-	if vc.natInfo.PublicIP != "" {
-		status += fmt.Sprintf(" | Public: %s:%d", vc.natInfo.PublicIP, vc.natInfo.PublicPort)
+		status += " ✓"
 	}
 
 	return status
