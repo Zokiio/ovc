@@ -16,6 +16,9 @@ The voice client is a **standalone desktop application** that players install on
 - Microphone capture and audio playback using PortAudio
 - UDP-based communication with the server
 - No Java installation required
+- **NEW: Automatic NAT Traversal (UPnP & STUN)** - No manual port forwarding needed!
+- **NEW: NAT Type Detection** - Shows connection quality (Open/Moderate/Strict/Symmetric)
+- **NEW: Built-in Network Diagnostics**
 
 ![Voice Client Screenshot](.github/images/voice-client-screenshot.png)
 

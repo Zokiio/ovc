@@ -79,6 +79,53 @@ Logs are written to:
 - ✅ Single executable (no Java required!)
 - ✅ Real-time audio capture and playback (48kHz, 16-bit, mono)
 - ✅ Full-duplex streaming (simultaneous send/receive)
+- ✅ **NAT Traversal (UPnP & STUN)** - Automatic port forwarding and public IP discovery
+- ✅ **NAT Type Detection** - Displays connection quality (Open/Moderate/Strict/Symmetric)
+- ✅ **Connection Diagnostics** - Built-in network diagnostic tools
+
+## NAT Traversal & Network Setup
+
+The voice client now includes automatic NAT traversal to eliminate the need for manual port forwarding!
+
+### Automatic Features
+
+**UPnP Port Mapping:**
+- Automatically configures port forwarding on UPnP-enabled routers
+- Enabled by default, can be disabled in settings
+- No router configuration needed for most home networks
+
+**STUN Discovery:**
+- Automatically discovers your public IP and port
+- Detects NAT type (Open, Moderate, Strict, or Symmetric)
+- Uses Google's public STUN servers by default
+
+### Using NAT Traversal
+
+1. **Enable in Settings** (enabled by default):
+   - ✅ Enable UPnP Port Mapping
+   - ✅ Enable STUN Discovery
+
+2. **Check Status**: After connecting, view your NAT status in the connection panel
+
+3. **Run Diagnostics**: Click "Run NAT Diagnostics" to see:
+   - NAT Type (connection quality indicator)
+   - Public IP and port
+   - Local IP and port
+   - UPnP availability status
+   - STUN response status
+
+### Troubleshooting
+
+**If UPnP fails:**
+- Some routers have UPnP disabled - check router settings
+- Corporate/school networks may block UPnP
+- Fallback: Manual port forwarding may still be required
+
+**NAT Types:**
+- **Open NAT**: Best - direct connection possible
+- **Moderate NAT**: Good - UPnP should work
+- **Strict NAT**: Limited - may need manual port forwarding
+- **Symmetric NAT**: Difficult - TURN relay may be needed (future feature)
 
 ## Protocol
 
@@ -90,9 +137,10 @@ Connects to Hytale voice server using shared packet format:
 
 ## TODO
 
-- [ ] Voice Activity Detection (VAD)
+- [x] Voice Activity Detection (VAD)
+- [x] Push-to-talk mode
+- [x] NAT Traversal (UPnP & STUN)
 - [ ] Echo cancellation
-- [ ] 3D positional audio
-- [ ] Push-to-talk mode
-- [ ] Connection status UI improvements
+- [ ] 3D positional audio (partial - spatialization implemented)
+- [ ] TURN relay support for symmetric NAT
 - [ ] Packet loss recovery
