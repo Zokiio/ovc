@@ -428,16 +428,12 @@ public class UDPSocketManager {
                                     packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
                                     ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                     routedCount++;
-                                    logger.atInfo().log("[PROXIMITY_ROUTED] sender=" + senderPos.getPlayerName() + " -> proximity=" + position.getPlayerName() + " distance=" + String.format("%.2f", distance));
                                 }
                             }
                         }
                     }
                 }
             }
-            
-            logger.atInfo().log("Route: sender=" + senderPos.getPlayerName() + " group=" + groupRoutedCount + " proximity=" + routedCount + " (tracked=" + tracked + ")");
-            
         }
         
         private AudioPacket withRelativePosition(AudioPacket packet, float dx, float dy, float dz) {

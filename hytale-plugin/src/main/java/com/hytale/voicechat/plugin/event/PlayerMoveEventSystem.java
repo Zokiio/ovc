@@ -74,15 +74,6 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
 
             yaw = chooseDegrees(hy, hz, null);   // likely Y is yaw
             pitch = chooseDegrees(hx, null, null); // likely X is pitch
-
-            logger.atInfo().log("[HEAD_ROT_CAPTURE] player=" + username
-                    + " hx=" + safeD(hx)
-                    + " hy=" + safeD(hy)
-                    + " hz=" + safeD(hz)
-                    + " yawDeg=" + String.format("%.2f", yaw)
-                    + " pitchDeg=" + String.format("%.2f", pitch)
-                    + " rotClass=" + hrot.getClass().getSimpleName()
-                    + " rot=" + hrot.toString());
         } else if (transform.getRotation() != null) {
             var rot = transform.getRotation();
             Double yawRaw = null;
@@ -132,7 +123,6 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
 
         lastSamples.put(playerUUID, new Sample(x, y, z, now, worldId));
         positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
-        logger.atInfo().log("[POSITION_SAMPLE] player=" + username + " pos=(" + String.format("%.2f", x) + "," + String.format("%.2f", y) + "," + String.format("%.2f", z) + ") yaw=" + String.format("%.2f", yaw) + "° pitch=" + String.format("%.2f", pitch) + "°");
     }
 
     @Override

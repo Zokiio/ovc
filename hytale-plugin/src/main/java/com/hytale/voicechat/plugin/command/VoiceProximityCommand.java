@@ -44,7 +44,7 @@ public class VoiceProximityCommand extends CommandBase {
             // Validate range
             if (newDistance < 1.0 || newDistance > NetworkConfig.MAX_VOICE_DISTANCE) {
                 context.sendMessage(Message.raw(
-                    "§cInvalid distance! Must be between 1.0 and " + 
+                    "Invalid distance! Must be between 1.0 and " + 
                     NetworkConfig.MAX_VOICE_DISTANCE + " blocks."
                 ));
                 return;
@@ -54,8 +54,8 @@ public class VoiceProximityCommand extends CommandBase {
             plugin.configureProximity(newDistance);
             
             context.sendMessage(Message.raw(
-                "§aVoice chat proximity distance set to §e" + 
-                String.format("%.1f", newDistance) + " §ablocks."
+                "Voice chat proximity distance set to " + 
+                String.format("%.1f", newDistance) + " blocks."
             ));
             
             logger.atInfo().log("Proximity distance updated to " + newDistance + " blocks by " + context.sender().getDisplayName());
@@ -63,10 +63,10 @@ public class VoiceProximityCommand extends CommandBase {
             // Display current proximity distance
             double currentDistance = plugin.getProximityDistance();
             context.sendMessage(Message.raw(
-                "§7Current voice chat proximity distance: §e" + 
-                String.format("%.1f", currentDistance) + " §7blocks\n" +
-                "§7Range: §e1.0 - " + NetworkConfig.MAX_VOICE_DISTANCE + " §7blocks\n" +
-                "§7Usage: §f/voiceproximity <distance>"
+                "Current voice chat proximity distance: " + 
+                String.format("%.1f", currentDistance) + " blocks\n" +
+                "Range: 1.0 - " + NetworkConfig.MAX_VOICE_DISTANCE + " blocks\n" +
+                "Usage: /voiceproximity <distance>"
             ));
         }
     }

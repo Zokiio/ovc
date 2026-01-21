@@ -54,7 +54,6 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
                     try { hz = (double) hrot.getZ(); } catch (Exception ignored) {}
                     yaw = chooseDegrees(hy, hz, null);
                     pitch = chooseDegrees(hx, null, null);
-                    logger.atInfo().log("[HEAD_ROT_CAPTURE] join player=" + username + " hx=" + hx + " hy=" + hy + " hz=" + hz + " yawDeg=" + yaw + " pitchDeg=" + pitch);
                 } else if (transform.getRotation() != null) {
                     try {
                         yaw = transform.getRotation().getYaw();
