@@ -32,6 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class UDPSocketManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+    private static final UUID SERVER_UUID = new UUID(0L, 0L); // Dedicated server identifier
     
     private final int port;
     private volatile double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
@@ -393,6 +394,10 @@ public class UDPSocketManager {
                 groupAudioData = packet.serialize();
             }
             
+            // Track which players have received audio to avoid duplicates
+            java.util.Set<UUID> routedPlayers = new java.util.HashSet<>();
+            
+            // First pass: Route to players in position tracker (proximity + group)
             for (Map.Entry<UUID, PlayerPosition> entry : allPlayers.entrySet()) {
                 UUID otherPlayerUUID = entry.getKey();
                 PlayerPosition position = entry.getValue();
@@ -425,12 +430,35 @@ public class UDPSocketManager {
                                     packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
                                     ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                     routedCount++;
+                                    routedPlayers.add(otherPlayerUUID);
                                 } else if (inSameGroup) {
                                     // Group audio only (not in proximity): send WITHOUT position (center-channel, non-spatial)
                                     ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
                                     buf.writeBytes(groupAudioData);
                                     ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                    routedPlayers.add(otherPlayerUUID);
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Second pass: Route to group members not in position tracker
+            if (senderGroup != null && groupAudioData != null) {
+                for (UUID groupMemberId : senderGroup.getMembers()) {
+                    if (!groupMemberId.equals(playerUUID) && !routedPlayers.contains(groupMemberId)) {
+                        // This group member wasn't in the position tracker
+                        UUID otherClientId = findClientByPlayerUUID(groupMemberId);
+                        
+                        if (otherClientId != null) {
+                            InetSocketAddress clientAddr = clients.get(otherClientId);
+                            
+                            if (clientAddr != null) {
+                                // Send WITHOUT position (center-channel, non-spatial)
+                                ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
+                                buf.writeBytes(groupAudioData);
+                                ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                             }
                         }
                     }
@@ -528,7 +556,11 @@ public class UDPSocketManager {
                 
                 switch (packet.getOperation()) {
                     case CREATE:
-                        affectedGroup = groupManager.createGroup(packet.getGroupName(), packet.isPermanent());
+                        // Security: Do not allow clients to create permanent groups to avoid resource exhaustion
+                        if (packet.isPermanent()) {
+                            logger.atWarning().log("Client " + playerUUID + " attempted to create permanent group: " + packet.getGroupName() + " – creating non-permanent group instead");
+                        }
+                        affectedGroup = groupManager.createGroup(packet.getGroupName(), false);
                         if (affectedGroup != null) {
                             groupManager.joinGroup(playerUUID, affectedGroup.getGroupId());
                             logMessage = "Group created: " + packet.getGroupName();
@@ -598,18 +630,15 @@ public class UDPSocketManager {
         }
         
         private void broadcastGroupState(ChannelHandlerContext ctx, Group group) {
-            ByteBuf buf = null;
             try {
                 GroupStatePacket packet = new GroupStatePacket(
-                    UUID.fromString("00000000-0000-0000-0000-000000000000"), // Server UUID
+                    SERVER_UUID,
                     group.getGroupId(),
                     group.getName(),
                     new ArrayList<>(group.getMembers())
                 );
                 
                 byte[] data = packet.serialize();
-                buf = ctx.alloc().buffer(data.length);
-                buf.writeBytes(data);
                 
                 // Send to all group members
                 for (UUID memberId : group.getMembers()) {
@@ -617,17 +646,16 @@ public class UDPSocketManager {
                     if (clientId != null) {
                         InetSocketAddress clientAddr = clients.get(clientId);
                         if (clientAddr != null) {
-                            ctx.writeAndFlush(new DatagramPacket(buf.copy(), clientAddr));
+                            // Create a new buffer for each recipient (more efficient than copy())
+                            ByteBuf buf = ctx.alloc().buffer(data.length);
+                            buf.writeBytes(data);
+                            ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                         }
                     }
                 }
                 
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error broadcasting group state");
-            } finally {
-                if (buf != null) {
-                    buf.release();
-                }
             }
         }
         
