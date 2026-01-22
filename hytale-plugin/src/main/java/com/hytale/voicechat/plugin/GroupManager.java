@@ -64,6 +64,7 @@ public class GroupManager {
         // Remove from previous group if any
         UUID previousGroupId = playerGroupMapping.get(playerId);
         if (previousGroupId != null && !previousGroupId.equals(groupId)) {
+            // Re-entrant synchronized call: safe because Java intrinsic locks are reentrant
             leaveGroup(playerId);
             // Re-check if the target group still exists after leaving the previous group
             group = groups.get(groupId);
