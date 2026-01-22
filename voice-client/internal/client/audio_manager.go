@@ -298,7 +298,34 @@ func (am *SimpleAudioManager) DecodeAudioWithSenderDecoder(codec byte, data []by
 		if senderDecoder != nil {
 			log.Printf("Warning: Type assertion failed for sender decoder (expected *opus.Decoder, got %T), falling back to shared decoder", senderDecoder)
 		}
-		return am.DecodeAudioWithPLC(data)
+		// Handle PLC with shared decoder
+		if data == nil {
+			// PLC (Packet Loss Concealment): decode nil data to get concealed samples
+			if am.useOpus && am.decoder != nil {
+				am.decodeMu.Lock()
+				pcm := make([]int16, am.frameSize)
+				// Opus decoder interprets nil data as missing packet and applies PLC
+				n, err := am.decoder.Decode(nil, pcm)
+				am.decodeMu.Unlock()
+				if err != nil {
+					return nil, err
+				}
+				if n < len(pcm) {
+					padded := make([]int16, am.frameSize)
+					copy(padded, pcm[:n])
+					return padded, nil
+				}
+				return pcm[:n], nil
+			}
+			// PCM codec: return silence
+			return make([]int16, am.frameSize), nil
+		}
+		// Normal decoding path: respect the configured codec
+		codecToUse := AudioCodecPCM
+		if am.useOpus {
+			codecToUse = AudioCodecOpus
+		}
+		return am.DecodeAudio(codecToUse, data)
 	}
 
 	pcm := make([]int16, am.frameSize)
