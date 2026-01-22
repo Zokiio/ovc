@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class GroupManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final int MIN_GROUP_NAME_LENGTH = 3;
-    private static final String GROUP_NAME_PATTERN = "^[a-zA-Z0-9 ]+$"; // Alphanumeric and spaces
+    private static final String GROUP_NAME_PATTERN = "^[a-zA-Z0-9 -]+$"; // Alphanumeric, spaces, and hyphens
 
     private final Map<UUID, Group> groups = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> playerGroupMapping = new ConcurrentHashMap<>(); // playerId -> groupId
@@ -26,14 +26,14 @@ public class GroupManager {
      * @param isPermanent Whether the group persists when empty
      * @return The created Group, or null if validation fails
      */
-    public Group createGroup(String groupName, boolean isPermanent) {
+    public synchronized Group createGroup(String groupName, boolean isPermanent) {
         // Validate group name
         if (!isValidGroupName(groupName)) {
             logger.atWarning().log("Invalid group name: " + groupName);
             return null;
         }
 
-        // Check for duplicates
+        // Check for duplicates (atomically within synchronized block)
         if (groupNameExists(groupName)) {
             logger.atWarning().log("Group already exists with name: " + groupName);
             return null;
@@ -54,7 +54,7 @@ public class GroupManager {
      * @param groupId The group to join
      * @return true if successful, false otherwise
      */
-    public boolean joinGroup(UUID playerId, UUID groupId) {
+    public synchronized boolean joinGroup(UUID playerId, UUID groupId) {
         Group group = groups.get(groupId);
         if (group == null) {
             logger.atWarning().log("Group not found: " + groupId);
@@ -65,6 +65,12 @@ public class GroupManager {
         UUID previousGroupId = playerGroupMapping.get(playerId);
         if (previousGroupId != null && !previousGroupId.equals(groupId)) {
             leaveGroup(playerId);
+            // Re-check if the target group still exists after leaving the previous group
+            group = groups.get(groupId);
+            if (group == null) {
+                logger.atWarning().log("Group no longer exists: " + groupId);
+                return false;
+            }
         }
 
         group.addMember(playerId);
