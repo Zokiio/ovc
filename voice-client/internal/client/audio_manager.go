@@ -294,8 +294,12 @@ func (am *SimpleAudioManager) DecodeAudioWithPLC(data []byte) ([]int16, error) {
 		return make([]int16, am.frameSize), nil
 	}
 	
-	// Normal decoding path
-	return am.DecodeAudio(AudioCodecOpus, data)
+	// Normal decoding path: respect the configured codec
+	codec := AudioCodecPCM
+	if am.useOpus {
+		codec = AudioCodecOpus
+	}
+	return am.DecodeAudio(codec, data)
 }
 
 func encodePCM(samples []int16) []byte {

@@ -48,6 +48,17 @@ type SenderBuffer struct {
 	latePackets      uint64 // stats
 	gapsConcealed    uint64 // stats
 	bufferUnderruns  uint64 // stats
+	initialized      bool   // whether expectedSeqNum has been initialized
+}
+
+// seqNumLessThan compares sequence numbers with wraparound handling
+// Returns true if a comes before b in the sequence space
+func seqNumLessThan(a, b uint32) bool {
+	const maxDelta uint32 = 1 << 31 // Half of uint32 range
+	diff := b - a
+	// If diff is in the range [1, maxDelta], then a < b
+	// If diff > maxDelta, then we've wrapped around and b < a
+	return diff > 0 && diff <= maxDelta
 }
 
 type VoiceClient struct {
@@ -458,25 +469,40 @@ func (sb *SenderBuffer) bufferPacket(seqNum uint32, codec byte, audioData []byte
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 	
+	// Initialize expectedSeqNum to the first packet received
+	if !sb.initialized {
+		sb.expectedSeqNum = seqNum
+		sb.initialized = true
+		log.Printf("Initialized jitter buffer for sender %s with seq=%d", sb.senderID.String()[:8], seqNum)
+	}
+	
 	// Check if this is a late packet (already played or dropped)
-	if seqNum < sb.expectedSeqNum {
+	if seqNumLessThan(seqNum, sb.expectedSeqNum) {
 		sb.latePackets++
 		log.Printf("Late packet from sender %s: seq=%d, expected=%d", sb.senderID.String()[:8], seqNum, sb.expectedSeqNum)
 		return
+	}
+	
+	// Make a defensive copy of the position so buffered packets are not affected
+	// if the caller reuses or mutates the original array.
+	var posCopy *[3]float32
+	if position != nil {
+		p := *position
+		posCopy = &p
 	}
 	
 	sb.packets[seqNum] = &JitterBufferPacket{
 		sequenceNumber: seqNum,
 		codec:          codec,
 		audioData:      make([]byte, len(audioData)),
-		position:       position,
+		position:       posCopy,
 		timestamp:      time.Now(),
 	}
 	copy(sb.packets[seqNum].audioData, audioData)
 }
 
 // drainBuffer returns all playable packets and detects gaps
-// Returns: []packets (in order), []gaps (seq numbers of missing packets)
+// Returns: []packets (in order), []gaps (sequence numbers skipped at playout time for which PLC should be applied; packets may still arrive later as late packets)
 func (sb *SenderBuffer) drainBuffer(maxBufferDepth int, maxWaitTime time.Duration) ([]*JitterBufferPacket, []uint32) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
@@ -490,12 +516,11 @@ func (sb *SenderBuffer) drainBuffer(maxBufferDepth int, maxWaitTime time.Duratio
 		packet, exists := sb.packets[sb.expectedSeqNum]
 		if !exists {
 			// Check if buffer is full or timeout reached
-			bufferSize := 0
+			bufferSize := len(sb.packets)
 			maxSeqInBuffer := sb.expectedSeqNum
 			for seq := range sb.packets {
 				if seq > maxSeqInBuffer {
 					maxSeqInBuffer = seq
-					bufferSize++
 				}
 			}
 			
@@ -654,7 +679,9 @@ func (vc *VoiceClient) drainAllBuffers() {
 		return
 	}
 	
+	// Read jitterBufferDepth under lock to avoid data races.
 	vc.jitterBufferMu.RLock()
+	depth := vc.jitterBufferDepth
 	senders := make([]uuid.UUID, 0, len(vc.senderBuffers))
 	for senderID := range vc.senderBuffers {
 		senders = append(senders, senderID)
@@ -671,7 +698,7 @@ func (vc *VoiceClient) drainAllBuffers() {
 		}
 		
 		// Drain the buffer: get playable packets and gaps
-		playablePackets, gaps := sb.drainBuffer(vc.jitterBufferDepth, bufferDrainInterval*2)
+		playablePackets, gaps := sb.drainBuffer(depth, bufferDrainInterval*2)
 		
 		// Process playable packets
 		for _, pkt := range playablePackets {
