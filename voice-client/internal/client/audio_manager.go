@@ -293,13 +293,59 @@ func (am *SimpleAudioManager) DecodeAudioWithPLC(data []byte) ([]int16, error) {
 		// PCM codec: return silence
 		return make([]int16, am.frameSize), nil
 	}
-	
+
 	// Normal decoding path: respect the configured codec
 	codec := AudioCodecPCM
 	if am.useOpus {
 		codec = AudioCodecOpus
 	}
 	return am.DecodeAudio(codec, data)
+}
+
+// CreateSenderDecoder creates a new Opus decoder for a specific sender
+// Returns an interface{} that's actually *opus.Decoder for per-sender PLC
+func (am *SimpleAudioManager) CreateSenderDecoder() (interface{}, error) {
+	if !am.useOpus {
+		return nil, nil // PCM doesn't need decoders
+	}
+
+	decoder, err := opus.NewDecoder(am.sampleRate, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create sender decoder: %w", err)
+	}
+	return decoder, nil
+}
+
+// DecodeAudioWithSenderDecoder decodes audio using a per-sender decoder
+// This ensures PLC state is maintained separately for each sender
+func (am *SimpleAudioManager) DecodeAudioWithSenderDecoder(codec byte, data []byte, senderDecoder interface{}) ([]int16, error) {
+	// For PCM or if no decoder provided, fall back to regular decoding
+	if codec == AudioCodecPCM || senderDecoder == nil {
+		if data == nil {
+			return make([]int16, am.frameSize), nil
+		}
+		return am.DecodeAudio(codec, data)
+	}
+
+	// Use per-sender Opus decoder for proper PLC
+	decoder, ok := senderDecoder.(*opus.Decoder)
+	if !ok || decoder == nil {
+		// Fallback to shared decoder if type assertion fails
+		return am.DecodeAudioWithPLC(data)
+	}
+
+	pcm := make([]int16, am.frameSize)
+	n, err := decoder.Decode(data, pcm)
+	if err != nil {
+		return nil, err
+	}
+
+	if n < len(pcm) {
+		padded := make([]int16, am.frameSize)
+		copy(padded, pcm[:n])
+		return padded, nil
+	}
+	return pcm[:n], nil
 }
 
 func encodePCM(samples []int16) []byte {
