@@ -28,6 +28,7 @@ const (
 	jitterBufferDepth        = 4   // 80ms buffer at 20ms per frame
 	bufferDrainInterval      = 20 * time.Millisecond
 	senderInactivityTimeout  = 30 * time.Second // Remove buffers after 30s of inactivity
+	defaultMaxWaitTime       = 100 * time.Millisecond // Default max wait for late packets (handles network jitter)
 )
 
 // JitterBufferPacket represents a buffered audio packet with metadata
@@ -93,6 +94,7 @@ type VoiceClient struct {
 	senderBuffers       map[uuid.UUID]*SenderBuffer // per-sender jitter buffers
 	jitterBufferMu      sync.RWMutex
 	jitterBufferDepth   int           // configurable buffer depth (3-5 packets)
+	maxWaitTime         time.Duration // max time to wait for late packets
 	jitterBufferEnabled atomic.Bool   // enable/disable jitter buffer
 	plcEnabled          atomic.Bool   // enable/disable PLC
 }
@@ -108,6 +110,7 @@ func NewVoiceClient() *VoiceClient {
 		micGain:           1.0,
 		senderBuffers:     make(map[uuid.UUID]*SenderBuffer),
 		jitterBufferDepth: jitterBufferDepth,
+		maxWaitTime:       defaultMaxWaitTime,
 	}
 	vc.vadEnabled.Store(true)
 	vc.vadThreshold.Store(vadThresholdDefault)
@@ -157,11 +160,21 @@ func (vc *VoiceClient) SetPTTActive(active bool) {
 }
 
 // SetJitterBuffer configures jitter buffer settings
+// Note: Depth changes take effect on next drain cycle; existing buffered packets retain old behavior
 func (vc *VoiceClient) SetJitterBuffer(enabled bool, depthPackets int) {
 	vc.jitterBufferEnabled.Store(enabled)
 	if depthPackets >= 2 && depthPackets <= 10 {
 		vc.jitterBufferMu.Lock()
 		vc.jitterBufferDepth = depthPackets
+		vc.jitterBufferMu.Unlock()
+	}
+}
+
+// SetJitterBufferMaxWait configures maximum wait time for late packets
+func (vc *VoiceClient) SetJitterBufferMaxWait(maxWait time.Duration) {
+	if maxWait >= 20*time.Millisecond && maxWait <= 500*time.Millisecond {
+		vc.jitterBufferMu.Lock()
+		vc.maxWaitTime = maxWait
 		vc.jitterBufferMu.Unlock()
 	}
 }
@@ -698,9 +711,10 @@ func (vc *VoiceClient) drainAllBuffers() {
 		return
 	}
 	
-	// Read jitterBufferDepth under lock to avoid data races.
+	// Read jitterBufferDepth and maxWaitTime under lock to avoid data races.
 	vc.jitterBufferMu.RLock()
 	depth := vc.jitterBufferDepth
+	maxWait := vc.maxWaitTime
 	senders := make([]uuid.UUID, 0, len(vc.senderBuffers))
 	for senderID := range vc.senderBuffers {
 		senders = append(senders, senderID)
@@ -717,7 +731,7 @@ func (vc *VoiceClient) drainAllBuffers() {
 		}
 		
 		// Drain the buffer: get playable packets and gaps
-		playablePackets, gaps := sb.drainBuffer(depth, bufferDrainInterval*2)
+		playablePackets, gaps := sb.drainBuffer(depth, maxWait)
 		
 		// Process playable packets
 		for _, pkt := range playablePackets {
@@ -1098,19 +1112,22 @@ func parseAudioPayload(data []byte) (senderID uuid.UUID, seqNum uint32, codec by
 	baseCodec := codecByte & 0x7F
 	hasPos := (codecByte & 0x80) != 0
 	
-	// Extract sender ID from bytes 2-18 and sequence number from bytes 18-22
-	var senderIDBytes [16]byte
-	copy(senderIDBytes[:], data[2:18])
-	senderID, err := uuid.FromBytes(senderIDBytes[:])
-	if err != nil {
-		return uuid.UUID{}, 0, AudioCodecPCM, nil, nil, false
-	}
-	seqNum = binary.BigEndian.Uint32(data[18:22])
-	
+	// Check if this is the new format (with codec byte) or legacy format
 	if baseCodec == AudioCodecOpus || baseCodec == AudioCodecPCM {
+		// New format with codec byte at position 1
 		if len(data) < audioHeaderWithCodec {
 			return uuid.UUID{}, 0, AudioCodecPCM, nil, nil, false
 		}
+		
+		// Extract sender ID from bytes 2-18 and sequence number from bytes 18-22
+		var senderIDBytes [16]byte
+		copy(senderIDBytes[:], data[2:18])
+		senderID, err := uuid.FromBytes(senderIDBytes[:])
+		if err != nil {
+			return uuid.UUID{}, 0, AudioCodecPCM, nil, nil, false
+		}
+		seqNum = binary.BigEndian.Uint32(data[18:22])
+		
 		audioLen := binary.BigEndian.Uint32(data[22:26])
 		totalLen := audioHeaderWithCodec + int(audioLen)
 		if totalLen > len(data) || audioLen == 0 {
@@ -1131,6 +1148,16 @@ func parseAudioPayload(data []byte) (senderID uuid.UUID, seqNum uint32, codec by
 		return senderID, seqNum, baseCodec, data[26:totalLen], pos, true
 	}
 
+	// Legacy format without codec byte
+	// Extract sender ID from bytes 1-17 and sequence number from bytes 17-21
+	var senderIDBytes [16]byte
+	copy(senderIDBytes[:], data[1:17])
+	senderID, err := uuid.FromBytes(senderIDBytes[:])
+	if err != nil {
+		return uuid.UUID{}, 0, AudioCodecPCM, nil, nil, false
+	}
+	seqNum = binary.BigEndian.Uint32(data[17:21])
+	
 	audioLen := binary.BigEndian.Uint32(data[21:25])
 	totalLen := audioHeaderLegacy + int(audioLen)
 	if totalLen > len(data) || audioLen == 0 {
