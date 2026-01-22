@@ -338,6 +338,9 @@ func (am *SimpleAudioManager) DecodeAudioWithSenderDecoder(codec byte, data []by
 	}
 
 	pcm := make([]int16, am.frameSize)
+
+	// When data == nil, trigger Opus packet loss concealment (PLC) on the per-sender decoder.
+	// The opus.Decoder treats a nil input buffer as a PLC request while preserving its state.
 	n, err := decoder.Decode(data, pcm)
 	if err != nil {
 		return nil, err

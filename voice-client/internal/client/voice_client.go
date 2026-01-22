@@ -553,9 +553,17 @@ func (sb *SenderBuffer) drainBuffer(maxBufferDepth int, maxWaitTime time.Duratio
 		if !exists {
 			// Check if buffer is full or timeout reached
 			bufferSize := len(sb.packets)
-			maxSeqInBuffer := sb.expectedSeqNum
-			// Use seqNumLessThan to handle sequence number wraparound
+
+			// Compute the maximum sequence number currently in the buffer,
+			// using seqNumLessThan to handle sequence number wraparound.
+			var maxSeqInBuffer uint32
+			first := true
 			for seq := range sb.packets {
+				if first {
+					maxSeqInBuffer = seq
+					first = false
+					continue
+				}
 				if seqNumLessThan(maxSeqInBuffer, seq) {
 					maxSeqInBuffer = seq
 				}
