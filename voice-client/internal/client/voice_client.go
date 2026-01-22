@@ -27,6 +27,7 @@ const (
 	positionalMaxDistance    = 30.0
 	jitterBufferDepth        = 4   // 80ms buffer at 20ms per frame
 	bufferDrainInterval      = 20 * time.Millisecond
+	senderInactivityTimeout  = 30 * time.Second // Remove buffers after 30s of inactivity
 )
 
 // JitterBufferPacket represents a buffered audio packet with metadata
@@ -44,6 +45,7 @@ type SenderBuffer struct {
 	packets          map[uint32]*JitterBufferPacket
 	expectedSeqNum   uint32
 	lastPlayoutTime  time.Time
+	lastActivity     time.Time // Track last packet received time for cleanup
 	mu               sync.Mutex
 	latePackets      uint64 // stats
 	gapsConcealed    uint64 // stats
@@ -458,6 +460,7 @@ func (vc *VoiceClient) getOrCreateSenderBuffer(senderID uuid.UUID) *SenderBuffer
 		packets:         make(map[uint32]*JitterBufferPacket),
 		expectedSeqNum:  0,
 		lastPlayoutTime: time.Now(),
+		lastActivity:    time.Now(),
 	}
 	vc.senderBuffers[senderID] = sb
 	log.Printf("Created jitter buffer for sender %s", senderID.String()[:8])
@@ -468,6 +471,9 @@ func (vc *VoiceClient) getOrCreateSenderBuffer(senderID uuid.UUID) *SenderBuffer
 func (sb *SenderBuffer) bufferPacket(seqNum uint32, codec byte, audioData []byte, position *[3]float32) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
+	
+	// Update activity timestamp
+	sb.lastActivity = time.Now()
 	
 	// Initialize expectedSeqNum to the first packet received
 	if !sb.initialized {
@@ -615,6 +621,13 @@ func (vc *VoiceClient) receiveLoop() {
 	// Stats reporting timer
 	statsTicker := time.NewTicker(5 * time.Second)
 	defer statsTicker.Stop()
+	
+	// Cleanup timer for inactive sender buffers
+	cleanupTicker := time.NewTicker(30 * time.Second)
+	defer cleanupTicker.Stop()
+	
+	// Set a longer read deadline to avoid tight looping
+	vc.socket.SetReadDeadline(time.Time{}) // Clear any existing deadline
 
 	for vc.connected.Load() {
 		select {
@@ -626,9 +639,13 @@ func (vc *VoiceClient) receiveLoop() {
 			// Log buffer statistics
 			vc.logBufferStats()
 			
+		case <-cleanupTicker.C:
+			// Clean up inactive sender buffers
+			vc.cleanupInactiveSenders()
+			
 		default:
-			// Try to read a packet with short timeout to avoid blocking the drain timer
-			vc.socket.SetReadDeadline(time.Now().Add(bufferDrainInterval / 2))
+			// Try to read a packet with a reasonable timeout
+			vc.socket.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
 			n, _, err := vc.socket.ReadFromUDP(buffer)
 			if err != nil {
 				if vc.connected.Load() {
@@ -637,6 +654,8 @@ func (vc *VoiceClient) receiveLoop() {
 						log.Printf("Receive error: %v", err)
 					}
 				}
+				// Sleep briefly to prevent tight looping on repeated errors
+				time.Sleep(time.Millisecond)
 				continue
 			}
 
@@ -776,6 +795,33 @@ func (vc *VoiceClient) logBufferStats() {
 		bufSize, latePackets, gapsConcealed, underruns := sb.getBufferStats()
 		log.Printf("[JITTER_BUFFER] sender=%s bufSize=%d latePackets=%d gapsConcealed=%d underruns=%d",
 			senderID.String()[:8], bufSize, latePackets, gapsConcealed, underruns)
+	}
+}
+
+// cleanupInactiveSenders removes sender buffers that haven't received packets recently
+func (vc *VoiceClient) cleanupInactiveSenders() {
+	vc.jitterBufferMu.Lock()
+	defer vc.jitterBufferMu.Unlock()
+	
+	now := time.Now()
+	var removed []uuid.UUID
+	
+	for senderID, sb := range vc.senderBuffers {
+		sb.mu.Lock()
+		lastActivity := sb.lastActivity
+		sb.mu.Unlock()
+		
+		if now.Sub(lastActivity) > senderInactivityTimeout {
+			delete(vc.senderBuffers, senderID)
+			removed = append(removed, senderID)
+		}
+	}
+	
+	if len(removed) > 0 {
+		log.Printf("Cleaned up %d inactive sender buffer(s)", len(removed))
+		for _, id := range removed {
+			log.Printf("  Removed buffer for sender %s", id.String()[:8])
+		}
 	}
 }
 
