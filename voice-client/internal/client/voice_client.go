@@ -25,7 +25,7 @@ const (
 	vadThresholdDefault      = 1200
 	vadHangoverFramesDefault = 30 // default hangover frames (~1.5 seconds at 20ms per frame)
 	positionalMaxDistance    = 30.0
-	jitterBufferDepth        = 4 // 80ms buffer at 20ms per frame
+	jitterBufferDepthDefault = 4 // 80ms buffer at 20ms per frame
 	bufferDrainInterval      = 20 * time.Millisecond
 	senderInactivityTimeout  = 30 * time.Second       // Remove buffers after 30s of inactivity
 	defaultMaxWaitTime       = 100 * time.Millisecond // Default max wait for late packets (handles network jitter)
@@ -111,7 +111,7 @@ func NewVoiceClient() *VoiceClient {
 		masterVolume:      1.0,
 		micGain:           1.0,
 		senderBuffers:     make(map[uuid.UUID]*SenderBuffer),
-		jitterBufferDepth: jitterBufferDepth,
+		jitterBufferDepth: jitterBufferDepthDefault,
 		maxWaitTime:       defaultMaxWaitTime,
 	}
 	vc.vadEnabled.Store(true)
@@ -169,6 +169,8 @@ func (vc *VoiceClient) SetJitterBuffer(enabled bool, depthPackets int) {
 		vc.jitterBufferMu.Lock()
 		vc.jitterBufferDepth = depthPackets
 		vc.jitterBufferMu.Unlock()
+	} else {
+		log.Printf("voice client: invalid jitter buffer depth %d (valid range: 2-10 packets)", depthPackets)
 	}
 }
 
@@ -178,6 +180,8 @@ func (vc *VoiceClient) SetJitterBufferMaxWait(maxWait time.Duration) {
 		vc.jitterBufferMu.Lock()
 		vc.maxWaitTime = maxWait
 		vc.jitterBufferMu.Unlock()
+	} else {
+		log.Printf("SetJitterBufferMaxWait: maxWait %v out of range (must be between 20ms and 500ms); keeping previous value", maxWait)
 	}
 }
 
@@ -538,7 +542,7 @@ func (sb *SenderBuffer) bufferPacket(seqNum uint32, codec byte, audioData []byte
 }
 
 // drainBuffer returns all playable packets and detects gaps
-// Returns: []packets (in order), []gaps (sequence numbers skipped at playout time for which PLC should be applied; packets may still arrive later as late packets)
+// Returns: []packets (in order), []gaps (sequence numbers skipped and concealed at playout time for which PLC was applied; if packets with these sequence numbers arrive later, they are treated as late packets and discarded, not played)
 func (sb *SenderBuffer) drainBuffer(maxBufferDepth int, maxWaitTime time.Duration) ([]*JitterBufferPacket, []uint32) {
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
@@ -553,6 +557,11 @@ func (sb *SenderBuffer) drainBuffer(maxBufferDepth int, maxWaitTime time.Duratio
 		if !exists {
 			// Check if buffer is full or timeout reached
 			bufferSize := len(sb.packets)
+
+			// If buffer is empty, no gap detection is needed
+			if bufferSize == 0 {
+				break
+			}
 
 			// Compute the maximum sequence number currently in the buffer,
 			// using seqNumLessThan to handle sequence number wraparound.
@@ -601,6 +610,21 @@ func (sb *SenderBuffer) getBufferStats() (bufferSize int, latePackets, gapsConce
 	sb.mu.Lock()
 	defer sb.mu.Unlock()
 	return len(sb.packets), sb.latePackets, sb.gapsConcealed, sb.bufferUnderruns
+}
+
+// cleanup releases resources associated with the sender buffer
+// This should be called before removing the buffer from the map
+func (sb *SenderBuffer) cleanup() {
+	sb.mu.Lock()
+	defer sb.mu.Unlock()
+
+	// Clear packet map
+	sb.packets = nil
+
+	// Note: opus.Decoder is managed by Go's garbage collector
+	// The underlying C resources will be freed when the decoder is finalized
+	// Setting to nil allows GC to reclaim it
+	sb.decoder = nil
 }
 
 func (vc *VoiceClient) sendAuthentication() error {
@@ -665,69 +689,73 @@ func (vc *VoiceClient) receiveLoop() {
 	cleanupTicker := time.NewTicker(30 * time.Second)
 	defer cleanupTicker.Stop()
 
-	// Set a longer read deadline to avoid tight looping
-	vc.socket.SetReadDeadline(time.Time{}) // Clear any existing deadline
+	// Use a longer read timeout to avoid excessive syscalls
+	readTimeout := 50 * time.Millisecond
 
 	for vc.connected.Load() {
+		// Check timers first
 		select {
 		case <-drainTicker.C:
 			// Periodically drain all jitter buffers and process packets
 			vc.drainAllBuffers()
+			continue
 
 		case <-statsTicker.C:
 			// Log buffer statistics
 			vc.logBufferStats()
+			continue
 
 		case <-cleanupTicker.C:
 			// Clean up inactive sender buffers
 			vc.cleanupInactiveSenders()
+			continue
 
 		default:
-			// Try to read a packet with a reasonable timeout
-			vc.socket.SetReadDeadline(time.Now().Add(10 * time.Millisecond))
-			n, _, err := vc.socket.ReadFromUDP(buffer)
-			if err != nil {
-				if vc.connected.Load() {
-					// Ignore timeout errors, they're expected
-					if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
-						log.Printf("Receive error: %v", err)
-					}
-				}
-				// Sleep briefly to prevent tight looping on repeated errors
-				time.Sleep(time.Millisecond)
-				continue
-			}
-
-			if n < audioHeaderLegacy {
-				continue
-			}
-
-			if buffer[0] != PacketTypeAudio && buffer[0] != PacketTypeTestAudio {
-				continue
-			}
-
-			// Parse packet and extract sender, sequence number, codec, etc.
-			senderID, seqNum, codec, audioData, pos, ok := parseAudioPayload(buffer[:n])
-			if !ok {
-				continue
-			}
-
-			packetCount++
-			if packetCount%100 == 1 {
-				log.Printf("Received audio packet #%d, seq=%d, sender=%s, size=%d bytes",
-					packetCount, seqNum, senderID.String()[:8], len(audioData))
-			}
-
-			// If jitter buffer is disabled, process immediately
-			if !vc.jitterBufferEnabled.Load() {
-				vc.processAudioPacket(codec, audioData, pos)
-				continue
-			}
-
-			// Buffer the packet in the per-sender jitter buffer
-			senderBuf := vc.getOrCreateSenderBuffer(senderID)
-			senderBuf.bufferPacket(seqNum, codec, audioData, pos)
+			// Continue to packet reading
 		}
+
+		// Read packet with timeout
+		vc.socket.SetReadDeadline(time.Now().Add(readTimeout))
+		n, _, err := vc.socket.ReadFromUDP(buffer)
+		if err != nil {
+			if vc.connected.Load() {
+				// Ignore timeout errors, they're expected
+				if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+					log.Printf("Receive error: %v", err)
+				}
+			}
+			continue
+		}
+
+		if n < audioHeaderLegacy {
+			continue
+		}
+
+		if buffer[0] != PacketTypeAudio && buffer[0] != PacketTypeTestAudio {
+			continue
+		}
+
+		// Parse packet and extract sender, sequence number, codec, etc.
+		senderID, seqNum, codec, audioData, pos, ok := parseAudioPayload(buffer[:n])
+		if !ok {
+			continue
+		}
+
+		packetCount++
+		if packetCount%100 == 1 {
+			log.Printf("Received audio packet #%d, seq=%d, sender=%s, size=%d bytes",
+				packetCount, seqNum, senderID.String()[:8], len(audioData))
+		}
+
+		// If jitter buffer is disabled, process immediately
+		if !vc.jitterBufferEnabled.Load() {
+			vc.processAudioPacket(codec, audioData, pos)
+			continue
+		}
+
+		// Buffer the packet in the per-sender jitter buffer
+		senderBuf := vc.getOrCreateSenderBuffer(senderID)
+		senderBuf.bufferPacket(seqNum, codec, audioData, pos)
 	}
 }
 
@@ -737,24 +765,17 @@ func (vc *VoiceClient) drainAllBuffers() {
 		return
 	}
 
-	// Read jitterBufferDepth and maxWaitTime under lock to avoid data races.
+	// Read jitterBufferDepth, maxWaitTime, and collect sender buffers under lock to avoid data races.
 	vc.jitterBufferMu.RLock()
 	depth := vc.jitterBufferDepth
 	maxWait := vc.maxWaitTime
-	senders := make([]uuid.UUID, 0, len(vc.senderBuffers))
-	for senderID := range vc.senderBuffers {
-		senders = append(senders, senderID)
+	senderBuffers := make([]*SenderBuffer, 0, len(vc.senderBuffers))
+	for _, sb := range vc.senderBuffers {
+		senderBuffers = append(senderBuffers, sb)
 	}
 	vc.jitterBufferMu.RUnlock()
 
-	for _, senderID := range senders {
-		vc.jitterBufferMu.RLock()
-		sb, exists := vc.senderBuffers[senderID]
-		vc.jitterBufferMu.RUnlock()
-
-		if !exists {
-			continue
-		}
+	for _, sb := range senderBuffers {
 
 		// Drain the buffer: get playable packets and gaps
 		playablePackets, gaps := sb.drainBuffer(depth, maxWait)
@@ -778,7 +799,10 @@ func (vc *VoiceClient) drainAllBuffers() {
 	}
 }
 
-// processAudioPacket decodes and plays an audio packet (legacy, no per-sender decoder)
+// processAudioPacket decodes and plays an audio packet when the jitter buffer is disabled.
+// This is the legacy path and does not use a per-sender decoder; it simply forwards to
+// processAudioPacketWithDecoder with a nil senderDecoder. When the jitter buffer is enabled,
+// all audio is processed via processAudioPacketWithDecoder using a per-sender decoder.
 func (vc *VoiceClient) processAudioPacket(codec byte, audioData []byte, pos *[3]float32) {
 	vc.processAudioPacketWithDecoder(codec, audioData, pos, nil)
 }
@@ -805,12 +829,6 @@ func (vc *VoiceClient) processAudioPacketWithDecoder(codec byte, audioData []byt
 	default:
 		log.Printf("Output channel full, dropping packet")
 	}
-}
-
-// processPLC handles a missing packet by triggering Opus PLC (Packet Loss Concealment)
-// Legacy method without per-sender decoder
-func (vc *VoiceClient) processPLC() {
-	vc.processPLCWithDecoder(AudioCodecOpus, nil)
 }
 
 // processPLCWithDecoder handles a missing packet using per-sender decoder for proper PLC
@@ -868,6 +886,7 @@ func (vc *VoiceClient) cleanupInactiveSenders() {
 		sb.mu.Unlock()
 
 		if now.Sub(lastActivity) > senderInactivityTimeout {
+			sb.cleanup() // Release decoder resources before removing
 			delete(vc.senderBuffers, senderID)
 			removed = append(removed, senderID)
 		}
