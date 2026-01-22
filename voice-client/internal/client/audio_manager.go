@@ -266,6 +266,38 @@ func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, err
 	}
 }
 
+// DecodeAudioWithPLC decodes audio with Packet Loss Concealment support.
+// When data is nil, it triggers Opus PLC (Opus Decoder.Decode(nil) for concealment)
+// or returns silence for PCM codec.
+func (am *SimpleAudioManager) DecodeAudioWithPLC(data []byte) ([]int16, error) {
+	if data == nil {
+		// PLC (Packet Loss Concealment): decode nil data to get concealed samples
+		if am.useOpus && am.decoder != nil {
+			am.decodeMu.Lock()
+			pcm := make([]int16, am.frameSize)
+			// Opus decoder interprets nil data as missing packet and applies PLC
+			n, err := am.decoder.Decode(nil, pcm)
+			am.decodeMu.Unlock()
+			if err != nil {
+				return nil, err
+			}
+			if n < len(pcm) {
+				padded := make([]int16, am.frameSize)
+				copy(padded, pcm[:n])
+				pcm = padded
+			} else {
+				pcm = pcm[:n]
+			}
+			return pcm, nil
+		}
+		// PCM codec: return silence
+		return make([]int16, am.frameSize), nil
+	}
+	
+	// Normal decoding path
+	return am.DecodeAudio(AudioCodecOpus, data)
+}
+
 func encodePCM(samples []int16) []byte {
 	encoded := make([]byte, len(samples)*2)
 	for i, sample := range samples {
