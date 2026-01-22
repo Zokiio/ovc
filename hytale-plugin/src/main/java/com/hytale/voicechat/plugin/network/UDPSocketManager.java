@@ -39,6 +39,7 @@ public class UDPSocketManager {
     private final Map<UUID, InetSocketAddress> clients;
     private final Map<String, UUID> usernameToClientUUID; // username -> voice client UUID
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
+    private final Map<UUID, UUID> playerToClientUUID; // Hytale player UUID -> voice client UUID (reverse lookup)
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
     private volatile GroupManager groupManager;
@@ -50,6 +51,7 @@ public class UDPSocketManager {
         this.clients = new ConcurrentHashMap<>();
         this.usernameToClientUUID = new ConcurrentHashMap<>();
         this.clientToPlayerUUID = new ConcurrentHashMap<>();
+        this.playerToClientUUID = new ConcurrentHashMap<>();
     }
 
     public void setProximityDistance(double proximityDistance) {
@@ -197,7 +199,10 @@ public class UDPSocketManager {
                     logger.atInfo().log("Username '" + username + "' already connected with different client ID, removing old connection");
                     // Remove old client mappings
                     clients.remove(existingClientId);
-                    clientToPlayerUUID.remove(existingClientId);
+                    UUID oldPlayerUUID = clientToPlayerUUID.remove(existingClientId);
+                    if (oldPlayerUUID != null) {
+                        playerToClientUUID.remove(oldPlayerUUID);
+                    }
                 }
                 
                 // Register client
@@ -212,6 +217,7 @@ public class UDPSocketManager {
                 
                 if (playerUUID != null) {
                     clientToPlayerUUID.put(clientId, playerUUID);
+                    playerToClientUUID.put(playerUUID, clientId);
                     logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
                     logger.atInfo().log("║ VOICE CLIENT CONNECTED");
                     logger.atInfo().log("║ Username: " + username);
@@ -274,7 +280,10 @@ public class UDPSocketManager {
                 
                 // Remove all mappings for this client
                 clients.remove(clientId);
-                clientToPlayerUUID.remove(clientId);
+                UUID playerUUID = clientToPlayerUUID.remove(clientId);
+                if (playerUUID != null) {
+                    playerToClientUUID.remove(playerUUID);
+                }
                 if (disconnectedUsername != null) {
                     usernameToClientUUID.remove(disconnectedUsername);
                 }
@@ -361,6 +370,7 @@ public class UDPSocketManager {
                     playerUUID = positionTracker.getPlayerUUIDByUsername(username);
                     if (playerUUID != null) {
                         clientToPlayerUUID.put(clientId, playerUUID);
+                        playerToClientUUID.put(playerUUID, clientId);
                         logger.atFine().log("Linked voice client " + clientId + " to player " + playerUUID + " (" + username + ")");
                     }
                 }
@@ -490,12 +500,8 @@ public class UDPSocketManager {
         }
         
         private UUID findClientByPlayerUUID(UUID playerUUID) {
-            for (Map.Entry<UUID, UUID> entry : clientToPlayerUUID.entrySet()) {
-                if (entry.getValue().equals(playerUUID)) {
-                    return entry.getKey();
-                }
-            }
-            return null;
+            // O(1) lookup using reverse mapping
+            return playerToClientUUID.get(playerUUID);
         }
 
         private String findUsernameByClientId(UUID clientId) {
@@ -542,6 +548,7 @@ public class UDPSocketManager {
                         playerUUID = positionTracker.getPlayerUUIDByUsername(username);
                         if (playerUUID != null) {
                             clientToPlayerUUID.put(playerId, playerUUID);
+                            playerToClientUUID.put(playerUUID, playerId);
                         }
                     }
                 }

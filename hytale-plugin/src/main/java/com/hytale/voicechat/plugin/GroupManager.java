@@ -86,7 +86,7 @@ public class GroupManager {
      * @param playerId The player leaving
      * @return true if successful, false if player was not in a group
      */
-    public boolean leaveGroup(UUID playerId) {
+    public synchronized boolean leaveGroup(UUID playerId) {
         UUID groupId = playerGroupMapping.remove(playerId);
         if (groupId == null) {
             return false; // Player wasn't in a group
