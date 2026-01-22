@@ -8,6 +8,7 @@ import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
 import com.hytale.voicechat.plugin.command.VoiceProximityCommand;
+import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
@@ -31,6 +32,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private OpusCodec opusCodec;
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
+    private GroupManager groupManager;
     private int voicePort;
     private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
 
@@ -51,6 +53,9 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Initialize Opus codec
             opusCodec = new OpusCodec();
             
+            // Initialize group manager
+            groupManager = new GroupManager();
+            
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
             
@@ -66,6 +71,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             udpServer.setProximityDistance(proximityDistance);
             udpServer.setPositionTracker(positionTracker);
             udpServer.setEventListener(eventListener);
+            udpServer.setGroupManager(groupManager);
             udpServer.start();
             
             // Start position tracking
@@ -73,6 +79,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Register commands
             getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
+            getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager));
             
             logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
@@ -90,6 +97,10 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         
         if (positionTracker != null) {
             positionTracker.stop();
+        }
+        
+        if (groupManager != null) {
+            groupManager.shutdown();
         }
         
         if (udpServer != null) {
@@ -125,13 +136,18 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     }
     
     /**
-     * Handle player quit
+     * Handle player quit - clean up group membership
      */
     public void onPlayerQuit(UUID playerId) {
         if (positionTracker != null) {
             positionTracker.removePlayer(playerId);
-            logger.atInfo().log("Player left voice chat: " + playerId);
         }
+        
+        if (groupManager != null) {
+            groupManager.handlePlayerDisconnect(playerId);
+        }
+        
+        logger.atInfo().log("Player left voice chat: " + playerId);
     }
 
     /**
