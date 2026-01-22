@@ -1,10 +1,15 @@
 package com.hytale.voicechat.plugin.network;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
+import com.hytale.voicechat.common.model.Group;
 import com.hytale.voicechat.common.packet.AudioPacket;
 import com.hytale.voicechat.common.packet.AuthAckPacket;
 import com.hytale.voicechat.common.packet.AuthenticationPacket;
+import com.hytale.voicechat.common.packet.GroupManagementPacket;
+import com.hytale.voicechat.common.packet.GroupStatePacket;
+import com.hytale.voicechat.common.packet.GroupListPacket;
 import com.hytale.voicechat.common.network.NetworkConfig;
+import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
@@ -16,6 +21,8 @@ import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,14 +32,17 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class UDPSocketManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+    private static final UUID SERVER_UUID = new UUID(0L, 0L); // Dedicated server identifier
     
     private final int port;
     private volatile double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
     private final Map<UUID, InetSocketAddress> clients;
     private final Map<String, UUID> usernameToClientUUID; // username -> voice client UUID
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
+    private final Map<UUID, UUID> playerToClientUUID; // Hytale player UUID -> voice client UUID (reverse lookup)
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
+    private volatile GroupManager groupManager;
     private EventLoopGroup group;
     private Channel channel;
 
@@ -41,6 +51,7 @@ public class UDPSocketManager {
         this.clients = new ConcurrentHashMap<>();
         this.usernameToClientUUID = new ConcurrentHashMap<>();
         this.clientToPlayerUUID = new ConcurrentHashMap<>();
+        this.playerToClientUUID = new ConcurrentHashMap<>();
     }
 
     public void setProximityDistance(double proximityDistance) {
@@ -53,6 +64,10 @@ public class UDPSocketManager {
     
     public void setEventListener(PlayerEventListener listener) {
         this.eventListener = listener;
+    }
+    
+    public void setGroupManager(GroupManager manager) {
+        this.groupManager = manager;
     }
 
     public void start() throws InterruptedException {
@@ -69,8 +84,10 @@ public class UDPSocketManager {
                             clients, 
                             usernameToClientUUID, 
                             clientToPlayerUUID,
+                            playerToClientUUID,
                             positionTracker,
-                            eventListener
+                            eventListener,
+                            groupManager
                         ));
                     }
                 });
@@ -104,19 +121,25 @@ public class UDPSocketManager {
         private final Map<UUID, InetSocketAddress> clients;
         private final Map<String, UUID> usernameToClientUUID;
         private final Map<UUID, UUID> clientToPlayerUUID;
+        private final Map<UUID, UUID> playerToClientUUID;
         private final PlayerPositionTracker positionTracker;
         private final PlayerEventListener eventListener;
+        private final GroupManager groupManager;
 
         public VoicePacketHandler(Map<UUID, InetSocketAddress> clients, 
                                   Map<String, UUID> usernameToClientUUID,
                                   Map<UUID, UUID> clientToPlayerUUID,
+                                  Map<UUID, UUID> playerToClientUUID,
                                   PlayerPositionTracker positionTracker,
-                                  PlayerEventListener eventListener) {
+                                  PlayerEventListener eventListener,
+                                  GroupManager groupManager) {
             this.clients = clients;
             this.usernameToClientUUID = usernameToClientUUID;
             this.clientToPlayerUUID = clientToPlayerUUID;
+            this.playerToClientUUID = playerToClientUUID;
             this.positionTracker = positionTracker;
             this.eventListener = eventListener;
+            this.groupManager = groupManager;
         }
 
         @Override
@@ -146,6 +169,12 @@ public class UDPSocketManager {
                     case 0x04: // Disconnect packet
                         handleDisconnect(ctx, data, packet.sender());
                         break;
+                    case 0x06: // Group management packet
+                        handleGroupManagement(ctx, data, packet.sender());
+                        break;
+                    case 0x08: // Group list query packet
+                        handleGroupListQuery(ctx, data, packet.sender());
+                        break;
                     default:
                         logger.atWarning().log("Unknown packet type: " + packetType);
                 }
@@ -174,7 +203,10 @@ public class UDPSocketManager {
                     logger.atInfo().log("Username '" + username + "' already connected with different client ID, removing old connection");
                     // Remove old client mappings
                     clients.remove(existingClientId);
-                    clientToPlayerUUID.remove(existingClientId);
+                    UUID oldPlayerUUID = clientToPlayerUUID.remove(existingClientId);
+                    if (oldPlayerUUID != null) {
+                        playerToClientUUID.remove(oldPlayerUUID);
+                    }
                 }
                 
                 // Register client
@@ -189,6 +221,7 @@ public class UDPSocketManager {
                 
                 if (playerUUID != null) {
                     clientToPlayerUUID.put(clientId, playerUUID);
+                    playerToClientUUID.put(playerUUID, clientId);
                     logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
                     logger.atInfo().log("║ VOICE CLIENT CONNECTED");
                     logger.atInfo().log("║ Username: " + username);
@@ -251,7 +284,10 @@ public class UDPSocketManager {
                 
                 // Remove all mappings for this client
                 clients.remove(clientId);
-                clientToPlayerUUID.remove(clientId);
+                UUID playerUUID = clientToPlayerUUID.remove(clientId);
+                if (playerUUID != null) {
+                    playerToClientUUID.remove(playerUUID);
+                }
                 if (disconnectedUsername != null) {
                     usernameToClientUUID.remove(disconnectedUsername);
                 }
@@ -338,6 +374,7 @@ public class UDPSocketManager {
                     playerUUID = positionTracker.getPlayerUUIDByUsername(username);
                     if (playerUUID != null) {
                         clientToPlayerUUID.put(clientId, playerUUID);
+                        playerToClientUUID.put(playerUUID, clientId);
                         logger.atFine().log("Linked voice client " + clientId + " to player " + playerUUID + " (" + username + ")");
                     }
                 }
@@ -356,53 +393,91 @@ public class UDPSocketManager {
                 return; // Sender not in game / not tracked yet
             }
             
-            // Route to nearby players only, embedding relative offset per recipient
+            // Route to nearby players and group members
             int routedCount = 0;
             Map<UUID, PlayerPosition> allPlayers = positionTracker.getPlayerPositions();
             int tracked = allPlayers.size();
             
+            // Get sender's group (if any) - use local variable for thread safety
+            GroupManager localGroupManager = groupManager;
+            Group senderGroup = localGroupManager != null ? localGroupManager.getPlayerGroup(playerUUID) : null;
+            
+            // Pre-serialize packet for group members (efficiency - serialize once, reuse for all)
+            byte[] groupAudioData = null;
+            if (senderGroup != null) {
+                groupAudioData = packet.serialize();
+            }
+            
+            // Track which players have received audio to avoid duplicates
+            java.util.Set<UUID> routedPlayers = new java.util.HashSet<>();
+            
+            // First pass: Route to players in position tracker (proximity + group)
             for (Map.Entry<UUID, PlayerPosition> entry : allPlayers.entrySet()) {
                 UUID otherPlayerUUID = entry.getKey();
                 PlayerPosition position = entry.getValue();
                 
                 if (!otherPlayerUUID.equals(playerUUID)) { // Don't send to self
+                    boolean inSameGroup = senderGroup != null && senderGroup.hasMember(otherPlayerUUID);
                     double distance = senderPos.distanceTo(position);
-                    logger.atInfo().log("[ROUTE_CHECK] recipient=" + position.getPlayerName() + " distance=" + String.format("%.2f", distance) + " maxProximity=" + proximityDistance);
+                    boolean inProximity = distance <= proximityDistance;
                     
-                    // Only send if within proximity distance
-                    if (distance <= proximityDistance) {
+                    // Send if in same group OR within proximity distance
+                    if (inSameGroup || inProximity) {
                         // Find voice client for this player
                         UUID otherClientId = findClientByPlayerUUID(otherPlayerUUID);
-                        logger.atInfo().log("[ROUTE_LOOKUP] recipient=" + position.getPlayerName() + " playerUUID=" + otherPlayerUUID + " clientUUID=" + otherClientId);
                         
                         if (otherClientId != null) {
                             InetSocketAddress clientAddr = clients.get(otherClientId);
-                            logger.atInfo().log("[ROUTE_ADDRESS] recipient=" + position.getPlayerName() + " clientUUID=" + otherClientId + " address=" + clientAddr);
                             
                             if (clientAddr != null) {
-                                float dx = (float) (senderPos.getX() - position.getX());
-                                float dy = (float) (senderPos.getY() - position.getY());
-                                float dz = (float) (senderPos.getZ() - position.getZ());
+                                // Priority: proximity audio (spatial 3D) takes precedence over group audio (non-spatial)
+                                if (inProximity) {
+                                    // Proximity audio: send WITH position (spatial 3D)
+                                    float dx = (float) (senderPos.getX() - position.getX());
+                                    float dy = (float) (senderPos.getY() - position.getY());
+                                    float dz = (float) (senderPos.getZ() - position.getZ());
 
-                                float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
+                                    float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
 
-                                logger.atInfo().log("[ROTATION] sender=" + senderPos.getPlayerName() + "(" + String.format("%.2f", senderPos.getX()) + "," + String.format("%.2f", senderPos.getY()) + "," + String.format("%.2f", senderPos.getZ()) + ") listener=" + position.getPlayerName() + "(" + String.format("%.2f", position.getX()) + "," + String.format("%.2f", position.getY()) + "," + String.format("%.2f", position.getZ()) + ") yaw=" + String.format("%.2f", position.getYaw()) + "° pitch=" + String.format("%.2f", position.getPitch()) + "° world=(" + String.format("%.2f", dx) + "," + String.format("%.2f", dy) + "," + String.format("%.2f", dz) + ") rotated=(" + String.format("%.2f", rotated[0]) + "," + String.format("%.2f", rotated[1]) + "," + String.format("%.2f", rotated[2]) + ")");
-
-                                // Optimize: write directly to ByteBuf to avoid intermediate byte array allocation
-                                int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
-                                ByteBuf buf = ctx.alloc().buffer(packetSize);
-                                packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
-                                ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
-                                routedCount++;
-                                logger.atInfo().log("[ROUTED] sender=" + senderPos.getPlayerName() + " -> recipient=" + position.getPlayerName());
+                                    int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
+                                    ByteBuf buf = ctx.alloc().buffer(packetSize);
+                                    packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
+                                    ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                    routedCount++;
+                                    routedPlayers.add(otherPlayerUUID);
+                                } else if (inSameGroup) {
+                                    // Group audio only (not in proximity): send WITHOUT position (center-channel, non-spatial)
+                                    ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
+                                    buf.writeBytes(groupAudioData);
+                                    ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                    routedPlayers.add(otherPlayerUUID);
+                                }
                             }
                         }
                     }
                 }
             }
             
-            logger.atInfo().log("Positional route: sender=" + senderPos.getPlayerName() + " tracked=" + tracked + " routed=" + routedCount + " pos=" + senderPos.getX() + "," + senderPos.getY() + "," + senderPos.getZ());
-            
+            // Second pass: Route to group members not in position tracker
+            if (senderGroup != null && groupAudioData != null) {
+                for (UUID groupMemberId : senderGroup.getMembers()) {
+                    if (!groupMemberId.equals(playerUUID) && !routedPlayers.contains(groupMemberId)) {
+                        // This group member wasn't in the position tracker
+                        UUID otherClientId = findClientByPlayerUUID(groupMemberId);
+                        
+                        if (otherClientId != null) {
+                            InetSocketAddress clientAddr = clients.get(otherClientId);
+                            
+                            if (clientAddr != null) {
+                                // Send WITHOUT position (center-channel, non-spatial)
+                                ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
+                                buf.writeBytes(groupAudioData);
+                                ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         private AudioPacket withRelativePosition(AudioPacket packet, float dx, float dy, float dz) {
@@ -429,12 +504,8 @@ public class UDPSocketManager {
         }
         
         private UUID findClientByPlayerUUID(UUID playerUUID) {
-            for (Map.Entry<UUID, UUID> entry : clientToPlayerUUID.entrySet()) {
-                if (entry.getValue().equals(playerUUID)) {
-                    return entry.getKey();
-                }
-            }
-            return null;
+            // O(1) lookup using reverse mapping
+            return playerToClientUUID.get(playerUUID);
         }
 
         private String findUsernameByClientId(UUID clientId) {
@@ -461,6 +532,142 @@ public class UDPSocketManager {
                         packet.getPosX(), packet.getPosY(), packet.getPosZ());
             }
             return new AudioPacket(senderId, packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber());
+        }
+        
+        private void handleGroupManagement(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+            try {
+                if (groupManager == null) {
+                    logger.atWarning().log("Group management received but GroupManager not initialized");
+                    return;
+                }
+                
+                GroupManagementPacket packet = GroupManagementPacket.deserialize(data);
+                UUID playerId = packet.getSenderId();
+                
+                // Get player UUID from voice client UUID
+                UUID playerUUID = clientToPlayerUUID.get(playerId);
+                if (playerUUID == null) {
+                    String username = findUsernameByClientId(playerId);
+                    if (username != null && positionTracker != null) {
+                        playerUUID = positionTracker.getPlayerUUIDByUsername(username);
+                        if (playerUUID != null) {
+                            clientToPlayerUUID.put(playerId, playerUUID);
+                            playerToClientUUID.put(playerUUID, playerId);
+                        }
+                    }
+                }
+                
+                if (playerUUID == null) {
+                    logger.atWarning().log("Group management from unlinked voice client: " + playerId);
+                    return;
+                }
+                
+                Group affectedGroup = null;
+                String logMessage = "";
+                
+                switch (packet.getOperation()) {
+                    case CREATE:
+                        // Security: Do not allow clients to create permanent groups to avoid resource exhaustion
+                        if (packet.isPermanent()) {
+                            logger.atWarning().log("Client " + playerUUID + " attempted to create permanent group: " + packet.getGroupName() + " – creating non-permanent group instead");
+                        }
+                        affectedGroup = groupManager.createGroup(packet.getGroupName(), false);
+                        if (affectedGroup != null) {
+                            groupManager.joinGroup(playerUUID, affectedGroup.getGroupId());
+                            logMessage = "Group created: " + packet.getGroupName();
+                        }
+                        break;
+                    
+                    case JOIN:
+                        if (groupManager.joinGroup(playerUUID, packet.getGroupId())) {
+                            affectedGroup = groupManager.getGroup(packet.getGroupId());
+                            logMessage = "Player joined group";
+                        }
+                        break;
+                    
+                    case LEAVE:
+                        affectedGroup = groupManager.getPlayerGroup(playerUUID);
+                        if (groupManager.leaveGroup(playerUUID)) {
+                            logMessage = "Player left group";
+                        }
+                        break;
+                }
+                
+                if (!logMessage.isEmpty()) {
+                    logger.atInfo().log(logMessage);
+                }
+                
+                // Send updated group state to all clients
+                if (affectedGroup != null) {
+                    broadcastGroupState(ctx, affectedGroup);
+                }
+                
+            } catch (Exception e) {
+                logger.atSevere().withCause(e).log("Error handling group management packet");
+            }
+        }
+        
+        private void handleGroupListQuery(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
+            try {
+                if (groupManager == null) {
+                    logger.atWarning().log("Group list query received but GroupManager not initialized");
+                    return;
+                }
+                
+                GroupListPacket packet = GroupListPacket.deserialize(data);
+                
+                // Build group list response
+                List<GroupListPacket.GroupData> groupDataList = new ArrayList<>();
+                for (Group group : groupManager.listGroups()) {
+                    groupDataList.add(new GroupListPacket.GroupData(
+                        group.getGroupId(),
+                        group.getName(),
+                        group.getMemberCount()
+                    ));
+                }
+                
+                // Send response back to client
+                GroupListPacket response = new GroupListPacket(packet.getSenderId(), groupDataList);
+                byte[] responseData = response.serialize();
+                ByteBuf buf = ctx.alloc().buffer(responseData.length);
+                buf.writeBytes(responseData);
+                ctx.writeAndFlush(new DatagramPacket(buf, sender));
+                
+                logger.atFine().log("Sent group list to " + sender + " with " + groupDataList.size() + " groups");
+                
+            } catch (Exception e) {
+                logger.atSevere().withCause(e).log("Error handling group list query");
+            }
+        }
+        
+        private void broadcastGroupState(ChannelHandlerContext ctx, Group group) {
+            try {
+                GroupStatePacket packet = new GroupStatePacket(
+                    SERVER_UUID,
+                    group.getGroupId(),
+                    group.getName(),
+                    new ArrayList<>(group.getMembers())
+                );
+                
+                byte[] data = packet.serialize();
+                
+                // Send to all group members
+                for (UUID memberId : group.getMembers()) {
+                    UUID clientId = findClientByPlayerUUID(memberId);
+                    if (clientId != null) {
+                        InetSocketAddress clientAddr = clients.get(clientId);
+                        if (clientAddr != null) {
+                            // Create a new buffer for each recipient (more efficient than copy())
+                            ByteBuf buf = ctx.alloc().buffer(data.length);
+                            buf.writeBytes(data);
+                            ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                        }
+                    }
+                }
+                
+            } catch (Exception e) {
+                logger.atSevere().withCause(e).log("Error broadcasting group state");
+            }
         }
         
         private void broadcastToAll(ChannelHandlerContext ctx, AudioPacket packet, InetSocketAddress sender) {
