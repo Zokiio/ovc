@@ -47,6 +47,7 @@ type SenderBuffer struct {
 	expectedSeqNum  uint32
 	lastPlayoutTime time.Time
 	lastActivity    time.Time // Track last packet received time for cleanup
+	lastCodec       byte      // Track last codec seen for PLC
 	mu              sync.Mutex
 	latePackets     uint64      // stats
 	gapsConcealed   uint64      // stats
@@ -508,6 +509,7 @@ func (sb *SenderBuffer) bufferPacket(seqNum uint32, codec byte, audioData []byte
 	}
 
 	// Check if this is a late packet (already played or dropped)
+	// seqNumLessThan handles uint32 wraparound correctly using modular arithmetic
 	if seqNumLessThan(seqNum, sb.expectedSeqNum) {
 		sb.latePackets++
 		log.Printf("Late packet from sender %s: seq=%d, expected=%d", sb.senderID.String()[:8], seqNum, sb.expectedSeqNum)
@@ -530,6 +532,9 @@ func (sb *SenderBuffer) bufferPacket(seqNum uint32, codec byte, audioData []byte
 		timestamp:      time.Now(),
 	}
 	copy(sb.packets[seqNum].audioData, audioData)
+
+	// Track the last codec seen for PLC
+	sb.lastCodec = codec
 }
 
 // drainBuffer returns all playable packets and detects gaps
@@ -549,8 +554,9 @@ func (sb *SenderBuffer) drainBuffer(maxBufferDepth int, maxWaitTime time.Duratio
 			// Check if buffer is full or timeout reached
 			bufferSize := len(sb.packets)
 			maxSeqInBuffer := sb.expectedSeqNum
+			// Use seqNumLessThan to handle sequence number wraparound
 			for seq := range sb.packets {
-				if seq > maxSeqInBuffer {
+				if seqNumLessThan(maxSeqInBuffer, seq) {
 					maxSeqInBuffer = seq
 				}
 			}
@@ -752,8 +758,13 @@ func (vc *VoiceClient) drainAllBuffers() {
 
 		// Handle gaps with packet loss concealment using per-sender decoder
 		if len(gaps) > 0 && vc.plcEnabled.Load() {
+			// Get the last codec seen from this sender
+			sb.mu.Lock()
+			codec := sb.lastCodec
+			sb.mu.Unlock()
+
 			for range gaps {
-				vc.processPLCWithDecoder(sb.decoder)
+				vc.processPLCWithDecoder(codec, sb.decoder)
 			}
 		}
 	}
@@ -791,17 +802,17 @@ func (vc *VoiceClient) processAudioPacketWithDecoder(codec byte, audioData []byt
 // processPLC handles a missing packet by triggering Opus PLC (Packet Loss Concealment)
 // Legacy method without per-sender decoder
 func (vc *VoiceClient) processPLC() {
-	vc.processPLCWithDecoder(nil)
+	vc.processPLCWithDecoder(AudioCodecOpus, nil)
 }
 
 // processPLCWithDecoder handles a missing packet using per-sender decoder for proper PLC
-func (vc *VoiceClient) processPLCWithDecoder(senderDecoder interface{}) {
+func (vc *VoiceClient) processPLCWithDecoder(codec byte, senderDecoder interface{}) {
 	if vc.audioManager == nil {
 		return
 	}
 
 	// Trigger PLC by decoding nil data with per-sender decoder
-	samples, err := vc.audioManager.DecodeAudioWithSenderDecoder(AudioCodecOpus, nil, senderDecoder)
+	samples, err := vc.audioManager.DecodeAudioWithSenderDecoder(codec, nil, senderDecoder)
 	if err != nil {
 		log.Printf("Error in PLC: %v", err)
 		return

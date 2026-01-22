@@ -331,6 +331,9 @@ func (am *SimpleAudioManager) DecodeAudioWithSenderDecoder(codec byte, data []by
 	decoder, ok := senderDecoder.(*opus.Decoder)
 	if !ok || decoder == nil {
 		// Fallback to shared decoder if type assertion fails
+		if senderDecoder != nil {
+			log.Printf("Warning: Type assertion failed for sender decoder (expected *opus.Decoder, got %T), falling back to shared decoder", senderDecoder)
+		}
 		return am.DecodeAudioWithPLC(data)
 	}
 
