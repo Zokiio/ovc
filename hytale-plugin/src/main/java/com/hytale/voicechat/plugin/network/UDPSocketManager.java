@@ -84,6 +84,7 @@ public class UDPSocketManager {
                             clients, 
                             usernameToClientUUID, 
                             clientToPlayerUUID,
+                            playerToClientUUID,
                             positionTracker,
                             eventListener,
                             groupManager
@@ -120,6 +121,7 @@ public class UDPSocketManager {
         private final Map<UUID, InetSocketAddress> clients;
         private final Map<String, UUID> usernameToClientUUID;
         private final Map<UUID, UUID> clientToPlayerUUID;
+        private final Map<UUID, UUID> playerToClientUUID;
         private final PlayerPositionTracker positionTracker;
         private final PlayerEventListener eventListener;
         private final GroupManager groupManager;
@@ -127,12 +129,14 @@ public class UDPSocketManager {
         public VoicePacketHandler(Map<UUID, InetSocketAddress> clients, 
                                   Map<String, UUID> usernameToClientUUID,
                                   Map<UUID, UUID> clientToPlayerUUID,
+                                  Map<UUID, UUID> playerToClientUUID,
                                   PlayerPositionTracker positionTracker,
                                   PlayerEventListener eventListener,
                                   GroupManager groupManager) {
             this.clients = clients;
             this.usernameToClientUUID = usernameToClientUUID;
             this.clientToPlayerUUID = clientToPlayerUUID;
+            this.playerToClientUUID = playerToClientUUID;
             this.positionTracker = positionTracker;
             this.eventListener = eventListener;
             this.groupManager = groupManager;
