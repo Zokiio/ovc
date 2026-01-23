@@ -9,6 +9,7 @@ import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
 import com.hytale.voicechat.plugin.command.VoiceProximityCommand;
 import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
+import com.hytale.voicechat.plugin.command.VoiceChatGuiCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
@@ -80,6 +81,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Register commands
             getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
             getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager));
+            getCommandRegistry().registerCommand(new VoiceChatGuiCommand(groupManager));
             
             logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {

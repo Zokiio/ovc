@@ -1,0 +1,226 @@
+DecoratedContainer {
+    RenderBackground: true;
+    BackgroundStyle: (BorderOutline: true);
+    LayoutMode: Top;
+    Anchor: (Center: 0);
+    Size: (560, 450);
+
+    Group #TitleBar {
+        LayoutMode: Left;
+        Size: (560, 40);
+        Anchor: (Top: 0);
+        
+        Label #Title {
+            Style: (FontSize: 24, TextColor: #ffcc00, RenderBold: true);
+            Text: "Voice Chat Settings";
+            Anchor: (Left: 20, CenterY: 0);
+        }
+        
+        Button #CloseButton {
+            Size: (30, 30);
+            Anchor: (Right: 10, CenterY: 0);
+            Label {
+                Text: "X";
+                Style: (FontSize: 18, TextColor: #ff0000, RenderBold: true);
+                Anchor: (Center: 0);
+            }
+        }
+    }
+
+    Group #MainContent {
+        LayoutMode: Top;
+        Size: (520, 360);
+        Anchor: (Top: 50, CenterX: 0);
+
+        // Status Section
+        Group #StatusSection {
+            LayoutMode: Top;
+            Size: (520, 60);
+            Anchor: (Top: 0);
+            
+            Label #StatusLabel {
+                Style: (FontSize: 16, TextColor: #93844c, RenderBold: true);
+                Text: "Status";
+                Anchor: (Left: 0, Top: 0);
+            }
+            
+            Label #ConnectionStatus {
+                Style: (FontSize: 14, TextColor: #00ff00);
+                Text: "Connected";
+                Anchor: (Left: 0, Top: 25);
+            }
+        }
+
+        // Volume Controls Section
+        Group #VolumeSection {
+            LayoutMode: Top;
+            Size: (520, 100);
+            Anchor: (Top: 70);
+            
+            Label #VolumeLabel {
+                Style: (FontSize: 16, TextColor: #93844c, RenderBold: true);
+                Text: "Volume Controls";
+                Anchor: (Left: 0, Top: 0);
+            }
+            
+            Group #InputVolumeGroup {
+                LayoutMode: Left;
+                Size: (520, 30);
+                Anchor: (Top: 25);
+                
+                Label #InputVolumeLabel {
+                    Style: (FontSize: 14, TextColor: #ffffff);
+                    Text: "Microphone Volume:";
+                    Anchor: (Left: 0, CenterY: 0);
+                }
+                
+                Label #InputVolumeValue {
+                    Style: (FontSize: 14, TextColor: #ffcc00);
+                    Text: "100%";
+                    Anchor: (Right: 0, CenterY: 0);
+                }
+            }
+            
+            Group #OutputVolumeGroup {
+                LayoutMode: Left;
+                Size: (520, 30);
+                Anchor: (Top: 60);
+                
+                Label #OutputVolumeLabel {
+                    Style: (FontSize: 14, TextColor: #ffffff);
+                    Text: "Speaker Volume:";
+                    Anchor: (Left: 0, CenterY: 0);
+                }
+                
+                Label #OutputVolumeValue {
+                    Style: (FontSize: 14, TextColor: #ffcc00);
+                    Text: "100%";
+                    Anchor: (Right: 0, CenterY: 0);
+                }
+            }
+        }
+
+        // Mode Section
+        Group #ModeSection {
+            LayoutMode: Top;
+            Size: (520, 80);
+            Anchor: (Top: 180);
+            
+            Label #ModeLabel {
+                Style: (FontSize: 16, TextColor: #93844c, RenderBold: true);
+                Text: "Voice Mode";
+                Anchor: (Left: 0, Top: 0);
+            }
+            
+            Group #ModeButtons {
+                LayoutMode: Left;
+                Size: (520, 40);
+                Anchor: (Top: 30);
+                
+                Button #PTTButton {
+                    Size: (150, 35);
+                    Anchor: (Left: 0, CenterY: 0);
+                    RenderBackground: true;
+                    BackgroundStyle: (BorderOutline: true);
+                    
+                    Label {
+                        Text: "Push-to-Talk";
+                        Style: (FontSize: 14, TextColor: #ffffff);
+                        Anchor: (Center: 0);
+                    }
+                }
+                
+                Button #VADButton {
+                    Size: (150, 35);
+                    Anchor: (Left: 170, CenterY: 0);
+                    RenderBackground: true;
+                    BackgroundStyle: (BorderOutline: true);
+                    
+                    Label {
+                        Text: "Voice Activated";
+                        Style: (FontSize: 14, TextColor: #ffffff);
+                        Anchor: (Center: 0);
+                    }
+                }
+            }
+        }
+
+        // Group Management Section
+        Group #GroupSection {
+            LayoutMode: Top;
+            Size: (520, 80);
+            Anchor: (Top: 270);
+            
+            Label #GroupLabel {
+                Style: (FontSize: 16, TextColor: #93844c, RenderBold: true);
+                Text: "Voice Group";
+                Anchor: (Left: 0, Top: 0);
+            }
+            
+            Label #CurrentGroupLabel {
+                Style: (FontSize: 14, TextColor: #ffffff);
+                Text: "Current Group: None";
+                Anchor: (Left: 0, Top: 25);
+            }
+            
+            Button #ManageGroupsButton {
+                Size: (150, 35);
+                Anchor: (Left: 0, Top: 50);
+                RenderBackground: true;
+                BackgroundStyle: (BorderOutline: true);
+                
+                Label {
+                    Text: "Manage Groups";
+                    Style: (FontSize: 14, TextColor: #ffffff);
+                    Anchor: (Center: 0);
+                }
+            }
+        }
+    }
+
+    // Bottom Action Buttons
+    Group #ActionButtons {
+        LayoutMode: Left;
+        Size: (520, 40);
+        Anchor: (Bottom: 10, CenterX: 0);
+        
+        Button #MuteButton {
+            Size: (100, 35);
+            Anchor: (Left: 0, CenterY: 0);
+            RenderBackground: true;
+            BackgroundStyle: (BorderOutline: true);
+            
+            Label #MuteButtonLabel {
+                Text: "Mute";
+                Style: (FontSize: 14, TextColor: #ff0000, RenderBold: true);
+                Anchor: (Center: 0);
+            }
+        }
+        
+        Button #TestMicButton {
+            Size: (120, 35);
+            Anchor: (Left: 120, CenterY: 0);
+            RenderBackground: true;
+            BackgroundStyle: (BorderOutline: true);
+            
+            Label {
+                Text: "Test Mic";
+                Style: (FontSize: 14, TextColor: #ffffff);
+                Anchor: (Center: 0);
+            }
+        }
+        
+        Button #RefreshButton {
+            Size: (100, 35);
+            Anchor: (Right: 0, CenterY: 0);
+            RenderBackground: true;
+            BackgroundStyle: (BorderOutline: true);
+            
+            Label {
+                Text: "Refresh";
+                Style: (FontSize: 14, TextColor: #00ff00);
+                Anchor: (Center: 0);
+            }
+        }
+    }
+}
