@@ -85,39 +85,6 @@ $C.@PageOverlay {
             Anchor: (Width: 300);
             Padding: (Right: 10);
 
-            // Current Group Section
-            Group {
-              LayoutMode: Top;
-              Padding: (Bottom: 5);
-
-              Label #GroupHeader {
-                Style: (FontSize: 16, TextColor: #ffffff, RenderBold: true);
-                Anchor: (Width: 300);
-                Text: "Your Voice Group";
-              }
-            }
-
-            Group {
-              LayoutMode: Center;
-              Padding: (Bottom: 10);
-
-              Label #CurrentGroupLabel {
-                Style: (FontSize: 14, TextColor: #ffcc00, Wrap: true);
-                Anchor: (Width: 150);
-                Text: "None (Proximity Mode)";
-              }
-
-              Group {
-                Anchor: (Width: 8);
-              }
-
-              $C.@TextButton #SmallLeaveButton {
-                Anchor: (Width: 120, Height: 28);
-                Text: "LEAVE";
-                Visible: false;
-              }
-            }
-
             // Group Members Section (only visible when in a group)
             Group #GroupMembersSection {
               LayoutMode: Top;
@@ -151,6 +118,17 @@ $C.@PageOverlay {
                   Style: (FontSize: 13, TextColor: #ffffff, Wrap: true);
                   Anchor: (Width: 280);
                   Text: "Loading members...";
+                }
+              }
+
+              Group {
+                LayoutMode: Center;
+                Padding: (Top: 10);
+
+                $C.@TextButton #SmallLeaveButton {
+                  Anchor: (Width: 150, Height: 34);
+                  Text: "LEAVE GROUP";
+                  Visible: true;
                 }
               }
             }

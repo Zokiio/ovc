@@ -257,15 +257,8 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         var group = groupManager.getPlayerGroup(playerRef.getUuid());
         
         if (group != null) {
-            String groupName = group.getName();
-            commands.set("#CurrentGroupLabel.TextSpans", 
-                    Message.raw(groupName).color(Color.CYAN).bold(true));
-            
             // Update members list
             updateGroupMembers(commands, group);
-        } else {
-            commands.set("#CurrentGroupLabel.TextSpans", 
-                    Message.raw("None (Proximity Mode)").color(Color.GRAY));
         }
 
         updateGroupsList(commands);
