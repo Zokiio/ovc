@@ -1,6 +1,7 @@
 # Hytale Voice Chat
 
 Proximity-based voice chat system for Hytale with two independent components:
+
 - **Voice Client**: Lightweight desktop voice client written in Go
 - **Hytale Plugin**: Server-side plugin with integrated UDP voice server written in Java
 
@@ -11,6 +12,7 @@ Proximity-based voice chat system for Hytale with two independent components:
 The voice client is a **standalone desktop application** that players install on their computers to enable voice chat.
 
 ### Features
+
 - Cross-platform GUI (Windows, macOS, Linux)
 - Built with Go + Fyne UI framework
 - Microphone capture and audio playback using PortAudio
@@ -20,6 +22,7 @@ The voice client is a **standalone desktop application** that players install on
 ![Voice Client Screenshot](.github/images/voice-client-screenshot.png)
 
 ### Quick Start
+
 ```bash
 cd voice-client
 
@@ -43,12 +46,14 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 The Java plugin runs **inside the Hytale server** and handles voice routing based on player proximity.
 
 ### Features
+
 - Netty-based UDP server for voice packets
 - Proximity-based audio routing (configurable range)
 - Player position tracking via Hytale API
 - Authentication and session management
 
 ### Quick Start
+
 ```bash
 cd hytale-plugin
 ./gradlew build
@@ -63,7 +68,7 @@ cd hytale-plugin
 
 ## 📂 Project Structure
 
-```
+```text
 hytale-voice-chat/
 ├── voice-client/          # Go desktop client (standalone app)
 │   ├── cmd/               # CLI entry points
@@ -86,6 +91,7 @@ hytale-voice-chat/
 ## 🚀 Getting Started
 
 ### For Players (Client Setup)
+
 1. Download the voice client for your platform
 2. Run `HytaleVoiceChat` executable
 3. Enter your Hytale username and server address
@@ -94,11 +100,14 @@ hytale-voice-chat/
 See [`voice-client/README.md`](voice-client/README.md) for detailed instructions.
 
 ### For Server Admins (Plugin Setup)
+
 1. Build the plugin:
+
    ```bash
    cd hytale-plugin
    ./gradlew build
    ```
+  
 2. Copy JAR from `hytale-plugin/build/libs/` to your Hytale server's `mods/` folder
 3. Start/restart the Hytale server
 4. Configure settings in `config/voicechat.yml` (if needed)
@@ -122,10 +131,12 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 ## 🛠️ Development
 
 ### Prerequisites
+
 - **Voice Client**: Go 1.25+, PortAudio
 - **Hytale Plugin**: Java 25, Gradle, Hytale Server API files
 
 ### Building Both Components
+
 ```bash
 # Build Java plugin
 cd hytale-plugin && ./gradlew build
