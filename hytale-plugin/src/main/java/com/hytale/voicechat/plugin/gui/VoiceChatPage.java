@@ -5,7 +5,6 @@ import com.hypixel.hytale.codec.KeyedCodec;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
-import com.hypixel.hytale.protocol.FormattedMessage;
 import com.hypixel.hytale.protocol.packets.interface_.CustomPageLifetime;
 import com.hypixel.hytale.protocol.packets.interface_.CustomUIEventBindingType;
 import com.hypixel.hytale.server.core.Message;
@@ -30,21 +29,18 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
     private static final String PAGE_LAYOUT = "Pages/VoiceChatGUI.ui";
     private final GroupManager groupManager;
     private final HytaleVoiceChatPlugin plugin;
-    private UIEventBuilder storedEvents; // Store events reference for dynamic binding
-    private int inputVolume = 100;
-    private int outputVolume = 100;
-    private String currentMode = "PTT"; // "PTT" or "VAD"
     private String groupNameInput = "";
 
+    @SuppressWarnings("null")
     public VoiceChatPage(@Nonnull PlayerRef playerRef, @Nonnull GroupManager groupManager, @Nonnull HytaleVoiceChatPlugin plugin) {
         super(playerRef, CustomPageLifetime.CanDismiss, VoiceChatData.CODEC);
         this.groupManager = groupManager;
         this.plugin = plugin;
     }
 
+    @SuppressWarnings("null")
     @Override
     public void build(@Nonnull Ref<EntityStore> ref, @Nonnull UICommandBuilder commands, @Nonnull UIEventBuilder events, @Nonnull Store<EntityStore> store) {
-        this.storedEvents = events;
         commands.append(PAGE_LAYOUT);
 
         // Set initial text input value
@@ -74,6 +70,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 EventData.of("SmallLeaveClicked", "true"), false);
     }
 
+    @SuppressWarnings("null")
     @Override
     public void handleDataEvent(@Nonnull Ref<EntityStore> ref, @Nonnull Store<EntityStore> store, @Nonnull VoiceChatData data) {
         Player player = store.getComponent(ref, Player.getComponentType());
@@ -112,8 +109,10 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 } else {
                     boolean joined = groupManager.joinGroup(playerRef.getUuid(), created.getGroupId());
                     if (joined) {
-                        player.sendMessage(Message.raw("Created and joined group: ").color(Color.GREEN)
-                                .join(Message.raw(created.getName()).color(Color.CYAN).bold(true)));
+                        player.sendMessage(Message.join(
+                                Message.raw("Created and joined group: ").color(Color.GREEN),
+                                Message.raw(created.getName()).color(Color.CYAN).bold(true)
+                        ));
                     } else {
                         player.sendMessage(Message.raw("Created group, but failed to join").color(Color.YELLOW));
                     }
@@ -134,13 +133,17 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             } else {
                 Group target = findGroupByName(groupNameInput);
                 if (target == null) {
-                    player.sendMessage(Message.raw("No group found named: ").color(Color.RED)
-                            .join(Message.raw(groupNameInput).color(Color.CYAN)));
+                    player.sendMessage(Message.join(
+                            Message.raw("No group found named: ").color(Color.RED),
+                            Message.raw(groupNameInput).color(Color.CYAN)
+                    ));
                 } else {
                     boolean joined = groupManager.joinGroup(playerRef.getUuid(), target.getGroupId());
                     if (joined) {
-                        player.sendMessage(Message.raw("Joined group: ").color(Color.GREEN)
-                                .join(Message.raw(target.getName()).color(Color.CYAN).bold(true)));
+                        player.sendMessage(Message.join(
+                                Message.raw("Joined group: ").color(Color.GREEN),
+                                Message.raw(target.getName()).color(Color.CYAN).bold(true)
+                        ));
                     } else {
                         player.sendMessage(Message.raw("Failed to join group").color(Color.RED));
                     }
@@ -160,8 +163,10 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             if (group != null) {
                 boolean left = groupManager.leaveGroup(playerRef.getUuid());
                 if (left) {
-                    player.sendMessage(Message.raw("Left group: ").color(Color.YELLOW)
-                            .join(Message.raw(group.getName()).color(Color.CYAN)));
+                    player.sendMessage(Message.join(
+                            Message.raw("Left group: ").color(Color.YELLOW),
+                            Message.raw(group.getName()).color(Color.CYAN)
+                    ));
                 }
             } else {
                 player.sendMessage(Message.raw("You are not in a voice group").color(Color.YELLOW));
@@ -178,61 +183,48 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         this.sendUpdate(commandBuilder, false);
     }
 
-    private void sendGroupList(Player player) {
-        player.sendMessage(Message.raw("").color(Color.YELLOW));
-        player.sendMessage(Message.raw("=== Voice Groups ===").color(Color.YELLOW).bold(true));
-        player.sendMessage(Message.raw("Use: ").color(Color.WHITE)
-                .join(Message.raw("/voicegroup list").color(Color.CYAN))
-                .join(Message.raw(" to see all groups").color(Color.WHITE)));
-        
-        // Show current group
-        var group = groupManager.getPlayerGroup(playerRef.getUuid());
-        if (group != null) {
-            player.sendMessage(Message.raw("Your Group: ").color(Color.WHITE)
-                    .join(Message.raw(group.getName()).color(Color.GREEN).bold(true)));
-        } else {
-            player.sendMessage(Message.raw("You are in ").color(Color.WHITE)
-                    .join(Message.raw("Proximity Mode").color(Color.GRAY)));
-        }
-    }
-
+    @SuppressWarnings("null")
     private void updateGroupsList(UICommandBuilder commands) {
         List<Group> allGroups = groupManager.listGroups();
         var currentGroup = groupManager.getPlayerGroup(playerRef.getUuid());
         UUID currentGroupId = currentGroup != null ? currentGroup.getGroupId() : null;
         
-        StringBuilder groupsText = new StringBuilder();
+        plugin.getLogger().atInfo().log("Updating groups list - found " + allGroups.size() + " groups");
         
         if (allGroups.isEmpty()) {
-            groupsText.append("No groups available.\n");
-            groupsText.append("Create one using the field above!");
+            commands.set("#GroupsListPlaceholder.Text", "No groups available.\nCreate one using the field above!");
         } else {
+            StringBuilder groupsText = new StringBuilder();
+
             for (int i = 0; i < allGroups.size(); i++) {
                 Group group = allGroups.get(i);
                 boolean isCurrentGroup = group.getGroupId().equals(currentGroupId);
-                
+
+                plugin.getLogger().atInfo().log("Group: " + group.getName() + " (members: " + group.getMemberCount() + ")");
+
+                groupsText.append("• ");
                 groupsText.append(group.getName());
                 groupsText.append(" (").append(group.getMemberCount());
                 groupsText.append(group.getMemberCount() == 1 ? " member)" : " members)");
-                
                 if (isCurrentGroup) {
                     groupsText.append(" - YOUR GROUP");
                 }
-                
+
                 if (i < allGroups.size() - 1) {
                     groupsText.append("\n");
                 }
             }
-            
+
             groupsText.append("\n\nEnter group name and click JOIN");
+            groupsText.append("\nTotal groups: ").append(allGroups.size());
+            commands.set("#GroupsListPlaceholder.Text", groupsText.toString());
         }
-        
-        commands.set("#GroupsListPlaceholder.TextSpans",
-                Message.raw(groupsText.toString()).color(Color.LIGHT_GRAY));
     }
 
+    @SuppressWarnings("null")
     private void updateConnectionStatus(UICommandBuilder commands, Store<EntityStore> store, Ref<EntityStore> ref) {
         // Check if player has an active voice client connection
+        @SuppressWarnings("null")
         Player player = store.getComponent(ref, Player.getComponentType());
         if (player != null) {
             boolean isConnected = false;
@@ -264,6 +256,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         updateGroupsList(commands);
     }
 
+    @SuppressWarnings("null")
     private void updateGroupMembers(UICommandBuilder commands, Group group) {
         StringBuilder membersText = new StringBuilder();
         
@@ -327,12 +320,12 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         static final String KEY_SMALL_LEAVE = "SmallLeaveClicked";
 
         public static final BuilderCodec<VoiceChatData> CODEC = BuilderCodec.builder(VoiceChatData.class, VoiceChatData::new)
-                .addField(new KeyedCodec<>(KEY_GROUP_NAME_INPUT, Codec.STRING), (d, v) -> d.groupNameInput = v, d -> d.groupNameInput)
-                .addField(new KeyedCodec<>(KEY_CLOSE, Codec.STRING), (d, v) -> d.closeClicked = v, d -> d.closeClicked)
-                .addField(new KeyedCodec<>(KEY_CREATE_GROUP, Codec.STRING), (d, v) -> d.createGroupClicked = v, d -> d.createGroupClicked)
-                .addField(new KeyedCodec<>(KEY_JOIN_GROUP, Codec.STRING), (d, v) -> d.joinGroupClicked = v, d -> d.joinGroupClicked)
-                .addField(new KeyedCodec<>(KEY_LEAVE_GROUP, Codec.STRING), (d, v) -> d.leaveGroupClicked = v, d -> d.leaveGroupClicked)
-                .addField(new KeyedCodec<>(KEY_SMALL_LEAVE, Codec.STRING), (d, v) -> d.smallLeaveClicked = v, d -> d.smallLeaveClicked)
+            .addField(new KeyedCodec<>(KEY_GROUP_NAME_INPUT, Codec.STRING), (d, v) -> d.groupNameInput = v, d -> d.groupNameInput == null ? "" : d.groupNameInput)
+            .addField(new KeyedCodec<>(KEY_CLOSE, Codec.STRING), (d, v) -> d.closeClicked = v, d -> d.closeClicked == null ? "" : d.closeClicked)
+            .addField(new KeyedCodec<>(KEY_CREATE_GROUP, Codec.STRING), (d, v) -> d.createGroupClicked = v, d -> d.createGroupClicked == null ? "" : d.createGroupClicked)
+            .addField(new KeyedCodec<>(KEY_JOIN_GROUP, Codec.STRING), (d, v) -> d.joinGroupClicked = v, d -> d.joinGroupClicked == null ? "" : d.joinGroupClicked)
+            .addField(new KeyedCodec<>(KEY_LEAVE_GROUP, Codec.STRING), (d, v) -> d.leaveGroupClicked = v, d -> d.leaveGroupClicked == null ? "" : d.leaveGroupClicked)
+            .addField(new KeyedCodec<>(KEY_SMALL_LEAVE, Codec.STRING), (d, v) -> d.smallLeaveClicked = v, d -> d.smallLeaveClicked == null ? "" : d.smallLeaveClicked)
                 .build();
 
         private String groupNameInput;
