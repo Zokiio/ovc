@@ -81,7 +81,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Register commands
             getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
             getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager));
-            getCommandRegistry().registerCommand(new VoiceChatGuiCommand(groupManager));
+            getCommandRegistry().registerCommand(new VoiceChatGuiCommand(groupManager, this));
             
             logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
@@ -174,6 +174,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     public double getProximityDistance() {
         return proximityDistance;
+    }
+
+    /**
+     * Get the UDP socket manager
+     */
+    public UDPSocketManager getUdpServer() {
+        return udpServer;
     }
 
     // TODO: Register Hytale event listeners when API becomes available

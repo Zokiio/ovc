@@ -1,6 +1,7 @@
 package com.hytale.voicechat.plugin.command;
 
 import com.hytale.voicechat.plugin.GroupManager;
+import com.hytale.voicechat.plugin.HytaleVoiceChatPlugin;
 import com.hytale.voicechat.plugin.gui.VoiceChatPage;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
@@ -21,12 +22,14 @@ import static com.hypixel.hytale.server.core.command.commands.player.inventory.I
 public class VoiceChatGuiCommand extends AbstractAsyncCommand {
 
     private final GroupManager groupManager;
+    private final HytaleVoiceChatPlugin plugin;
 
-    public VoiceChatGuiCommand(GroupManager groupManager) {
+    public VoiceChatGuiCommand(GroupManager groupManager, HytaleVoiceChatPlugin plugin) {
         super("voicechat", "Opens the voice chat settings GUI");
         this.addAliases("vc", "voice");
         this.setPermissionGroup(GameMode.Adventure);
         this.groupManager = groupManager;
+        this.plugin = plugin;
     }
 
     @NonNullDecl
@@ -46,7 +49,7 @@ public class VoiceChatGuiCommand extends AbstractAsyncCommand {
                     
                     if (playerRefComponent != null) {
                         player.getPageManager().openCustomPage(ref, store, 
-                                new VoiceChatPage(playerRefComponent, groupManager));
+                                new VoiceChatPage(playerRefComponent, groupManager, plugin));
                     }
                 }, world);
             } else {
