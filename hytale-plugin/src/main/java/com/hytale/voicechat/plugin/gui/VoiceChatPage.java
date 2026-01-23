@@ -31,7 +31,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
     private final GroupManager groupManager;
     private final HytaleVoiceChatPlugin plugin;
     private UIEventBuilder storedEvents; // Store events reference for dynamic binding
-    private boolean isMuted = false;
     private int inputVolume = 100;
     private int outputVolume = 100;
     private String currentMode = "PTT"; // "PTT" or "VAD"
@@ -54,7 +53,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         // Update initial values
         updateConnectionStatus(commands, store, ref);
         updateGroupDisplay(commands);
-        updateMuteButton(commands);
         updateUIVisibility(commands);
         updateGroupsList(commands);
 
@@ -72,17 +70,8 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         events.addEventBinding(CustomUIEventBindingType.Activating, "#JoinGroupButton",
                 EventData.of("JoinGroupClicked", "true"), false);
 
-        events.addEventBinding(CustomUIEventBindingType.Activating, "#LeaveGroupButton",
-                EventData.of("LeaveGroupClicked", "true"), false);
-
         events.addEventBinding(CustomUIEventBindingType.Activating, "#SmallLeaveButton",
                 EventData.of("SmallLeaveClicked", "true"), false);
-
-        events.addEventBinding(CustomUIEventBindingType.Activating, "#ListGroupsButton",
-                EventData.of("ListGroupsClicked", "true"), false);
-
-        events.addEventBinding(CustomUIEventBindingType.Activating, "#MuteButton",
-                EventData.of("MuteClicked", "true"), false);
     }
 
     @Override
@@ -108,6 +97,12 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
 
         // Handle create group
         if (data.createGroupClicked != null) {
+            var existingGroup = groupManager.getPlayerGroup(playerRef.getUuid());
+            if (existingGroup != null) {
+                player.sendMessage(Message.raw("Leave your current voice group before creating a new one").color(Color.RED));
+                return;
+            }
+
             if (groupNameInput.isEmpty()) {
                 player.sendMessage(Message.raw("Please enter a group name in the text field above").color(Color.RED));
             } else {
@@ -176,24 +171,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             updateGroupsList(commandBuilder);
         }
 
-        // Handle list groups
-        if (data.listGroupsClicked != null) {
-            updateGroupsList(commandBuilder);
-            player.sendMessage(Message.raw("Groups list updated in GUI").color(Color.GREEN));
-        }
-
-        // Handle mute toggle
-        if (data.muteClicked != null) {
-            isMuted = !isMuted;
-            String status = isMuted ? "Muted" : "Unmuted";
-            Color statusColor = isMuted ? Color.RED : Color.GREEN;
-            
-            player.sendMessage(Message.raw("Microphone: ").color(Color.YELLOW)
-                    .join(Message.raw(status).color(statusColor).bold(true)));
-            
-            updateMuteButton(commandBuilder);
-        }
-
         // Always refresh connection status on any interaction
         updateConnectionStatus(commandBuilder, store, ref);
 
@@ -234,13 +211,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 Group group = allGroups.get(i);
                 boolean isCurrentGroup = group.getGroupId().equals(currentGroupId);
                 
-                // Add indicator for current group
-                if (isCurrentGroup) {
-                    groupsText.append("► ");
-                } else {
-                    groupsText.append("  ");
-                }
-                
                 groupsText.append(group.getName());
                 groupsText.append(" (").append(group.getMemberCount());
                 groupsText.append(group.getMemberCount() == 1 ? " member)" : " members)");
@@ -274,10 +244,10 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             
             if (isConnected) {
                 commands.set("#ConnectionStatus.TextSpans", 
-                        Message.raw("Connected to Voice Server").color(Color.GREEN).bold(true));
+                        Message.raw("Voice Client - Connected").color(Color.GREEN).bold(true));
             } else {
                 commands.set("#ConnectionStatus.TextSpans", 
-                        Message.raw("Not Connected - Start Voice Client").color(Color.RED).bold(true));
+                        Message.raw("Voice Client - Disconnected").color(Color.RED).bold(true));
             }
         }
     }
@@ -332,12 +302,13 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         var group = groupManager.getPlayerGroup(playerRef.getUuid());
         boolean inGroup = group != null;
         
-        // Show/hide Create Group button (visible only when NOT in a group)
-        commands.set("#CreateGroupButton.Visible", !inGroup);
-        
-        // Show/hide Group Name Input Section (visible only when NOT in a group)
-        commands.set("#GroupNameInputSection.Visible", !inGroup);
-        
+        // Keep creation controls visible to avoid layout shifts; restrict actions in handler instead
+        commands.set("#CreateGroupButton.Visible", true);
+        commands.set("#GroupNameInputSection.Visible", true);
+
+        // Disable and gray out create when already in a group to show it is unavailable
+        commands.set("#CreateGroupButton.Disabled", inGroup);
+
         // Show/hide small leave button (visible only when IN a group)
         commands.set("#SmallLeaveButton.Visible", inGroup);
         
@@ -345,14 +316,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         commands.set("#GroupMembersSection.Visible", inGroup);
 
         updateGroupsList(commands);
-    }
-
-    private void updateMuteButton(UICommandBuilder commands) {
-        if (isMuted) {
-            commands.set("#MuteButton.Text", "UNMUTE");
-        } else {
-            commands.set("#MuteButton.Text", "MUTE");
-        }
     }
 
     private Group findGroupByName(String name) {
@@ -369,8 +332,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         static final String KEY_JOIN_GROUP = "JoinGroupClicked";
         static final String KEY_LEAVE_GROUP = "LeaveGroupClicked";
         static final String KEY_SMALL_LEAVE = "SmallLeaveClicked";
-        static final String KEY_LIST_GROUPS = "ListGroupsClicked";
-        static final String KEY_MUTE = "MuteClicked";
 
         public static final BuilderCodec<VoiceChatData> CODEC = BuilderCodec.builder(VoiceChatData.class, VoiceChatData::new)
                 .addField(new KeyedCodec<>(KEY_GROUP_NAME_INPUT, Codec.STRING), (d, v) -> d.groupNameInput = v, d -> d.groupNameInput)
@@ -379,8 +340,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 .addField(new KeyedCodec<>(KEY_JOIN_GROUP, Codec.STRING), (d, v) -> d.joinGroupClicked = v, d -> d.joinGroupClicked)
                 .addField(new KeyedCodec<>(KEY_LEAVE_GROUP, Codec.STRING), (d, v) -> d.leaveGroupClicked = v, d -> d.leaveGroupClicked)
                 .addField(new KeyedCodec<>(KEY_SMALL_LEAVE, Codec.STRING), (d, v) -> d.smallLeaveClicked = v, d -> d.smallLeaveClicked)
-                .addField(new KeyedCodec<>(KEY_LIST_GROUPS, Codec.STRING), (d, v) -> d.listGroupsClicked = v, d -> d.listGroupsClicked)
-                .addField(new KeyedCodec<>(KEY_MUTE, Codec.STRING), (d, v) -> d.muteClicked = v, d -> d.muteClicked)
                 .build();
 
         private String groupNameInput;
@@ -389,7 +348,5 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         private String joinGroupClicked;
         private String leaveGroupClicked;
         private String smallLeaveClicked;
-        private String listGroupsClicked;
-        private String muteClicked;
     }
 }
