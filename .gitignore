@@ -4,6 +4,9 @@ build/
 out/
 bin/
 
+# Local configuration (platform-specific paths)
+gradle-local.properties
+
 # IDE
 .idea/
 *.iml
