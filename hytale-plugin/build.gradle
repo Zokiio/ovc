@@ -2,10 +2,34 @@ plugins {
     id 'java'
 }
 
+// Load local properties if available (gitignored, platform-specific)
+def localPropertiesFile = rootProject.file('gradle-local.properties')
+if (localPropertiesFile.exists()) {
+    def localProperties = new Properties()
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+    localProperties.each { key, value ->
+        project.ext.set(key.toString(), value)
+        // Also set as system property for gradle
+        if (key.toString().startsWith('org.gradle.')) {
+            System.setProperty(key.toString(), value)
+        }
+    }
+}
+
 group = 'com.hytale.voicechat'
 version = '1.0.0-SNAPSHOT'
 
 allprojects {
+    // Load local properties for all projects
+    def localProps = rootProject.file('gradle-local.properties')
+    if (localProps.exists()) {
+        def props = new Properties()
+        localProps.withInputStream { props.load(it) }
+        props.each { key, value ->
+            project.ext.set(key.toString(), value)
+        }
+    }
+    
     apply plugin: 'java'
     
     repositories {
@@ -48,7 +72,13 @@ dependencies {
     implementation project(':common')
     
     // Hytale API - using official HytaleServer.jar from Hytale installation
-    compileOnly files('/Users/zoki/hytale/server/HytaleServer.jar')
+    // Set via -Phytale.api.path or HYTALE_API_PATH environment variable
+    def hytaleApiPath = project.findProperty('hytale.api.path') ?: System.getenv('HYTALE_API_PATH')
+    if (hytaleApiPath && file(hytaleApiPath).exists()) {
+        compileOnly files(hytaleApiPath)
+    } else {
+        logger.warn('Hytale API path not configured or file not found. Set -Phytale.api.path or HYTALE_API_PATH')
+    }
     
     // Voice server dependencies
     implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
@@ -70,7 +100,16 @@ jar {
 tasks.register('copyToHytale', Copy) {
     dependsOn jar
     from jar.archiveFile
-    into '/Users/zoki/hytale/server/mods'
+    
+    // Set via -Phytale.mods.path or HYTALE_MODS_PATH environment variable
+    def modsPath = project.findProperty('hytale.mods.path') ?: System.getenv('HYTALE_MODS_PATH')
+    if (modsPath) {
+        into modsPath
+    } else {
+        // Skip copy if not configured
+        enabled = false
+        logger.warn('Hytale mods path not configured. Set -Phytale.mods.path or HYTALE_MODS_PATH to enable auto-copy')
+    }
 }
 
 tasks.build {
