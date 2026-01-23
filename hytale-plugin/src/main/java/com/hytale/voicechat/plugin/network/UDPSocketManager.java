@@ -116,6 +116,15 @@ public class UDPSocketManager {
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
 
+    /**
+     * Check if a player has an active voice client connection
+     * @param playerUuid The Hytale player UUID
+     * @return true if the player has an authenticated voice client
+     */
+    public boolean isPlayerConnected(UUID playerUuid) {
+        return playerToClientUUID.containsKey(playerUuid);
+    }
+
     private class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
         private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
         private final Map<UUID, InetSocketAddress> clients;
