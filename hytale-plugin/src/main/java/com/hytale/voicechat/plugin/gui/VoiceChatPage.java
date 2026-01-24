@@ -274,7 +274,23 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 if (memberUuid.equals(playerRef.getUuid())) {
                     membersText.append(playerRef.getUsername()).append(" (You)").append("\n");
                 } else {
-                    membersText.append("Player ").append(memberUuid.toString().substring(0, 8)).append("\n");
+                    // Try to get player name from position tracker
+                    String playerName = null;
+                    if (plugin.getPositionTracker() != null) {
+                        var position = plugin.getPositionTracker().getPlayerPosition(memberUuid);
+                        if (position != null) {
+                            playerName = position.getPlayerName();
+                        }
+                    }
+                    
+                    if (playerName != null && !playerName.isEmpty()) {
+                        membersText.append(playerName).append("\n");
+                    } else {
+                        // Player name not found - log warning and show as unknown
+                        plugin.getLogger().atWarning().log(
+                            "Cannot resolve player name for UUID " + memberUuid + " in group member list");
+                        membersText.append("Unknown\n");
+                    }
                 }
             }
         }
