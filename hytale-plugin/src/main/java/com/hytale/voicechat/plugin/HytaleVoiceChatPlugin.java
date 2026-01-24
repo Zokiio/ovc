@@ -56,9 +56,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Initialize group manager
             groupManager = new GroupManager();
-            
-            // Seed test groups for UI testing
-            seedTestGroups();
+            // No default groups: users create/join groups as needed
             
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
@@ -119,32 +117,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         
         logger.atInfo().log("Hytale Voice Chat Plugin shutdown complete");
     }
-    
-    /**
-     * Seed test groups for UI testing
-     */
-    private void seedTestGroups() {
-        logger.atInfo().log("Seeding test groups for UI testing...");
-        
-        String[] groupNames = {
-            "Alpha Squad",
-            "Beta Team",
-            "Gamma Force",
-            "Delta Crew",
-            "Epsilon Elite",
-            "Zeta Warriors",
-            "Theta Legends",
-            "Kappa Knights",
-            "Lambda Lords",
-            "Sigma Stars"
-        };
-        
-        for (String groupName : groupNames) {
-            groupManager.createGroup(groupName, true);  // Make permanent so they persist
-        }
-        
-        logger.atInfo().log("Seeded " + groupNames.length + " test groups");
-    }
+
     
     /**
      * Handle player movement
