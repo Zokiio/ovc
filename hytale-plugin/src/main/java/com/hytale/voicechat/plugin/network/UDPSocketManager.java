@@ -19,6 +19,7 @@ import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.nio.NioDatagramChannel;
+import io.netty.handler.codec.MessageToMessageDecoder;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -125,7 +126,7 @@ public class UDPSocketManager {
         return playerToClientUUID.containsKey(playerUuid);
     }
 
-    private class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
+    private class VoicePacketHandler extends ChannelInboundHandlerAdapter {
         private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
         private final Map<UUID, InetSocketAddress> clients;
         private final Map<String, UUID> usernameToClientUUID;
@@ -152,7 +153,16 @@ public class UDPSocketManager {
         }
 
         @Override
-        protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet) {
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            if (msg instanceof DatagramPacket) {
+                DatagramPacket packet = (DatagramPacket) msg;
+                handlePacket(ctx, packet);
+            } else {
+                super.channelRead(ctx, msg);
+            }
+        }
+
+        private void handlePacket(ChannelHandlerContext ctx, DatagramPacket packet) {
             ByteBuf buf = packet.content();
             byte[] data = new byte[buf.readableBytes()];
             buf.readBytes(data);
