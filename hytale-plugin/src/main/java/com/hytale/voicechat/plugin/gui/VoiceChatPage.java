@@ -189,7 +189,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         var currentGroup = groupManager.getPlayerGroup(playerRef.getUuid());
         UUID currentGroupId = currentGroup != null ? currentGroup.getGroupId() : null;
         
-        plugin.getLogger().atInfo().log("Updating groups list - found " + allGroups.size() + " groups");
+        plugin.getLogger().atDebug().log("Updating groups list - found " + allGroups.size() + " groups");
         
         if (allGroups.isEmpty()) {
             commands.set("#GroupsListPlaceholder.Text", "No groups available.\nCreate one using the field above!");
@@ -252,8 +252,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             // Update members list
             updateGroupMembers(commands, group);
         }
-
-        updateGroupsList(commands);
     }
 
     @SuppressWarnings("null")
@@ -286,8 +284,8 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                     if (playerName != null && !playerName.isEmpty()) {
                         membersText.append(playerName).append("\n");
                     } else {
-                        // Player name not found - log warning and show as unknown
-                        plugin.getLogger().atWarning().log(
+                        // Player name not found - log at debug level to avoid log spam
+                        plugin.getLogger().atDebug().log(
                             "Cannot resolve player name for UUID " + memberUuid + " in group member list");
                         membersText.append("Unknown\n");
                     }
@@ -316,8 +314,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         
         // Show/hide Group Members Section (visible only when IN a group)
         commands.set("#GroupMembersSection.Visible", inGroup);
-
-        updateGroupsList(commands);
     }
 
     private Group findGroupByName(String name) {
