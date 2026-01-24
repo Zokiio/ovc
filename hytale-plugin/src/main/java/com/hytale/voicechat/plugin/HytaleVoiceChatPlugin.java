@@ -212,6 +212,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         return udpServer;
     }
 
+    /**
+     * Get the position tracker
+     */
+    public PlayerPositionTracker getPositionTracker() {
+        return positionTracker;
+    }
+
     // TODO: Register Hytale event listeners when API becomes available
     // private void registerEventListeners() {
     //     eventBus.register(PlayerMoveEvent.class, event -> {
