@@ -36,6 +36,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private GroupManager groupManager;
     private int voicePort;
     private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
+    // EntityStore reference not required currently for voice auth gating
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -98,6 +99,15 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     protected void shutdown() {
         logger.atInfo().log("Shutting down Hytale Voice Chat Plugin...");
         
+        // Notify clients of graceful shutdown before stopping the UDP server
+        if (udpServer != null) {
+            try {
+                udpServer.broadcastShutdown("Plugin disabled - server shutting down");
+            } catch (Exception e) {
+                logger.atFine().log("Failed to broadcast shutdown: " + e.getMessage());
+            }
+        }
+
         if (positionTracker != null) {
             positionTracker.stop();
         }

@@ -19,6 +19,7 @@ const (
 	PacketTypeAuthAck        = 0x03
 	PacketTypeDisconnect     = 0x04
 	PacketTypeTestAudio      = 0x05
+	PacketTypeServerShutdown = 0x09
 	AuthTimeoutSeconds       = 5
 	audioHeaderLegacy        = 25
 	audioHeaderWithCodec     = 26
@@ -396,6 +397,17 @@ func (vc *VoiceClient) sendAuthentication() error {
 	return err
 }
 
+type authRejectReason byte
+
+const (
+	authAccepted       authRejectReason = 0
+	authPlayerNotFound authRejectReason = 1
+	authServerNotReady authRejectReason = 2
+	authInvalidCreds   authRejectReason = 3
+)
+
+var errPlayerNotInGame = fmt.Errorf("player not in game")
+
 func (vc *VoiceClient) waitForAcknowledgment() error {
 	buffer := make([]byte, 256)
 
@@ -413,15 +425,18 @@ func (vc *VoiceClient) waitForAcknowledgment() error {
 			continue
 		}
 
-		ackClientID, accepted, message, ok := parseAuthAck(buffer[:n])
+		ackClientID, reason, message, ok := parseAuthAck(buffer[:n])
 		if !ok {
 			continue
 		}
 		if ackClientID != vc.clientID {
 			continue
 		}
-		if !accepted {
-			return fmt.Errorf("authentication rejected: %s", message)
+		if reason != authAccepted {
+			if reason == authPlayerNotFound {
+				return errPlayerNotInGame
+			}
+			return fmt.Errorf("authentication rejected (reason=%d): %s", reason, message)
 		}
 		log.Printf("Received authentication acknowledgment: %s", message)
 		return nil
@@ -441,6 +456,20 @@ func (vc *VoiceClient) receiveLoop() {
 				log.Printf("Receive error: %v", err)
 			}
 			continue
+		}
+
+		// Handle server shutdown packet
+		if n >= 1 && buffer[0] == PacketTypeServerShutdown {
+			if n >= 3 {
+				msgLen := binary.BigEndian.Uint16(buffer[1:3])
+				if int(3+msgLen) <= n {
+					reason := string(buffer[3 : 3+msgLen])
+					log.Printf("Server shutdown: %s", reason)
+				}
+			}
+			vc.connected.Store(false)
+			_ = vc.Disconnect()
+			return
 		}
 
 		if n < audioHeaderLegacy {
@@ -720,28 +749,29 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 	return out
 }
 
-func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
+func parseAuthAck(data []byte) (uuid.UUID, authRejectReason, string, bool) {
 	if len(data) < 20 {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 	if data[0] != PacketTypeAuthAck {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 
 	var idBytes [16]byte
 	copy(idBytes[:], data[1:17])
 	ackClientID, err := uuid.FromBytes(idBytes[:])
 	if err != nil {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 
-	accepted := data[17] == 1
+	// rejection reason (0=accepted)
+	reason := authRejectReason(data[17])
 	messageLen := binary.BigEndian.Uint16(data[18:20])
 	if 20+int(messageLen) > len(data) {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 	message := string(data[20 : 20+int(messageLen)])
-	return ackClientID, accepted, message, true
+	return ackClientID, reason, message, true
 }
 
 func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
