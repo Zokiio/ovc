@@ -20,6 +20,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.codec.MessageToMessageDecoder;
+import io.netty.channel.SimpleChannelInboundHandler;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -126,7 +127,7 @@ public class UDPSocketManager {
         return playerToClientUUID.containsKey(playerUuid);
     }
 
-    private class VoicePacketHandler extends ChannelInboundHandlerAdapter {
+    private class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
         private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
         private final Map<UUID, InetSocketAddress> clients;
         private final Map<String, UUID> usernameToClientUUID;
@@ -153,13 +154,8 @@ public class UDPSocketManager {
         }
 
         @Override
-        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
-            if (msg instanceof DatagramPacket) {
-                DatagramPacket packet = (DatagramPacket) msg;
-                handlePacket(ctx, packet);
-            } else {
-                super.channelRead(ctx, msg);
-            }
+        protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet) throws Exception {
+            handlePacket(ctx, packet);
         }
 
         private void handlePacket(ChannelHandlerContext ctx, DatagramPacket packet) {
@@ -694,13 +690,15 @@ public class UDPSocketManager {
             ByteBuf buf = ctx.alloc().buffer(data.length);
             buf.writeBytes(data);
             
-            clients.forEach((uuid, address) -> {
-                if (!address.equals(sender)) {
-                    ctx.writeAndFlush(new DatagramPacket(buf.copy(), address));
-                }
-            });
-            
-            buf.release();
+            try {
+                clients.forEach((uuid, address) -> {
+                    if (!address.equals(sender)) {
+                        ctx.writeAndFlush(new DatagramPacket(buf.copy(), address));
+                    }
+                });
+            } finally {
+                buf.release();
+            }
         }
         
         private void sendAuthAck(ChannelHandlerContext ctx, UUID clientId, InetSocketAddress address, 
