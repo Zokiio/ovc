@@ -205,7 +205,6 @@ cd voice-client && go build -o HytaleVoiceChat ./cmd/voice-client
 
 ## Known Limitations & TODOs
 
-- **AuthAck packet** (`0x03`): Partially implemented on server, not fully awaited on client ([AUTHENTICATION.md](hytale-plugin/docs/AUTHENTICATION.md#line-74))
 - **Player position tracking**: Currently not integrated with Hytale server events in production
 - **VAD (Voice Activity Detection)**: Framework exists in Go client, not yet enabled by default
 - **Echo cancellation**: Not implemented
