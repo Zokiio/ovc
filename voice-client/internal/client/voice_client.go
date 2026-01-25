@@ -21,10 +21,12 @@ const (
 	PacketTypeAuthAck        = 0x03
 	PacketTypeDisconnect     = 0x04
 	PacketTypeTestAudio      = 0x05
+	PacketTypePlayerName     = 0x0B
 	PacketTypeServerShutdown = 0x09
 	AuthTimeoutSeconds       = 5
 	audioHeaderLegacy        = 25
 	audioHeaderWithCodec     = 26
+	audioHeaderHashBased     = 14 // type(1) + codec(1) + hashId(4) + seqNum(4) + audioLen(4)
 	vadThresholdDefault      = 1200
 	vadHangoverFramesDefault = 30 // default hangover frames (~1.5 seconds at 20ms per frame)
 	positionalMaxDistance    = 30.0
@@ -54,6 +56,12 @@ type VoiceClient struct {
 	pttKey            string
 	masterVolume      float64
 	micGain           float64
+	// Per-player volume control
+	hashToUsername    map[uint32]string  // hash ID -> username mapping
+	playerVolumes     map[string]float64 // username -> volume multiplier (0.0-2.0)
+	lastHeard         map[uint32]time.Time // hash ID -> last audio packet time
+	defaultPlayerVolume float64          // default volume for new players (0.75 = 75%)
+	volumeMu          sync.RWMutex       // protects volume-related maps
 	connected         atomic.Bool
 	sequenceNumber    atomic.Uint32
 	rxDone            chan struct{}
@@ -63,15 +71,19 @@ type VoiceClient struct {
 
 func NewVoiceClient() *VoiceClient {
 	vc := &VoiceClient{
-		clientID:     uuid.New(),
-		rxDone:       make(chan struct{}, 1),
-		txDone:       make(chan struct{}, 1),
-		codec:        AudioCodecOpus,
-		pttKey:       "Space",
-		masterVolume: 1.0,
-		micGain:      1.0,
+		clientID:            uuid.New(),
+		rxDone:              make(chan struct{}, 1),
+		txDone:              make(chan struct{}, 1),
+		codec:               AudioCodecOpus,
+		pttKey:              "Space",
+		masterVolume:        1.0,
+		micGain:             1.0,
 		requestedSampleRate: defaultSampleRate,
 		selectedSampleRate:  defaultSampleRate,
+		hashToUsername:      make(map[uint32]string),
+		playerVolumes:       make(map[string]float64),
+		lastHeard:           make(map[uint32]time.Time),
+		defaultPlayerVolume: 0.75, // Default 75% volume for new players
 	}
 	vc.vadEnabled.Store(true)
 	vc.vadThreshold.Store(vadThresholdDefault)
@@ -146,6 +158,86 @@ func (vc *VoiceClient) SetMicGain(gain float64) {
 		vc.audioManager.SetMicGain(gain)
 	}
 	vc.mu.Unlock()
+}
+
+// SetPlayerVolume sets the volume for a specific player (0.0 to 2.0)
+func (vc *VoiceClient) SetPlayerVolume(username string, volume float64) {
+	if volume < 0 {
+		volume = 0
+	}
+	if volume > 2.0 {
+		volume = 2.0
+	}
+	vc.volumeMu.Lock()
+	vc.playerVolumes[username] = volume
+	vc.volumeMu.Unlock()
+	log.Printf("[VOLUME] Set volume for '%s' to %.2f", username, volume)
+}
+
+// GetPlayerVolume gets the volume for a specific player
+func (vc *VoiceClient) GetPlayerVolume(username string) float64 {
+	vc.volumeMu.RLock()
+	defer vc.volumeMu.RUnlock()
+	
+	volume, exists := vc.playerVolumes[username]
+	if !exists {
+		return vc.defaultPlayerVolume
+	}
+	return volume
+}
+
+// SetDefaultPlayerVolume sets the default volume for new players (0.0 to 2.0)
+func (vc *VoiceClient) SetDefaultPlayerVolume(volume float64) {
+	if volume < 0 {
+		volume = 0
+	}
+	if volume > 2.0 {
+		volume = 2.0
+	}
+	vc.volumeMu.Lock()
+	vc.defaultPlayerVolume = volume
+	vc.volumeMu.Unlock()
+	log.Printf("[VOLUME] Set default player volume to %.2f", volume)
+}
+
+// GetActivePlayers returns a list of players who have sent audio recently
+func (vc *VoiceClient) GetActivePlayers(inactiveDuration time.Duration) []string {
+	vc.volumeMu.RLock()
+	defer vc.volumeMu.RUnlock()
+	
+	now := time.Now()
+	var active []string
+	
+	for hashID, lastTime := range vc.lastHeard {
+		if now.Sub(lastTime) <= inactiveDuration {
+			if username, exists := vc.hashToUsername[hashID]; exists {
+				active = append(active, username)
+			}
+		}
+	}
+	
+	return active
+}
+
+// GetAllKnownPlayers returns all players we've seen (active or inactive)
+func (vc *VoiceClient) GetAllKnownPlayers() []string {
+	vc.volumeMu.RLock()
+	defer vc.volumeMu.RUnlock()
+	
+	// Use a map to track unique usernames and exclude self
+	uniqueUsers := make(map[string]bool)
+	for _, username := range vc.hashToUsername {
+		if username != vc.username {
+			uniqueUsers[username] = true
+		}
+	}
+	
+	players := make([]string, 0, len(uniqueUsers))
+	for username := range uniqueUsers {
+		players = append(players, username)
+	}
+	
+	return players
 }
 
 func (vc *VoiceClient) SetRequestedSampleRate(sampleRate int) {
@@ -534,8 +626,20 @@ func (vc *VoiceClient) receiveLoop() {
 			return
 		}
 
+		if n < 1 {
+			continue
+		}
+
+		packetType := buffer[0]
+
+		// Handle PlayerNamePacket (0x0B) - hash ID to username mapping
+		if packetType == PacketTypePlayerName {
+			vc.handlePlayerNamePacket(buffer[:n])
+			continue
+		}
+
 		// Handle server shutdown packet
-		if n >= 1 && buffer[0] == PacketTypeServerShutdown {
+		if packetType == PacketTypeServerShutdown {
 			reason := "Server shutdown"
 			if n >= 3 {
 				msgLen := binary.BigEndian.Uint16(buffer[1:3])
@@ -554,22 +658,22 @@ func (vc *VoiceClient) receiveLoop() {
 			return
 		}
 
-		if n < audioHeaderLegacy {
+		if n < audioHeaderHashBased {
 			continue
 		}
 
-		if buffer[0] != PacketTypeAudio && buffer[0] != PacketTypeTestAudio {
+		if packetType != PacketTypeAudio && packetType != PacketTypeTestAudio {
 			continue
 		}
 
-		codec, audioData, pos, ok := parseAudioPayload(buffer[:n])
+		codec, audioData, pos, hashID, ok := parseAudioPayload(buffer[:n])
 		if !ok {
 			continue
 		}
 
 		packetCount++
 		if packetCount%100 == 1 {
-			log.Printf("Received audio packet #%d, size=%d bytes", packetCount, len(audioData))
+			log.Printf("Received audio packet #%d, size=%d bytes, hashID=%d", packetCount, len(audioData), hashID)
 		}
 
 		if vc.audioManager != nil {
@@ -578,6 +682,9 @@ func (vc *VoiceClient) receiveLoop() {
 				log.Printf("Error decoding audio: %v", err)
 				continue
 			}
+
+			// Apply per-player volume before spatialization
+			samples = vc.applyPlayerVolume(samples, hashID)
 
 			stereo := spatialize(samples, pos, positionalMaxDistance)
 			if stereo == nil {
@@ -839,6 +946,83 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 	return out
 }
 
+// handlePlayerNamePacket processes PlayerNamePacket (0x0B) to map hash IDs to usernames
+func (vc *VoiceClient) handlePlayerNamePacket(data []byte) {
+	// Packet format: type(1) + serverId(16) + hashId(4) + usernameLen(4) + username
+	if len(data) < 25 {
+		log.Printf("Invalid PlayerNamePacket: too short (%d bytes)", len(data))
+		return
+	}
+
+	hashID := binary.BigEndian.Uint32(data[17:21])
+	usernameLen := binary.BigEndian.Uint32(data[21:25])
+	
+	if len(data) < 25+int(usernameLen) {
+		log.Printf("Invalid PlayerNamePacket: username truncated")
+		return
+	}
+
+	username := string(data[25 : 25+usernameLen])
+
+	vc.volumeMu.Lock()
+	vc.hashToUsername[hashID] = username
+	vc.volumeMu.Unlock()
+
+	log.Printf("[PLAYER_NAME] Mapped hashID %d to username '%s'", hashID, username)
+}
+
+// applyPlayerVolume applies per-player volume to audio samples
+func (vc *VoiceClient) applyPlayerVolume(samples []int16, hashID uint32) []int16 {
+	if hashID == 0 {
+		// Legacy packet without hash ID - skip per-player volume
+		return samples
+	}
+
+	vc.volumeMu.Lock()
+	defer vc.volumeMu.Unlock()
+
+	// Update last heard timestamp
+	vc.lastHeard[hashID] = time.Now()
+
+	// Get username for this hash ID
+	username, exists := vc.hashToUsername[hashID]
+	if !exists {
+		// Username not yet mapped - use default volume
+		log.Printf("[VOLUME] Unknown player (hashID=%d), using default volume %.2f", hashID, vc.defaultPlayerVolume)
+		return scaleAudioSamples(samples, vc.defaultPlayerVolume)
+	}
+
+	// Get player-specific volume
+	volume, exists := vc.playerVolumes[username]
+	if !exists {
+		// Player has no custom volume set - use default
+		volume = vc.defaultPlayerVolume
+		vc.playerVolumes[username] = volume
+		log.Printf("[VOLUME] New player '%s' (hashID=%d), using default volume %.2f", username, hashID, volume)
+	}
+
+	return scaleAudioSamples(samples, volume)
+}
+
+// scaleAudioSamples applies volume scaling to audio samples
+func scaleAudioSamples(samples []int16, gain float64) []int16 {
+	if gain == 1.0 {
+		return samples
+	}
+
+	scaled := make([]int16, len(samples))
+	for i, sample := range samples {
+		v := float64(sample) * gain
+		if v > math.MaxInt16 {
+			v = math.MaxInt16
+		} else if v < math.MinInt16 {
+			v = math.MinInt16
+		}
+		scaled[i] = int16(v)
+	}
+	return scaled
+}
+
 func parseAuthAck(data []byte) (uuid.UUID, authRejectReason, string, int, bool) {
 	if len(data) < 20 {
 		return uuid.UUID{}, 0, "", defaultSampleRate, false
@@ -869,27 +1053,57 @@ func parseAuthAck(data []byte) (uuid.UUID, authRejectReason, string, int, bool) 
 	return ackClientID, reason, message, sanitizeSampleRate(sampleRate), true
 }
 
-func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
-	if len(data) < audioHeaderLegacy {
-		return AudioCodecPCM, nil, nil, false
+func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, uint32, bool) {
+	if len(data) < audioHeaderHashBased {
+		return AudioCodecPCM, nil, nil, 0, false
 	}
 
 	packetType := data[0]
 	if packetType != PacketTypeAudio && packetType != PacketTypeTestAudio {
-		return AudioCodecPCM, nil, nil, false
+		return AudioCodecPCM, nil, nil, 0, false
 	}
 
 	codecByte := data[1]
 	baseCodec := codecByte & 0x7F
 	hasPos := (codecByte & 0x80) != 0
+
+	// Check if this is a hash-based packet (14 bytes header) or UUID-based packet (26 bytes header)
+	// Hash-based: type(1) + codec(1) + hashId(4) + seqNum(4) + audioLen(4) = 14 bytes
+	// UUID-based: type(1) + codec(1) + uuid(16) + seqNum(4) + audioLen(4) = 26 bytes
+	
+	// Try hash-based format first (newer, smaller header)
 	if baseCodec == AudioCodecOpus || baseCodec == AudioCodecPCM {
+		// Check if packet is long enough for hash-based header
+		if len(data) >= audioHeaderHashBased {
+			hashID := binary.BigEndian.Uint32(data[2:6])
+			audioLen := binary.BigEndian.Uint32(data[10:14])
+			totalLen := audioHeaderHashBased + int(audioLen)
+			
+			if totalLen <= len(data) && audioLen > 0 {
+				// Valid hash-based packet
+				var pos *[3]float32
+				if hasPos && len(data) >= totalLen+12 {
+					pos = &[3]float32{
+						math.Float32frombits(binary.BigEndian.Uint32(data[totalLen : totalLen+4])),
+						math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+4 : totalLen+8])),
+						math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+8 : totalLen+12])),
+					}
+					log.Printf("[AUDIO_RX] hashID=%d hasPos=true position=(%.2f,%.2f,%.2f)", hashID, pos[0], pos[1], pos[2])
+				} else if !hasPos {
+					log.Printf("[AUDIO_RX] hashID=%d hasPos=false (broadcast/non-positional)", hashID)
+				}
+				return baseCodec, data[14:totalLen], pos, hashID, true
+			}
+		}
+		
+		// Fall back to UUID-based format (legacy)
 		if len(data) < audioHeaderWithCodec {
-			return AudioCodecPCM, nil, nil, false
+			return AudioCodecPCM, nil, nil, 0, false
 		}
 		audioLen := binary.BigEndian.Uint32(data[22:26])
 		totalLen := audioHeaderWithCodec + int(audioLen)
 		if totalLen > len(data) || audioLen == 0 {
-			return AudioCodecPCM, nil, nil, false
+			return AudioCodecPCM, nil, nil, 0, false
 		}
 		var pos *[3]float32
 		if hasPos && len(data) >= totalLen+12 {
@@ -898,17 +1112,18 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
 				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+4 : totalLen+8])),
 				math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+8 : totalLen+12])),
 			}
-			log.Printf("[AUDIO_RX] hasPos=true position=(%.2f,%.2f,%.2f)", pos[0], pos[1], pos[2])
+			log.Printf("[AUDIO_RX] UUID-based hasPos=true position=(%.2f,%.2f,%.2f)", pos[0], pos[1], pos[2])
 		} else if !hasPos {
-			log.Printf("[AUDIO_RX] hasPos=false (broadcast/non-positional)")
+			log.Printf("[AUDIO_RX] UUID-based hasPos=false (broadcast/non-positional)")
 		}
-		return baseCodec, data[26:totalLen], pos, true
+		return baseCodec, data[26:totalLen], pos, 0, true // Return 0 for hashID (legacy packet)
 	}
 
+	// Legacy PCM format without codec byte
 	audioLen := binary.BigEndian.Uint32(data[21:25])
 	totalLen := audioHeaderLegacy + int(audioLen)
 	if totalLen > len(data) || audioLen == 0 {
-		return AudioCodecPCM, nil, nil, false
+		return AudioCodecPCM, nil, nil, 0, false
 	}
-	return AudioCodecPCM, data[25:totalLen], nil, true
+	return AudioCodecPCM, data[25:totalLen], nil, 0, true
 }

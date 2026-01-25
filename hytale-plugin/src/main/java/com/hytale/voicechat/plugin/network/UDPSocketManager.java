@@ -8,6 +8,7 @@ import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import com.hytale.voicechat.common.packet.GroupManagementPacket;
 import com.hytale.voicechat.common.packet.GroupStatePacket;
 import com.hytale.voicechat.common.packet.GroupListPacket;
+import com.hytale.voicechat.common.packet.PlayerNamePacket;
 import com.hytale.voicechat.common.packet.ServerShutdownPacket;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.GroupManager;
@@ -46,6 +47,9 @@ public class UDPSocketManager {
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
     private final Map<UUID, UUID> playerToClientUUID; // Hytale player UUID -> voice client UUID (reverse lookup)
     private final Map<UUID, Integer> clientSampleRates; // voice client UUID -> negotiated sample rate
+    private final Map<UUID, Integer> playerUUIDToHashId; // Hytale player UUID -> hash ID (for routing)
+    private final Map<Integer, UUID> hashIdToPlayerUUID; // hash ID -> Hytale player UUID (reverse lookup)
+    private final Map<Integer, String> hashIdToUsername; // hash ID -> username (for PlayerNamePacket)
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
     private volatile GroupManager groupManager;
@@ -59,6 +63,9 @@ public class UDPSocketManager {
         this.clientToPlayerUUID = new ConcurrentHashMap<>();
         this.playerToClientUUID = new ConcurrentHashMap<>();
         this.clientSampleRates = new ConcurrentHashMap<>();
+        this.playerUUIDToHashId = new ConcurrentHashMap<>();
+        this.hashIdToPlayerUUID = new ConcurrentHashMap<>();
+        this.hashIdToUsername = new ConcurrentHashMap<>();
     }
 
     public void setProximityDistance(double proximityDistance) {
@@ -95,6 +102,9 @@ public class UDPSocketManager {
                             clientToPlayerUUID,
                             playerToClientUUID,
                             clientSampleRates,
+                            playerUUIDToHashId,
+                            hashIdToPlayerUUID,
+                            hashIdToUsername,
                             positionTracker,
                             eventListener,
                             groupManager
@@ -175,6 +185,13 @@ public class UDPSocketManager {
         clientToPlayerUUID.remove(clientUuid);
         clientSampleRates.remove(clientUuid);
         
+        // Clean up hash ID mappings
+        Integer hashId = playerUUIDToHashId.remove(playerUuid);
+        if (hashId != null) {
+            hashIdToPlayerUUID.remove(hashId);
+            hashIdToUsername.remove(hashId);
+        }
+        
         // Find and remove username mapping
         String username = null;
         for (Map.Entry<String, UUID> entry : usernameToClientUUID.entrySet()) {
@@ -221,6 +238,9 @@ public class UDPSocketManager {
         private final Map<UUID, UUID> clientToPlayerUUID;
         private final Map<UUID, UUID> playerToClientUUID;
         private final Map<UUID, Integer> clientSampleRates;
+        private final Map<UUID, Integer> playerUUIDToHashId;
+        private final Map<Integer, UUID> hashIdToPlayerUUID;
+        private final Map<Integer, String> hashIdToUsername;
         private final PlayerPositionTracker positionTracker;
         private final PlayerEventListener eventListener;
         private final GroupManager groupManager;
@@ -230,6 +250,9 @@ public class UDPSocketManager {
                                   Map<UUID, UUID> clientToPlayerUUID,
                                   Map<UUID, UUID> playerToClientUUID,
                                   Map<UUID, Integer> clientSampleRates,
+                                  Map<UUID, Integer> playerUUIDToHashId,
+                                  Map<Integer, UUID> hashIdToPlayerUUID,
+                                  Map<Integer, String> hashIdToUsername,
                                   PlayerPositionTracker positionTracker,
                                   PlayerEventListener eventListener,
                                   GroupManager groupManager) {
@@ -238,6 +261,9 @@ public class UDPSocketManager {
             this.clientToPlayerUUID = clientToPlayerUUID;
             this.playerToClientUUID = playerToClientUUID;
             this.clientSampleRates = clientSampleRates;
+            this.playerUUIDToHashId = playerUUIDToHashId;
+            this.hashIdToPlayerUUID = hashIdToPlayerUUID;
+            this.hashIdToUsername = hashIdToUsername;
             this.positionTracker = positionTracker;
             this.eventListener = eventListener;
             this.groupManager = groupManager;
@@ -346,11 +372,25 @@ public class UDPSocketManager {
                 playerToClientUUID.put(playerUUID, clientId);
                 clientSampleRates.put(clientId, selectedSampleRate);
                 
+                // Generate or reuse hash ID for this player
+                int hashId;
+                if (playerUUIDToHashId.containsKey(playerUUID)) {
+                    // Player already has a hash ID, reuse it
+                    hashId = playerUUIDToHashId.get(playerUUID);
+                } else {
+                    // Generate new hash ID for this player (collision-resistant)
+                    hashId = generateHashId(playerUUID);
+                    playerUUIDToHashId.put(playerUUID, hashId);
+                    hashIdToPlayerUUID.put(hashId, playerUUID);
+                    hashIdToUsername.put(hashId, username);
+                }
+                
                 logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
                 logger.atInfo().log("║ VOICE CLIENT CONNECTED");
                 logger.atInfo().log("║ Username: " + username);
                 logger.atInfo().log("║ Client UUID: " + clientId);
                 logger.atInfo().log("║ Player UUID: " + playerUUID);
+                logger.atInfo().log("║ Hash ID: " + hashId);
                 logger.atInfo().log("║ Address: " + sender);
                 logger.atInfo().log("║ Sample Rate: " + selectedSampleRate + " Hz");
                 logger.atInfo().log("║ Total clients: " + clients.size());
@@ -358,6 +398,12 @@ public class UDPSocketManager {
                 
                 // Send acceptance packet
                 sendAuthAck(ctx, clientId, sender, AuthAckPacket.REASON_ACCEPTED, "Authentication accepted", selectedSampleRate);
+                
+                // Send PlayerNamePackets to new client for all existing players with voice clients
+                sendAllPlayerNames(ctx, sender);
+                
+                // Broadcast new player's name to all other voice clients
+                broadcastPlayerName(ctx, hashId, username, sender);
                 
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error handling authentication");
@@ -509,6 +555,13 @@ public class UDPSocketManager {
                 return;
             }
             
+            // Get sender's hash ID for privacy-preserving audio routing
+            Integer senderHashId = playerUUIDToHashId.get(playerUUID);
+            if (senderHashId == null) {
+                logger.atWarning().log("No hash ID found for player " + playerUUID + " - cannot route audio");
+                return;
+            }
+            
             // Get sender's position
             PlayerPosition senderPos = positionTracker.getPlayerPosition(playerUUID);
             if (senderPos == null) {
@@ -526,19 +579,7 @@ public class UDPSocketManager {
             GroupManager localGroupManager = groupManager;
             Group senderGroup = localGroupManager != null ? localGroupManager.getPlayerGroup(playerUUID) : null;
             
-            // Pre-serialize packet for non-spatial group audio
-            // Create a non-spatial version by creating a new packet without position data
-            byte[] groupAudioData = null;
             if (senderGroup != null) {
-                // Create non-spatial version (no position data)
-                AudioPacket nonSpatialPacket = new AudioPacket(
-                    packet.getSenderId(),
-                    packet.getCodec(),
-                    packet.getAudioData(),
-                    packet.getSequenceNumber()
-                    // Note: no dx, dy, dz parameters - creates non-spatial packet
-                );
-                groupAudioData = nonSpatialPacket.serialize();
                 logger.atFine().log("Routing audio from group " + senderGroup.getName());
             }
             
@@ -588,16 +629,17 @@ public class UDPSocketManager {
 
                                     float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
 
-                                    int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
+                                    int packetSize = AudioPacket.getSerializedSizeWithHashId(packet.getAudioData().length, true);
                                     ByteBuf buf = ctx.alloc().buffer(packetSize);
-                                    packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
+                                    packet.serializeToByteBufWithHashId(buf, senderHashId, rotated[0], rotated[1], rotated[2]);
                                     ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                     routedCount++;
                                     routedPlayers.add(otherPlayerUUID);
                                 } else if (inSameGroup) {
                                     // Group audio only (not in proximity) - always non-spatial
-                                    ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
-                                    buf.writeBytes(groupAudioData);
+                                    int packetSize = AudioPacket.getSerializedSizeWithHashId(packet.getAudioData().length, false);
+                                    ByteBuf buf = ctx.alloc().buffer(packetSize);
+                                    packet.serializeToByteBufWithHashId(buf, senderHashId, null, null, null);
                                     ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                                     routedPlayers.add(otherPlayerUUID);
                                 }
@@ -608,7 +650,7 @@ public class UDPSocketManager {
             }
             
             // Second pass: Route to group members not in position tracker
-            if (senderGroup != null && groupAudioData != null) {
+            if (senderGroup != null) {
                 for (UUID groupMemberId : senderGroup.getMembers()) {
                     if (!groupMemberId.equals(playerUUID) && !routedPlayers.contains(groupMemberId)) {
                         // This group member wasn't in the position tracker
@@ -619,8 +661,9 @@ public class UDPSocketManager {
                             
                             if (clientAddr != null) {
                                 // Send WITHOUT position (center-channel, non-spatial)
-                                ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
-                                buf.writeBytes(groupAudioData);
+                                int packetSize = AudioPacket.getSerializedSizeWithHashId(packet.getAudioData().length, false);
+                                ByteBuf buf = ctx.alloc().buffer(packetSize);
+                                packet.serializeToByteBufWithHashId(buf, senderHashId, null, null, null);
                                 ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
                             }
                         }
@@ -863,6 +906,65 @@ public class UDPSocketManager {
             } finally {
                 buf.release();
             }
+        }
+        
+        /**
+         * Generate a collision-resistant hash ID from a player UUID
+         */
+        private int generateHashId(UUID playerUUID) {
+            int baseHash = playerUUID.hashCode();
+            
+            // Check for collisions and increment until we find a unique hash
+            int hashId = baseHash;
+            int attempts = 0;
+            while (hashIdToPlayerUUID.containsKey(hashId) && attempts < 1000) {
+                hashId = baseHash + attempts;
+                attempts++;
+            }
+            
+            if (attempts >= 1000) {
+                logger.atWarning().log("Hash collision after 1000 attempts for player " + playerUUID);
+                // Fallback: use current timestamp as hash
+                hashId = (int) System.currentTimeMillis();
+            }
+            
+            return hashId;
+        }
+        
+        /**
+         * Send PlayerNamePackets to a newly connected client for all existing players
+         */
+        private void sendAllPlayerNames(ChannelHandlerContext ctx, InetSocketAddress newClientAddress) {
+            for (Map.Entry<Integer, String> entry : hashIdToUsername.entrySet()) {
+                int hashId = entry.getKey();
+                String username = entry.getValue();
+                
+                PlayerNamePacket packet = new PlayerNamePacket(SERVER_UUID, hashId, username);
+                byte[] data = packet.serialize();
+                ByteBuf buf = ctx.alloc().buffer(data.length);
+                buf.writeBytes(data);
+                ctx.writeAndFlush(new DatagramPacket(buf, newClientAddress));
+            }
+            
+            logger.atFine().log("Sent " + hashIdToUsername.size() + " player names to " + newClientAddress);
+        }
+        
+        /**
+         * Broadcast a PlayerNamePacket to all clients except the sender
+         */
+        private void broadcastPlayerName(ChannelHandlerContext ctx, int hashId, String username, InetSocketAddress excludeAddress) {
+            PlayerNamePacket packet = new PlayerNamePacket(SERVER_UUID, hashId, username);
+            byte[] data = packet.serialize();
+            
+            for (InetSocketAddress address : clients.values()) {
+                if (!address.equals(excludeAddress)) {
+                    ByteBuf buf = ctx.alloc().buffer(data.length);
+                    buf.writeBytes(data);
+                    ctx.writeAndFlush(new DatagramPacket(buf, address));
+                }
+            }
+            
+            logger.atFine().log("Broadcast player name (hashId=" + hashId + ", username=" + username + ") to " + (clients.size() - 1) + " clients");
         }
         
         private void sendAuthAck(ChannelHandlerContext ctx, UUID clientId, InetSocketAddress address, 

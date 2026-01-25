@@ -8,17 +8,19 @@ import (
 )
 
 type ClientConfig struct {
-	Server       string  `json:"server"`
-	Port         int     `json:"port"`
-	Username     string  `json:"username"`
-	MicLabel     string  `json:"micLabel"`
-	SpeakerLabel string  `json:"speakerLabel"`
-	VADEnabled   bool    `json:"vadEnabled"`
-	VADThreshold int     `json:"vadThreshold"`
-	MasterVolume float64 `json:"masterVolume"`
-	MicGain      float64 `json:"micGain"`
-	PushToTalk   bool    `json:"pushToTalk"`
-	PTTKey       string  `json:"pttKey"`
+	Server              string             `json:"server"`
+	Port                int                `json:"port"`
+	Username            string             `json:"username"`
+	MicLabel            string             `json:"micLabel"`
+	SpeakerLabel        string             `json:"speakerLabel"`
+	VADEnabled          bool               `json:"vadEnabled"`
+	VADThreshold        int                `json:"vadThreshold"`
+	MasterVolume        float64            `json:"masterVolume"`
+	MicGain             float64            `json:"micGain"`
+	PushToTalk          bool               `json:"pushToTalk"`
+	PTTKey              string             `json:"pttKey"`
+	PlayerVolumes       map[string]float64 `json:"playerVolumes"`       // per-player volume settings (username -> volume 0.0-2.0)
+	DefaultPlayerVolume float64            `json:"defaultPlayerVolume"` // default volume for new players (0.75 = 75%)
 }
 
 func loadClientConfig() (ClientConfig, error) {

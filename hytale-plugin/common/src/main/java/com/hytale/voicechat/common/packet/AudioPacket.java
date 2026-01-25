@@ -10,6 +10,7 @@ import java.util.UUID;
 public class AudioPacket extends VoicePacket {
     private static final byte POSITION_FLAG = (byte) 0x80;
     private static final int PACKET_HEADER_SIZE = 1 + 1 + 16 + 4 + 4; // type + codec + senderId + seqNum + audioLen
+    private static final int PACKET_HEADER_SIZE_HASH = 1 + 1 + 4 + 4 + 4; // type + codec + hashId + seqNum + audioLen
     private static final int POSITION_DATA_SIZE = 12; // 3 floats (x, y, z)
     
     private final byte[] audioData;
@@ -116,12 +117,53 @@ public class AudioPacket extends VoicePacket {
     }
     
     /**
+     * Serialize this packet with hash ID and custom position data directly to a ByteBuf.
+     * This replaces the 16-byte UUID with a 4-byte hash ID to reduce packet size and protect privacy.
+     * 
+     * @param buf the ByteBuf to write to
+     * @param hashId the 4-byte hash ID representing the sender
+     * @param posX the X position coordinate (nullable)
+     * @param posY the Y position coordinate (nullable)
+     * @param posZ the Z position coordinate (nullable)
+     */
+    public void serializeToByteBufWithHashId(ByteBuf buf, int hashId, Float posX, Float posY, Float posZ) {
+        boolean hasPosition = posX != null && posY != null && posZ != null;
+        byte codecByte = codec;
+        if (hasPosition) {
+            codecByte |= POSITION_FLAG; // Set position flag
+        }
+        
+        buf.writeByte(0x02); // Packet type: AUDIO
+        buf.writeByte(codecByte);
+        buf.writeInt(hashId); // Write 4-byte hash ID instead of 16-byte UUID
+        buf.writeInt(sequenceNumber);
+        buf.writeInt(audioData.length);
+        buf.writeBytes(audioData);
+        
+        if (hasPosition) {
+            buf.writeFloat(posX);
+            buf.writeFloat(posY);
+            buf.writeFloat(posZ);
+        }
+    }
+    
+    /**
      * Calculate the serialized size of an AudioPacket with position data.
      * @param audioDataLength the length of the audio data
      * @return the total serialized packet size
      */
     public static int getSerializedSizeWithPosition(int audioDataLength) {
         return PACKET_HEADER_SIZE + audioDataLength + POSITION_DATA_SIZE;
+    }
+    
+    /**
+     * Calculate the serialized size of an AudioPacket with hash ID and position data.
+     * @param audioDataLength the length of the audio data
+     * @param hasPosition whether position data is included
+     * @return the total serialized packet size
+     */
+    public static int getSerializedSizeWithHashId(int audioDataLength, boolean hasPosition) {
+        return PACKET_HEADER_SIZE_HASH + audioDataLength + (hasPosition ? POSITION_DATA_SIZE : 0);
     }
 
     public static AudioPacket deserialize(byte[] data) {
