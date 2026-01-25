@@ -20,14 +20,27 @@ type SimpleAudioManager struct {
 	outputChan chan []int16
 	frameSize  int
 	sampleRate int
+	inputFrameSize  int
+	outputFrameSize int
+	inputSampleRate int
+	outputSampleRate int
+	useOpus bool
+	encoder any
+	decoder any
 }
 
-func NewSimpleAudioManager() (*SimpleAudioManager, error) {
+func NewSimpleAudioManager(sampleRate int) (*SimpleAudioManager, error) {
+	sampleRate = sanitizeSampleRate(sampleRate)
 	return &SimpleAudioManager{
 		inputChan:  make(chan []int16, 1),
 		outputChan: make(chan []int16, 1),
-		frameSize:  960,
-		sampleRate: 48000,
+		frameSize:  frameSizeForSampleRate(sampleRate),
+		sampleRate: sampleRate,
+		inputFrameSize:  frameSizeForSampleRate(sampleRate),
+		outputFrameSize: frameSizeForSampleRate(sampleRate),
+		inputSampleRate: sampleRate,
+		outputSampleRate: sampleRate,
+		useOpus: true,
 	}, nil
 }
 
@@ -58,6 +71,10 @@ func (am *SimpleAudioManager) GetOutputChannel() chan<- []int16 {
 func (am *SimpleAudioManager) SetInputDeviceLabel(_ string) {}
 
 func (am *SimpleAudioManager) SetOutputDeviceLabel(_ string) {}
+
+func (am *SimpleAudioManager) SetMicGain(_ float64) {}
+
+func (am *SimpleAudioManager) SetOutputGain(_ float64) {}
 
 func (am *SimpleAudioManager) SendTestTone(_ time.Duration, _ float64) error {
 	return fmt.Errorf("audio requires a CGO-enabled build")

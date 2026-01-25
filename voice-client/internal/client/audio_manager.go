@@ -29,6 +29,10 @@ type SimpleAudioManager struct {
 	done         chan bool
 	frameSize    int
 	sampleRate   int
+	inputFrameSize  int
+	outputFrameSize int
+	inputSampleRate int
+	outputSampleRate int
 	mu           sync.Mutex
 	encodeMu     sync.Mutex
 	decodeMu     sync.Mutex
@@ -43,15 +47,19 @@ type SimpleAudioManager struct {
 	decoder      *opus.Decoder
 }
 
-func NewSimpleAudioManager() (*SimpleAudioManager, error) {
-	frameSize := 960
-	sampleRate := 48000
+func NewSimpleAudioManager(sampleRate int) (*SimpleAudioManager, error) {
+	sampleRate = sanitizeSampleRate(sampleRate)
+	frameSize := frameSizeForSampleRate(sampleRate)
 
 	am := &SimpleAudioManager{
 		inputChan:  make(chan []int16, 16),
 		outputChan: make(chan []int16, 16),
 		frameSize:  frameSize,
 		sampleRate: sampleRate,
+		inputFrameSize:  frameSize,
+		outputFrameSize: frameSize,
+		inputSampleRate: sampleRate,
+		outputSampleRate: sampleRate,
 		done:       make(chan bool),
 		useOpus:    true,
 		micGain:    1.0,
@@ -116,27 +124,6 @@ func (am *SimpleAudioManager) Start() error {
 		}
 	}
 
-	// Start output stream with retry logic for Windows audio issues
-	var outputStartErr error
-	for i := 0; i < 3; i++ {
-		outputStartErr = am.outputStream.Start()
-		if outputStartErr == nil {
-			break
-		}
-		log.Printf("Failed to start output stream (attempt %d/3): %v", i+1, outputStartErr)
-		if i < 2 {
-			time.Sleep(time.Millisecond * 100)
-		}
-	}
-	if outputStartErr != nil {
-		am.outputStream.Close()
-		am.outputStream = nil
-		am.inputStream.Close()
-		am.inputStream = nil
-		portaudio.Terminate()
-		return fmt.Errorf("failed to start audio stream after 3 attempts: %w (try closing other audio applications or restarting)", outputStartErr)
-	}
-
 	// Start input stream with retry logic
 	var inputStartErr error
 	for i := 0; i < 3; i++ {
@@ -163,7 +150,7 @@ func (am *SimpleAudioManager) Start() error {
 	if am.useOpus && am.encoder != nil && am.decoder != nil {
 		codec = "Opus"
 	}
-	log.Printf("Audio manager initialized (%s codec ready, input: %s)", codec, am.inputLabel)
+	log.Printf("Audio manager initialized (%s codec ready, input: %s, network=%dHz, input=%dHz, output=%dHz)", codec, am.inputLabel, am.sampleRate, am.inputSampleRate, am.outputSampleRate)
 	return nil
 }
 
@@ -214,6 +201,12 @@ func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, 
 		return []byte{}, nil
 	}
 
+	samples = fitSamples(samples, am.inputFrameSize)
+	if am.inputSampleRate != am.sampleRate {
+		samples = resampleLinear(samples, am.inputSampleRate, am.sampleRate, am.frameSize)
+	}
+	samples = fitSamples(samples, am.frameSize)
+
 	gain := am.micGain
 	if gain != 1.0 {
 		scaled := make([]int16, len(samples))
@@ -227,14 +220,6 @@ func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, 
 			scaled[i] = int16(v)
 		}
 		samples = scaled
-	}
-
-	if len(samples) < am.frameSize {
-		padded := make([]int16, am.frameSize)
-		copy(padded, samples)
-		samples = padded
-	} else if len(samples) > am.frameSize {
-		samples = samples[:am.frameSize]
 	}
 
 	switch codec {
@@ -260,7 +245,7 @@ func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, 
 
 func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, error) {
 	if len(data) == 0 {
-		return make([]int16, am.frameSize), nil
+		return make([]int16, am.outputFrameSize), nil
 	}
 
 	switch codec {
@@ -282,12 +267,21 @@ func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, err
 		} else {
 			pcm = pcm[:n]
 		}
-		return pcm, nil
+		return am.applyOutputResampling(pcm), nil
 	case AudioCodecPCM:
-		return decodePCM(data, am.frameSize), nil
+		pcm := decodePCM(data, am.frameSize)
+		return am.applyOutputResampling(pcm), nil
 	default:
 		return nil, fmt.Errorf("unknown codec: %d", codec)
 	}
+}
+
+// applyOutputResampling resamples audio from network rate to output device rate if needed
+func (am *SimpleAudioManager) applyOutputResampling(pcm []int16) []int16 {
+	if am.outputSampleRate != am.sampleRate {
+		pcm = resampleLinear(pcm, am.sampleRate, am.outputSampleRate, am.outputFrameSize)
+	}
+	return fitSamples(pcm, am.outputFrameSize)
 }
 
 func encodePCM(samples []int16) []byte {
@@ -319,6 +313,65 @@ func decodePCM(data []byte, frameSize int) []int16 {
 	return samples
 }
 
+func fitSamples(samples []int16, frameSize int) []int16 {
+	if frameSize <= 0 {
+		return []int16{}
+	}
+	if len(samples) < frameSize {
+		padded := make([]int16, frameSize)
+		copy(padded, samples)
+		return padded
+	}
+	if len(samples) > frameSize {
+		return samples[:frameSize]
+	}
+	return samples
+}
+
+// resampleLinear performs basic linear interpolation for audio resampling.
+// Note: This implementation uses simple linear interpolation, which can introduce
+// aliasing artifacts and reduce audio quality, especially when downsampling.
+// For production use with higher quality requirements, consider using a more
+// sophisticated resampling algorithm (such as cubic interpolation or sinc resampling)
+// or leveraging the Opus codec's built-in resampling capabilities.
+func resampleLinear(input []int16, inRate int, outRate int, outLen int) []int16 {
+	if outLen <= 0 {
+		return []int16{}
+	}
+	if len(input) == 0 {
+		return make([]int16, outLen)
+	}
+	if inRate == outRate {
+		return fitSamples(input, outLen)
+	}
+	if outLen == 1 {
+		return []int16{input[0]}
+	}
+
+	result := make([]int16, outLen)
+	maxIndex := len(input) - 1
+	step := float64(maxIndex) / float64(outLen-1)
+	for i := 0; i < outLen; i++ {
+		pos := float64(i) * step
+		idx := int(pos)
+		frac := pos - float64(idx)
+		if idx >= maxIndex {
+			result[i] = input[maxIndex]
+			continue
+		}
+		v0 := float64(input[idx])
+		v1 := float64(input[idx+1])
+		v := v0 + (v1-v0)*frac
+		if v > math.MaxInt16 {
+			v = math.MaxInt16
+		} else if v < math.MinInt16 {
+			v = math.MinInt16
+		}
+		result[i] = int16(v)
+	}
+	return result
+}
+
 func (am *SimpleAudioManager) GetInputChannel() <-chan []int16 {
 	return am.inputChan
 }
@@ -343,19 +396,19 @@ func (am *SimpleAudioManager) SendTestTone(duration time.Duration, frequency flo
 		return fmt.Errorf("invalid frequency")
 	}
 
-	frameDuration := time.Duration(float64(time.Second) * float64(am.frameSize) / float64(am.sampleRate))
+	frameDuration := time.Duration(float64(time.Second) * float64(am.inputFrameSize) / float64(am.inputSampleRate))
 	totalFrames := int(duration / frameDuration)
 	if totalFrames < 1 {
 		totalFrames = 1
 	}
 
 	phase := 0.0
-	phaseInc := 2 * math.Pi * frequency / float64(am.sampleRate)
+	phaseInc := 2 * math.Pi * frequency / float64(am.inputSampleRate)
 	amplitude := 0.2 * float64(math.MaxInt16)
 
 	for i := 0; i < totalFrames; i++ {
-		samples := make([]int16, am.frameSize)
-		for j := 0; j < am.frameSize; j++ {
+		samples := make([]int16, am.inputFrameSize)
+		for j := 0; j < am.inputFrameSize; j++ {
 			samples[j] = int16(math.Sin(phase) * amplitude)
 			phase += phaseInc
 			if phase >= 2*math.Pi {
@@ -425,6 +478,16 @@ func (am *SimpleAudioManager) openInputStream() (*portaudio.Stream, string, *por
 		return nil, "", nil, fmt.Errorf("no input device available")
 	}
 
+	inputRate := am.sampleRate
+	if inputDevice.DefaultSampleRate > 0 {
+		inputRate = int(math.Round(inputDevice.DefaultSampleRate))
+	}
+	if inputRate <= 0 {
+		inputRate = am.sampleRate
+	}
+	am.inputSampleRate = inputRate
+	am.inputFrameSize = frameSizeForSampleRate(inputRate)
+
 	// Try low latency first
 	params := portaudio.StreamParameters{
 		Input: portaudio.StreamDeviceParameters{
@@ -432,8 +495,8 @@ func (am *SimpleAudioManager) openInputStream() (*portaudio.Stream, string, *por
 			Channels: 1,
 			Latency:  inputDevice.DefaultLowInputLatency,
 		},
-		SampleRate:      float64(am.sampleRate),
-		FramesPerBuffer: am.frameSize,
+		SampleRate:      float64(inputRate),
+		FramesPerBuffer: am.inputFrameSize,
 	}
 
 	stream, err := portaudio.OpenStream(params, am.processInput)
@@ -459,28 +522,98 @@ func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo
 		return nil, fmt.Errorf("no output device available")
 	}
 
-	// Try low latency first
+	outputRate := am.sampleRate
+	if outputDevice.DefaultSampleRate > 0 {
+		outputRate = int(math.Round(outputDevice.DefaultSampleRate))
+	}
+	if outputRate <= 0 {
+		if am.inputSampleRate > 0 {
+			outputRate = am.inputSampleRate
+		} else {
+			outputRate = am.sampleRate
+		}
+	}
+	am.outputSampleRate = outputRate
+	am.outputFrameSize = frameSizeForSampleRate(outputRate)
+
+	// Try multiple configurations in order of preference
+	configs := []struct {
+		channels int
+		latency  time.Duration
+		desc     string
+	}{
+		{2, outputDevice.DefaultLowOutputLatency, "stereo low latency"},
+		{2, outputDevice.DefaultHighOutputLatency, "stereo high latency"},
+		{1, outputDevice.DefaultLowOutputLatency, "mono low latency"},
+		{1, outputDevice.DefaultHighOutputLatency, "mono high latency"},
+	}
+
+	// First try with the selected device
+	for _, cfg := range configs {
+		stream, err := am.tryOpenOutputStream(outputDevice, outputRate, cfg.channels, cfg.latency, cfg.desc)
+		if err == nil {
+			return stream, nil
+		}
+	}
+
+	// If all configs failed with selected device, try other devices (DirectSound, MME on Windows)
+	if runtime.GOOS == "windows" {
+		log.Printf("All configs failed with primary device, trying alternative devices...")
+		devices, err := portaudio.Devices()
+		if err == nil {
+			for _, altDevice := range devices {
+				if altDevice.MaxOutputChannels == 0 || altDevice == outputDevice {
+					continue
+				}
+				// Try DirectSound or MME devices
+				hostName := hostNameFromDevice(altDevice)
+				if !strings.Contains(hostName, "DirectSound") && !strings.Contains(hostName, "MME") {
+					continue
+				}
+				
+				for _, cfg := range configs {
+					stream, err := am.tryOpenOutputStream(altDevice, outputRate, cfg.channels, cfg.latency, fmt.Sprintf("%s (%s)", cfg.desc, hostName))
+					if err == nil {
+						return stream, nil
+					}
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("failed to open audio stream after trying all configurations and devices")
+}
+
+func (am *SimpleAudioManager) tryOpenOutputStream(outputDevice *portaudio.DeviceInfo, outputRate int, channels int, latency time.Duration, desc string) (*portaudio.Stream, error) {
 	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outputDevice,
-			Channels: 2,
-			Latency:  outputDevice.DefaultLowOutputLatency,
+			Channels: channels,
+			Latency:  latency,
 		},
-		SampleRate:      float64(am.sampleRate),
-		FramesPerBuffer: am.frameSize,
+		SampleRate:      float64(outputRate),
+		FramesPerBuffer: am.outputFrameSize,
 	}
 
 	stream, err := portaudio.OpenStream(params, am.processOutput)
 	if err != nil {
-		// Fallback to high latency if low latency fails
-		log.Printf("Low latency output failed, trying high latency: %v", err)
-		params.Output.Latency = outputDevice.DefaultHighOutputLatency
-		stream, err = portaudio.OpenStream(params, am.processOutput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open audio stream (tried low and high latency): %w", err)
-		}
+		log.Printf("Failed to open output with %s: %v", desc, err)
+		return nil, err
 	}
 
+	// Try to start the stream to verify it actually works
+	err = stream.Start()
+	if err != nil {
+		log.Printf("Failed to start output with %s: %v", desc, err)
+		stream.Close()
+		return nil, err
+	}
+
+	// Success! Leave it running, caller will use it
+	if channels == 1 {
+		log.Printf("Warning: Using mono output (stereo not supported)")
+	}
+	log.Printf("Successfully initialized output stream with %s", desc)
 	return stream, nil
 }
 
@@ -696,13 +829,6 @@ func buildOutputDeviceOptions() ([]deviceOption, error) {
 	for _, device := range devices {
 		if device.MaxOutputChannels > 0 {
 			candidates = append(candidates, device)
-		}
-	}
-
-	if runtime.GOOS == "windows" {
-		wasapi := filterByHostAPI(candidates, "WASAPI")
-		if len(wasapi) > 0 {
-			candidates = wasapi
 		}
 	}
 
