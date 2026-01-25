@@ -103,6 +103,11 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         if (udpServer != null) {
             try {
                 udpServer.broadcastShutdown("Plugin disabled - server shutting down");
+                // Allow time for shutdown packets to be delivered before closing the channel
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.atFine().log("Interrupted while waiting for shutdown broadcast");
             } catch (Exception e) {
                 logger.atFine().log("Failed to broadcast shutdown: " + e.getMessage());
             }

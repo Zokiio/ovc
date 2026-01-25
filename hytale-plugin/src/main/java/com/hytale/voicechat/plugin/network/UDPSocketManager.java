@@ -741,7 +741,12 @@ public class UDPSocketManager {
         private void sendAuthAck(ChannelHandlerContext ctx, UUID clientId, InetSocketAddress address, 
                                  byte rejectionReason, String message) {
             try {
-                AuthAckPacket ackPacket = new AuthAckPacket(clientId, rejectionReason, message);
+                AuthAckPacket ackPacket;
+                if (rejectionReason == AuthAckPacket.REASON_ACCEPTED) {
+                    ackPacket = AuthAckPacket.accepted(clientId, message);
+                } else {
+                    ackPacket = AuthAckPacket.rejected(clientId, rejectionReason, message);
+                }
                 byte[] data = ackPacket.serialize();
                 ByteBuf buf = ctx.alloc().buffer(data.length);
                 buf.writeBytes(data);
