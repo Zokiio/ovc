@@ -7,9 +7,7 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
-import com.hytale.voicechat.plugin.command.VoiceProximityCommand;
 import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
-import com.hytale.voicechat.plugin.command.VoiceChatGuiCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
@@ -83,10 +81,8 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Start position tracking
             positionTracker.start();
             
-            // Register commands
-            getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
-            getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager));
-            getCommandRegistry().registerCommand(new VoiceChatGuiCommand(groupManager, this));
+            // Register consolidated voice command
+            getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager, this));
             
             logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
