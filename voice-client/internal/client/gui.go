@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -33,6 +34,7 @@ type TruncatedStatusLabel struct {
 	maxChars    int
 	window      fyne.Window
 	activePopup *widget.PopUp
+	popupMu     sync.Mutex
 }
 
 // NewTruncatedStatusLabel creates a new truncated status label with window reference.
@@ -64,6 +66,8 @@ func (tsl *TruncatedStatusLabel) MouseIn(*desktop.MouseEvent) {
 
 // MouseOut hides the tooltip.
 func (tsl *TruncatedStatusLabel) MouseOut() {
+	tsl.popupMu.Lock()
+	defer tsl.popupMu.Unlock()
 	if tsl.activePopup != nil {
 		tsl.activePopup.Hide()
 		tsl.activePopup = nil
@@ -82,6 +86,7 @@ func (tsl *TruncatedStatusLabel) showPopUp(text string) {
 	if tsl.window == nil {
 		return
 	}
+	tsl.popupMu.Lock()
 	// Hide any existing popup before creating a new one
 	if tsl.activePopup != nil {
 		tsl.activePopup.Hide()
@@ -95,8 +100,11 @@ func (tsl *TruncatedStatusLabel) showPopUp(text string) {
 		tsl.Position().Y-40,
 	))
 	tsl.activePopup = pop
+	tsl.popupMu.Unlock()
 	// Auto-hide after 3 seconds
 	time.AfterFunc(3*time.Second, func() {
+		tsl.popupMu.Lock()
+		defer tsl.popupMu.Unlock()
 		pop.Hide()
 		if tsl.activePopup == pop {
 			tsl.activePopup = nil

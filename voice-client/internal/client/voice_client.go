@@ -309,7 +309,10 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 			return fmt.Errorf("server did not acknowledge authentication after %d attempts: %w", maxRetries, err)
 		}
 
-		vc.selectedSampleRate = selectedSampleRate
+		// Sanitize the sample rate received from server for defensive programming.
+		// Note: parseAuthAck() already sanitizes, but we do it again here to ensure
+		// consistency and protect against any future changes to parseAuthAck.
+		vc.selectedSampleRate = sanitizeSampleRate(selectedSampleRate)
 
 		// Initialize audio manager after auth so we can use the negotiated sample rate
 		audioManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel, vc.selectedSampleRate)
