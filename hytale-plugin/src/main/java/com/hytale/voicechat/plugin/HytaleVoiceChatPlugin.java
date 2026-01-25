@@ -12,6 +12,7 @@ import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
 import com.hytale.voicechat.plugin.command.VoiceChatGuiCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
+import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -75,6 +76,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Register event system for player join/quit tracking (with udpServer reference for disconnection)
             EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, udpServer));
             EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
+            EntityStore.REGISTRY.registerSystem(new UIRefreshTickingSystem());
             
             udpServer.start();
             
