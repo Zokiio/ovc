@@ -680,11 +680,11 @@ public class UDPSocketManager {
             double yaw = Math.toRadians(yawDeg);
             double pitch = Math.toRadians(pitchDeg);
 
-            // Yaw: rotate around Y so +Z is forward for listener
-            double cosY = Math.cos(-yaw);
-            double sinY = Math.sin(-yaw);
+            // Yaw: rotate world delta into listener local frame (+Z forward, +X right)
+            double cosY = Math.cos(yaw);
+            double sinY = Math.sin(yaw);
             double rx = dx * cosY - dz * sinY;
-            double rz = dx * sinY + dz * cosY;
+            double rz = -(dx * sinY + dz * cosY);
 
             // Pitch: rotate around X to account for looking up/down
             double cosP = Math.cos(-pitch);
