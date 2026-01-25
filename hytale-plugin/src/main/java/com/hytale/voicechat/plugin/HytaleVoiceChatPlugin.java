@@ -98,6 +98,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     protected void shutdown() {
         logger.atInfo().log("Shutting down Hytale Voice Chat Plugin...");
         
+        // Clear any open voice chat pages to prevent stale references
+        try {
+            com.hytale.voicechat.plugin.gui.VoiceChatPage.clearAllPages();
+        } catch (Exception e) {
+            logger.atFine().log("Failed to clear voice chat pages: " + e.getMessage());
+        }
+        
         // Notify clients of graceful shutdown before stopping the UDP server
         if (udpServer != null) {
             try {

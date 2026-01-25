@@ -5,6 +5,7 @@ import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
+import com.hypixel.hytale.server.core.command.system.arguments.system.OptionalArg;
 import com.hypixel.hytale.server.core.command.system.arguments.system.RequiredArg;
 import com.hypixel.hytale.server.core.command.system.arguments.types.ArgTypes;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractCommandCollection;
@@ -245,10 +246,19 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
             World world = store.getExternalData().getWorld();
 
             CompletableFuture.runAsync(() -> {
-                PlayerRef playerRefComponent = store.getComponent(ref, PlayerRef.getComponentType());
-                if (playerRefComponent != null) {
+                try {
+                    PlayerRef playerRefComponent = store.getComponent(ref, PlayerRef.getComponentType());
+                    if (playerRefComponent == null) {
+                        context.sendMessage(Message.raw("Unable to open voice chat GUI: player reference is unavailable."));
+                        logger.atWarn().log("Failed to open voice chat GUI for {}: PlayerRef component was null", player.getDisplayName());
+                        return;
+                    }
+
                     player.getPageManager().openCustomPage(ref, store,
                             new VoiceChatPage(playerRefComponent, groupManager, plugin));
+                } catch (Exception e) {
+                    logger.atError().withThrowable(e).log("Failed to open voice chat GUI for {}", player.getDisplayName());
+                    context.sendMessage(Message.raw("An error occurred while opening the voice chat GUI. Please try again later."));
                 }
             }, world);
         }
@@ -257,12 +267,12 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
     // Proximity subcommand
     static class ProximitySubCommand extends CommandBase {
         private final HytaleVoiceChatPlugin plugin;
-        private final RequiredArg<Double> distanceArg;
+        private final OptionalArg<Double> distanceArg;
 
         ProximitySubCommand(HytaleVoiceChatPlugin plugin) {
             super("proximity", "Configure voice chat proximity distance");
             this.plugin = plugin;
-            this.distanceArg = withRequiredArg("distance", "Distance in blocks", ArgTypes.DOUBLE);
+            this.distanceArg = withOptionalArg("distance", "Distance in blocks", ArgTypes.DOUBLE);
             
             // Require admin permission
             requirePermission("voicechat.admin.proximity");

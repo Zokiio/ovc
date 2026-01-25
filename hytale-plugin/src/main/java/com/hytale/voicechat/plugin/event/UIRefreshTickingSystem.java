@@ -13,26 +13,22 @@ import javax.annotation.Nonnull;
  * without requiring user interaction. Updates connection status, group lists, and member
  * counts automatically.
  * 
- * Runs on a throttled interval (every 10 ticks = ~500ms) to balance responsiveness
- * with performance.
+ * Runs on a throttled interval (every {@value #REFRESH_INTERVAL_TICKS} ticks) to balance
+ * responsiveness with performance. Assuming a 20 TPS server tick rate (~50ms per tick),
+ * this corresponds to approximately 500ms between refreshes. The actual wall-clock
+ * interval depends on the server's effective tick rate.
  */
 public class UIRefreshTickingSystem extends TickingSystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
-    private static final int REFRESH_INTERVAL_TICKS = 10; // Refresh every ~500ms (tick = 50ms)
-
-    private int tickCounter = 0;
+    private static final int REFRESH_INTERVAL_TICKS = 10; // Refresh every 10 ticks (~500ms if tick ≈ 50ms)
 
     public UIRefreshTickingSystem() {
     }
 
     @Override
     public void tick(float deltaSeconds, int tickCount, @Nonnull Store<EntityStore> store) {
-        tickCounter++;
-        
-        // Only refresh on the specified interval
-        if (tickCounter >= REFRESH_INTERVAL_TICKS) {
-            tickCounter = 0;
-            
+        // Only refresh on the specified interval using the provided tickCount to avoid overflow
+        if (tickCount % REFRESH_INTERVAL_TICKS == 0) {
             try {
                 // Trigger refresh on all open VoiceChatPage instances
                 VoiceChatPage.refreshAllPages(store);
