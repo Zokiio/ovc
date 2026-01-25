@@ -262,7 +262,7 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
         ProximitySubCommand(HytaleVoiceChatPlugin plugin) {
             super("proximity", "Configure voice chat proximity distance");
             this.plugin = plugin;
-            this.distanceArg = withRequiredArg("distance", "Distance in blocks (1.0-100.0)", ArgTypes.DOUBLE);
+            this.distanceArg = withRequiredArg("distance", "Distance in blocks", ArgTypes.DOUBLE);
             
             // Require admin permission
             requirePermission("voicechat.admin.proximity");
