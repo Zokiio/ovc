@@ -26,6 +26,11 @@ const (
 type SimpleAudioManager struct {
 	inputChan    chan []int16
 	outputChan   chan []int16
+	jitterMu     sync.Mutex
+	jitterBuffer [][]int16
+	jitterPrimed bool
+	jitterMinFrames int
+	jitterMaxFrames int
 	done         chan bool
 	frameSize    int
 	sampleRate   int
@@ -52,14 +57,16 @@ func NewSimpleAudioManager(sampleRate int) (*SimpleAudioManager, error) {
 	frameSize := frameSizeForSampleRate(sampleRate)
 
 	am := &SimpleAudioManager{
-		inputChan:  make(chan []int16, 16),
-		outputChan: make(chan []int16, 16),
+		inputChan:  make(chan []int16, 64),
+		outputChan: make(chan []int16, 64),
 		frameSize:  frameSize,
 		sampleRate: sampleRate,
 		inputFrameSize:  frameSize,
 		outputFrameSize: frameSize,
 		inputSampleRate: sampleRate,
 		outputSampleRate: sampleRate,
+		jitterMinFrames: 3,
+		jitterMaxFrames: 10,
 		done:       make(chan bool),
 		useOpus:    true,
 		micGain:    1.0,
@@ -380,6 +387,32 @@ func (am *SimpleAudioManager) GetOutputChannel() chan<- []int16 {
 	return am.outputChan
 }
 
+func (am *SimpleAudioManager) enqueueOutput(samples []int16) {
+	am.jitterMu.Lock()
+	am.jitterBuffer = append(am.jitterBuffer, samples)
+	if len(am.jitterBuffer) > am.jitterMaxFrames {
+		am.jitterBuffer = am.jitterBuffer[len(am.jitterBuffer)-am.jitterMaxFrames:]
+	}
+	if len(am.jitterBuffer) >= am.jitterMinFrames {
+		am.jitterPrimed = true
+	}
+	am.jitterMu.Unlock()
+}
+
+func (am *SimpleAudioManager) dequeueOutput() []int16 {
+	am.jitterMu.Lock()
+	defer am.jitterMu.Unlock()
+	if !am.jitterPrimed || len(am.jitterBuffer) == 0 {
+		return nil
+	}
+	samples := am.jitterBuffer[0]
+	am.jitterBuffer = am.jitterBuffer[1:]
+	if len(am.jitterBuffer) == 0 {
+		am.jitterPrimed = false
+	}
+	return samples
+}
+
 func (am *SimpleAudioManager) SetInputDeviceLabel(label string) {
 	am.inputLabel = label
 }
@@ -631,45 +664,46 @@ func (am *SimpleAudioManager) processInput(in []int16) {
 }
 
 func (am *SimpleAudioManager) processOutput(out []int16) {
-	select {
-	case samples := <-am.outputChan:
-		outputPacketCount++
-		if outputPacketCount%100 == 1 {
-			log.Printf("Playing audio packet #%d, samples=%d", outputPacketCount, len(samples))
-		}
-		gain := am.outputGain
-		if gain != 1.0 {
-			for i := range samples {
-				v := float64(samples[i]) * gain
-				if v > math.MaxInt16 {
-					v = math.MaxInt16
-				} else if v < math.MinInt16 {
-					v = math.MinInt16
-				}
-				samples[i] = int16(v)
-			}
-		}
-		switch {
-		case len(samples) == len(out):
-			copy(out, samples)
-		case len(samples)*2 == len(out):
-			// Expand mono to stereo if needed
-			for i := 0; i < len(samples); i++ {
-				v := samples[i]
-				out[2*i] = v
-				out[2*i+1] = v
-			}
-		default:
-			copy(out, samples)
-			if len(samples) < len(out) {
-				for i := len(samples); i < len(out); i++ {
-					out[i] = 0
-				}
-			}
-		}
-	default:
+	samples := am.dequeueOutput()
+	if samples == nil {
 		for i := range out {
 			out[i] = 0
+		}
+		return
+	}
+
+	outputPacketCount++
+	if outputPacketCount%100 == 1 {
+		log.Printf("Playing audio packet #%d, samples=%d", outputPacketCount, len(samples))
+	}
+	gain := am.outputGain
+	if gain != 1.0 {
+		for i := range samples {
+			v := float64(samples[i]) * gain
+			if v > math.MaxInt16 {
+				v = math.MaxInt16
+			} else if v < math.MinInt16 {
+				v = math.MinInt16
+			}
+			samples[i] = int16(v)
+		}
+	}
+	switch {
+	case len(samples) == len(out):
+		copy(out, samples)
+	case len(samples)*2 == len(out):
+		// Expand mono to stereo if needed
+		for i := 0; i < len(samples); i++ {
+			v := samples[i]
+			out[2*i] = v
+			out[2*i+1] = v
+		}
+	default:
+		copy(out, samples)
+		if len(samples) < len(out) {
+			for i := len(samples); i < len(out); i++ {
+				out[i] = 0
+			}
 		}
 	}
 }

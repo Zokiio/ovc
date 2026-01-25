@@ -691,13 +691,7 @@ func (vc *VoiceClient) receiveLoop() {
 				continue
 			}
 
-			select {
-			case vc.audioManager.GetOutputChannel() <- stereo:
-			default:
-				if packetCount%100 == 1 {
-					log.Printf("Output channel full, dropping packet")
-				}
-			}
+			vc.audioManager.enqueueOutput(stereo)
 		}
 
 	}
@@ -891,6 +885,7 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 
 			lr := math.Hypot(float64(pos[0]), float64(pos[2]))
 			if lr > 0 {
+				// Left/right comes from X in listener frame (+X = right).
 				pan = float64(pos[0]) / lr
 			}
 
@@ -906,15 +901,7 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 		log.Printf("[SPATIALIZE] pos=(%.2f,%.2f,%.2f) dist=%.2f att=%.3f pan=%.3f elevNorm=%.3f panScale=%.3f", pos[0], pos[1], pos[2], d, att, pan, elev, panPreview)
 	}
 
-	// Equal-power panning with stronger elevation widening: above = wider, below = narrower
-	panScale := 1.0 + 1.2*elev
-	if panScale < 0.35 {
-		panScale = 0.35
-	}
-	if panScale > 1.8 {
-		panScale = 1.8
-	}
-	pan *= panScale
+		// Equal-power panning without elevation widening to keep front/side accuracy
 	if pan < -1 {
 		pan = -1
 	}
