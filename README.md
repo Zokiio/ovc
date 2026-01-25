@@ -1,6 +1,4 @@
-<div align="center">
-  <img src=".github/images/logo.png" alt="Hytale Voice Chat Logo" width="200"/>
-</div>
+![Voice Client Screenshot](.github/images/logo.png)
 
 # Hytale Voice Chat
 
