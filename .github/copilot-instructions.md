@@ -171,9 +171,13 @@ hytale-voice-chat/
    - `0x01`: AuthenticationPacket (client → server)
    - `0x02`: AudioPacket (bidirectional)
    - `0x03`: AuthAckPacket (server → client) [TODO: not yet implemented]
-   - `0x04`: DisconnectPacket
-   - `0x05`: TestAudioPacket (for testing)
-   - `0x09`: ServerShutdownPacket
+   - `0x04`: DisconnectPacket (client → server)
+   - `0x05`: TestAudioPacket (for testing, non-positional broadcast)
+   - `0x06`: GroupManagementPacket (client → server, for create/join/leave operations)
+   - `0x07`: GroupStatePacket (server → client, syncs group state)
+   - `0x08`: GroupListPacket (bidirectional, query and response)
+   - `0x09`: ServerShutdownPacket (server → client)
+   - `0x0A`: DisconnectAckPacket (server → client)
 
 ## Tools & Resources
 
