@@ -250,14 +250,14 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
                     PlayerRef playerRefComponent = store.getComponent(ref, PlayerRef.getComponentType());
                     if (playerRefComponent == null) {
                         context.sendMessage(Message.raw("Unable to open voice chat GUI: player reference is unavailable."));
-                        logger.atWarn().log("Failed to open voice chat GUI for {}: PlayerRef component was null", player.getDisplayName());
+                        logger.atWarning().log("Failed to open voice chat GUI for {}: PlayerRef component was null", player.getDisplayName());
                         return;
                     }
 
                     player.getPageManager().openCustomPage(ref, store,
                             new VoiceChatPage(playerRefComponent, groupManager, plugin));
                 } catch (Exception e) {
-                    logger.atError().withThrowable(e).log("Failed to open voice chat GUI for {}", player.getDisplayName());
+                    logger.atSevere().log("Failed to open voice chat GUI for " + player.getDisplayName() + ": " + e.getMessage());
                     context.sendMessage(Message.raw("An error occurred while opening the voice chat GUI. Please try again later."));
                 }
             }, world);
