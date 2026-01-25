@@ -7,11 +7,10 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
-import com.hytale.voicechat.plugin.command.VoiceProximityCommand;
 import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
-import com.hytale.voicechat.plugin.command.VoiceChatGuiCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
+import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -75,16 +74,15 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Register event system for player join/quit tracking (with udpServer reference for disconnection)
             EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, udpServer));
             EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
+            EntityStore.REGISTRY.registerSystem(new UIRefreshTickingSystem());
             
             udpServer.start();
             
             // Start position tracking
             positionTracker.start();
             
-            // Register commands
-            getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
-            getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager));
-            getCommandRegistry().registerCommand(new VoiceChatGuiCommand(groupManager, this));
+            // Register consolidated voice command
+            getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager, this));
             
             logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
@@ -99,6 +97,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     @Override
     protected void shutdown() {
         logger.atInfo().log("Shutting down Hytale Voice Chat Plugin...");
+        
+        // Clear any open voice chat pages to prevent stale references
+        try {
+            com.hytale.voicechat.plugin.gui.VoiceChatPage.clearAllPages();
+        } catch (Exception e) {
+            logger.atFine().log("Failed to clear voice chat pages: " + e.getMessage());
+        }
         
         // Notify clients of graceful shutdown before stopping the UDP server
         if (udpServer != null) {

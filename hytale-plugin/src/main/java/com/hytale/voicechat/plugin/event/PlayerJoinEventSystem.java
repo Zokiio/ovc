@@ -91,6 +91,13 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
             if (udpServer != null) {
                 udpServer.disconnectPlayerVoiceClient(playerUUID);
             }
+            
+            // Clean up any open voice chat pages for this player
+            try {
+                com.hytale.voicechat.plugin.gui.VoiceChatPage.removePlayerPage(playerUUID);
+            } catch (Exception e) {
+                logger.atFine().log("Failed to clean up voice chat page for disconnected player: " + e.getMessage());
+            }
         }
     }
 

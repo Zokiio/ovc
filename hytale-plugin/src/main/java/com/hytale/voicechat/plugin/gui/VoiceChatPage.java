@@ -24,25 +24,60 @@ import javax.annotation.Nonnull;
 import java.awt.Color;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceChatData> {
 
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final String PAGE_LAYOUT = "Pages/VoiceChatGUI.ui";
+    
+    // Static tracking of all open pages for auto-refresh
+    // Maps player UUID -> (page, ref) pair
+    private static class PageEntry {
+        volatile VoiceChatPage page;
+        volatile Ref<EntityStore> ref;
+        PageEntry(VoiceChatPage page, Ref<EntityStore> ref) {
+            this.page = page;
+            this.ref = ref;
+        }
+    }
+    
+    private static final ConcurrentHashMap<UUID, PageEntry> openPages = new ConcurrentHashMap<>();
+    
     private final GroupManager groupManager;
     private final HytaleVoiceChatPlugin plugin;
     private String groupNameInput = "";
+    
+    // Cache last known state to detect changes
+    // Use -1 as a sentinel initial value so the first comparison against the real group count (>= 0)
+    // always detects a change and forces an initial UI refresh.
+    private volatile int lastGroupCount = -1;
+    private volatile UUID lastPlayerGroupId = null;
+    private volatile int lastMemberCount = 0;
+    private volatile boolean lastConnectedStatus = false;
+    private volatile int lastGroupListHash = 0; // Hash of all group IDs to detect changes beyond count
+    private volatile int lastMemberListHash = 0; // Hash of member UUIDs to detect changes beyond count
 
     @SuppressWarnings("null")
     public VoiceChatPage(@Nonnull PlayerRef playerRef, @Nonnull GroupManager groupManager, @Nonnull HytaleVoiceChatPlugin plugin) {
         super(playerRef, CustomPageLifetime.CanDismiss, VoiceChatData.CODEC);
         this.groupManager = groupManager;
         this.plugin = plugin;
+        
+        // Register this page for auto-refresh updates
+        openPages.put(playerRef.getUuid(), new PageEntry(this, null));
+        logger.atFine().log("Registered VoiceChatPage for player " + playerRef.getUuid());
     }
 
     @SuppressWarnings("null")
     @Override
     public void build(@Nonnull Ref<EntityStore> ref, @Nonnull UICommandBuilder commands, @Nonnull UIEventBuilder events, @Nonnull Store<EntityStore> store) {
+        // Store the ref for later use in refresh operations
+        PageEntry entry = openPages.get(playerRef.getUuid());
+        if (entry != null) {
+            entry.ref = ref;
+        }
+        
         commands.append(PAGE_LAYOUT);
 
         // Set initial text input value
@@ -323,6 +358,133 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 .filter(g -> g.getName().equalsIgnoreCase(name))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Refresh this page with current group state (called by UIRefreshTickingSystem)
+     * Only sends updates if state has actually changed (change detection)
+     */
+    @SuppressWarnings("null")
+    void refreshPage(Store<EntityStore> store, Ref<EntityStore> ref) {
+        try {
+            // Check if anything has changed before building command updates
+            List<Group> allGroups = groupManager.listGroups();
+            int currentGroupCount = allGroups.size();
+            var currentGroup = groupManager.getPlayerGroup(playerRef.getUuid());
+            UUID currentGroupId = currentGroup != null ? currentGroup.getGroupId() : null;
+            int currentMemberCount = currentGroup != null ? currentGroup.getMemberCount() : 0;
+            
+            Player player = store.getComponent(ref, Player.getComponentType());
+            boolean currentConnectedStatus = false;
+            if (player != null && plugin.getUdpServer() != null) {
+                currentConnectedStatus = plugin.getUdpServer().isPlayerConnected(playerRef.getUuid());
+            }
+            
+            // Calculate hash of all group IDs to detect changes beyond count
+            // Use reduce with XOR to avoid collision issues with sum()
+            int currentGroupListHash = allGroups.stream()
+                .map(Group::getGroupId)
+                .mapToInt(UUID::hashCode)
+                .reduce(0, (a, b) -> a ^ b);
+            
+            // Calculate hash of member UUIDs to detect member changes beyond count
+            // Use reduce with XOR to avoid collision issues with sum()
+            int currentMemberListHash = 0;
+            if (currentGroup != null) {
+                currentMemberListHash = currentGroup.getMembers().stream()
+                    .mapToInt(UUID::hashCode)
+                    .reduce(0, (a, b) -> a ^ b);
+            }
+            
+            // Only update if state changed
+            if (currentGroupCount == lastGroupCount && 
+                (currentGroupId == null ? lastPlayerGroupId == null : currentGroupId.equals(lastPlayerGroupId)) &&
+                currentMemberCount == lastMemberCount &&
+                currentConnectedStatus == lastConnectedStatus &&
+                currentGroupListHash == lastGroupListHash &&
+                currentMemberListHash == lastMemberListHash) {
+                return; // No changes, skip update
+            }
+            
+            // State changed - build and send update
+            UICommandBuilder commandBuilder = new UICommandBuilder();
+            
+            updateConnectionStatus(commandBuilder, store, ref);
+            updateGroupDisplay(commandBuilder);
+            updateUIVisibility(commandBuilder);
+            updateGroupsList(commandBuilder);
+            
+            this.sendUpdate(commandBuilder, false);
+            
+            // Cache new state
+            lastGroupCount = currentGroupCount;
+            lastPlayerGroupId = currentGroupId;
+            lastMemberCount = currentMemberCount;
+            lastConnectedStatus = currentConnectedStatus;
+            lastGroupListHash = currentGroupListHash;
+            lastMemberListHash = currentMemberListHash;
+            
+            logger.atFine().log("Refreshed VoiceChatPage for player " + playerRef.getUuid() + 
+                " (groups: " + currentGroupCount + ", in_group: " + (currentGroup != null) + 
+                ", connected: " + currentConnectedStatus + ")");
+        } catch (Exception e) {
+            logger.atWarning().log("Error refreshing page for player " + playerRef.getUuid() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Called when page is closed - unregister from tracking
+     */
+    @Override
+    public void close() {
+        openPages.remove(playerRef.getUuid());
+        logger.atFine().log("Unregistered VoiceChatPage for player " + playerRef.getUuid());
+        super.close();
+    }
+
+    /**
+     * Static method called by UIRefreshTickingSystem to refresh all open pages
+     */
+    public static void refreshAllPages(Store<EntityStore> store) {
+        if (store == null) {
+            logger.atWarning().log("Cannot refresh pages: store is null");
+            return;
+        }
+        
+        for (PageEntry entry : openPages.values()) {
+            if (entry != null && entry.page != null && entry.ref != null && entry.ref.isValid()) {
+                try {
+                    // Verify player still exists in the store before refreshing
+                    Player player = store.getComponent(entry.ref, Player.getComponentType());
+                    if (player == null) {
+                        logger.atFine().log("Skipping refresh for invalid player reference");
+                        continue;
+                    }
+                    
+                    entry.page.refreshPage(store, entry.ref);
+                } catch (Exception e) {
+                    logger.atFine().log("Could not refresh page: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    /**
+     * Clear all open pages - called during plugin shutdown
+     */
+    public static void clearAllPages() {
+        logger.atInfo().log("Clearing " + openPages.size() + " open voice chat pages");
+        openPages.clear();
+    }
+
+    /**
+     * Remove a specific player's page - called when player disconnects
+     */
+    public static void removePlayerPage(UUID playerId) {
+        PageEntry removed = openPages.remove(playerId);
+        if (removed != null) {
+            logger.atFine().log("Removed voice chat page for disconnected player " + playerId);
+        }
     }
 
     public static class VoiceChatData {
