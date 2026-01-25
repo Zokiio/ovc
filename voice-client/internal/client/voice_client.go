@@ -279,6 +279,8 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 	vc.serverUDPAddr = serverUDPAddr
 
 	vc.requestedSampleRate = sanitizeSampleRate(vc.requestedSampleRate)
+	// Initialize selectedSampleRate to default in case authentication fails
+	vc.selectedSampleRate = defaultSampleRate
 
 	// Retry logic for authentication with exponential backoff
 	const maxRetries = 3
@@ -307,7 +309,7 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 			return fmt.Errorf("server did not acknowledge authentication after %d attempts: %w", maxRetries, err)
 		}
 
-		vc.selectedSampleRate = sanitizeSampleRate(selectedSampleRate)
+		vc.selectedSampleRate = selectedSampleRate
 
 		// Initialize audio manager after auth so we can use the negotiated sample rate
 		audioManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel, vc.selectedSampleRate)

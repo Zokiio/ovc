@@ -7,7 +7,21 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
 /**
- * Packet sent by client to authenticate with username
+ * Packet sent by client to authenticate with username.
+ * 
+ * <p>Protocol Compatibility Notes:</p>
+ * <ul>
+ *   <li>The requestedSampleRate field (4 bytes) is an optional extension added to support
+ *       sample rate negotiation between client and server.</li>
+ *   <li>Backward compatibility: Older servers that don't expect the sample rate field can
+ *       still parse packets from newer clients by checking buffer.remaining() before reading
+ *       the optional field (see deserialize method).</li>
+ *   <li>Forward compatibility: Newer servers always write the sample rate field, but older
+ *       clients won't parse it. If clients and servers need to be upgraded independently,
+ *       consider adding a protocol version field to the packet header.</li>
+ *   <li>Current implementation assumes server and client are updated together for sample
+ *       rate negotiation to work properly.</li>
+ * </ul>
  */
 public class AuthenticationPacket extends VoicePacket {
     private final String username;
