@@ -5,7 +5,7 @@ import java.util.UUID;
 
 /**
  * Packet sent by server to acknowledge client disconnection
- * Packet type: 0x08
+ * Packet type: 0x0A
  */
 public class DisconnectAckPacket extends VoicePacket {
     private final String reason;
@@ -24,7 +24,7 @@ public class DisconnectAckPacket extends VoicePacket {
         byte[] reasonBytes = reason.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         ByteBuffer buffer = ByteBuffer.allocate(1 + 16 + 4 + reasonBytes.length);
         
-        buffer.put((byte) 0x08); // Packet type: DISCONNECT_ACK
+        buffer.put((byte) 0x0A); // Packet type: DISCONNECT_ACK
         buffer.putLong(getSenderId().getMostSignificantBits());
         buffer.putLong(getSenderId().getLeastSignificantBits());
         buffer.putInt(reasonBytes.length);
@@ -36,8 +36,8 @@ public class DisconnectAckPacket extends VoicePacket {
     public static DisconnectAckPacket deserialize(byte[] data) {
         ByteBuffer buffer = ByteBuffer.wrap(data);
         
-        byte packetType = buffer.get(); // Should be 0x08
-        if (packetType != 0x08) {
+        byte packetType = buffer.get(); // Should be 0x0A
+        if (packetType != 0x0A) {
             throw new IllegalArgumentException("Invalid packet type for DisconnectAckPacket: " + packetType);
         }
         
