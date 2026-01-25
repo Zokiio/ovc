@@ -13,7 +13,6 @@ type ClientConfig struct {
 	Username     string  `json:"username"`
 	MicLabel     string  `json:"micLabel"`
 	SpeakerLabel string  `json:"speakerLabel"`
-	SampleRate   int     `json:"sampleRate"`
 	VADEnabled   bool    `json:"vadEnabled"`
 	VADThreshold int     `json:"vadThreshold"`
 	MasterVolume float64 `json:"masterVolume"`

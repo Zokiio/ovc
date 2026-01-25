@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -29,9 +30,11 @@ var embeddedIcon []byte
 // shows full text on hover, and copies to clipboard on click.
 type TruncatedStatusLabel struct {
 	widget.Label
-	fullText string
-	maxChars int
-	window   fyne.Window
+	fullText    string
+	maxChars    int
+	window      fyne.Window
+	activePopup *widget.PopUp
+	popupMu     sync.Mutex
 }
 
 // NewTruncatedStatusLabel creates a new truncated status label with window reference.
@@ -63,7 +66,12 @@ func (tsl *TruncatedStatusLabel) MouseIn(*desktop.MouseEvent) {
 
 // MouseOut hides the tooltip.
 func (tsl *TruncatedStatusLabel) MouseOut() {
-	// PopUp auto-hides; no action needed
+	tsl.popupMu.Lock()
+	defer tsl.popupMu.Unlock()
+	if tsl.activePopup != nil {
+		tsl.activePopup.Hide()
+		tsl.activePopup = nil
+	}
 }
 
 // Tapped copies full text to clipboard on click.
@@ -78,6 +86,11 @@ func (tsl *TruncatedStatusLabel) showPopUp(text string) {
 	if tsl.window == nil {
 		return
 	}
+	tsl.popupMu.Lock()
+	// Hide any existing popup before creating a new one
+	if tsl.activePopup != nil {
+		tsl.activePopup.Hide()
+	}
 	pop := widget.NewPopUp(
 		widget.NewLabel(text),
 		tsl.window.Canvas(),
@@ -86,8 +99,17 @@ func (tsl *TruncatedStatusLabel) showPopUp(text string) {
 		tsl.Position().X,
 		tsl.Position().Y-40,
 	))
+	tsl.activePopup = pop
+	tsl.popupMu.Unlock()
 	// Auto-hide after 3 seconds
-	time.AfterFunc(3*time.Second, pop.Hide)
+	time.AfterFunc(3*time.Second, func() {
+		tsl.popupMu.Lock()
+		defer tsl.popupMu.Unlock()
+		if tsl.activePopup == pop {
+			pop.Hide()
+			tsl.activePopup = nil
+		}
+	})
 }
 
 // GUI represents the voice chat GUI
@@ -253,7 +275,10 @@ func (gui *GUI) setupUI() {
 	gui.speakerSelect = widget.NewSelect(speakerOptions, nil)
 	gui.speakerSelect.SetSelected(DefaultDeviceLabel)
 
-	// Set callbacks after all selects are created
+	// Attach change callbacks only after both selects exist. Some Fyne drivers
+	// may fire OnChanged during SetSelected; uiReady prevents those initial
+	// events from attempting to switch devices or write config before the UI
+	// and voiceClient are fully initialized.
 	gui.micSelect.OnChanged = func(selected string) {
 		if !gui.uiReady {
 			return
@@ -476,6 +501,8 @@ func (gui *GUI) setupUI() {
 	)
 
 	content := container.NewVBox(
+		widget.NewLabel("Hytale Voice Chat"),
+		widget.NewSeparator(),
 		body,
 	)
 
@@ -652,7 +679,6 @@ func (gui *GUI) saveConfig(server string, port int, username string, micLabel st
 		Username:     username,
 		MicLabel:     micLabel,
 		SpeakerLabel: speakerLabel,
-		SampleRate:   defaultSampleRate,
 		VADEnabled:   vadEnabled,
 		VADThreshold: vadThreshold,
 		MasterVolume: masterVol,
@@ -737,7 +763,6 @@ func (gui *GUI) currentVADThreshold() int {
 	}
 	return int(gui.vadSlider.Value)
 }
-
 
 func (gui *GUI) updateVADIndicator(enabled bool, active bool) {
 	if gui.vadBar == nil || gui.vadStateLabel == nil {

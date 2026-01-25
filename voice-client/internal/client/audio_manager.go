@@ -150,7 +150,7 @@ func (am *SimpleAudioManager) Start() error {
 	if am.useOpus && am.encoder != nil && am.decoder != nil {
 		codec = "Opus"
 	}
-	log.Printf("Audio manager initialized (%s codec ready, input: %s, net=%dHz, in=%dHz, out=%dHz)", codec, am.inputLabel, am.sampleRate, am.inputSampleRate, am.outputSampleRate)
+	log.Printf("Audio manager initialized (%s codec ready, input: %s, network=%dHz, input=%dHz, output=%dHz)", codec, am.inputLabel, am.sampleRate, am.inputSampleRate, am.outputSampleRate)
 	return nil
 }
 
@@ -245,7 +245,7 @@ func (am *SimpleAudioManager) EncodeAudio(codec byte, samples []int16) ([]byte, 
 
 func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, error) {
 	if len(data) == 0 {
-		return make([]int16, am.frameSize), nil
+		return make([]int16, am.outputFrameSize), nil
 	}
 
 	switch codec {
@@ -267,12 +267,21 @@ func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, err
 		} else {
 			pcm = pcm[:n]
 		}
-		return pcm, nil
+		return am.applyOutputResampling(pcm), nil
 	case AudioCodecPCM:
-		return decodePCM(data, am.frameSize), nil
+		pcm := decodePCM(data, am.frameSize)
+		return am.applyOutputResampling(pcm), nil
 	default:
 		return nil, fmt.Errorf("unknown codec: %d", codec)
 	}
+}
+
+// applyOutputResampling resamples audio from network rate to output device rate if needed
+func (am *SimpleAudioManager) applyOutputResampling(pcm []int16) []int16 {
+	if am.outputSampleRate != am.sampleRate {
+		pcm = resampleLinear(pcm, am.sampleRate, am.outputSampleRate, am.outputFrameSize)
+	}
+	return fitSamples(pcm, am.outputFrameSize)
 }
 
 func encodePCM(samples []int16) []byte {
@@ -319,6 +328,12 @@ func fitSamples(samples []int16, frameSize int) []int16 {
 	return samples
 }
 
+// resampleLinear performs basic linear interpolation for audio resampling.
+// Note: This implementation uses simple linear interpolation, which can introduce
+// aliasing artifacts and reduce audio quality, especially when downsampling.
+// For production use with higher quality requirements, consider using a more
+// sophisticated resampling algorithm (such as cubic interpolation or sinc resampling)
+// or leveraging the Opus codec's built-in resampling capabilities.
 func resampleLinear(input []int16, inRate int, outRate int, outLen int) []int16 {
 	if outLen <= 0 {
 		return []int16{}

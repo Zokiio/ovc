@@ -23,6 +23,10 @@ func sanitizeSampleRate(sampleRate int) int {
 	return defaultSampleRate
 }
 
+// frameSizeForSampleRate returns the number of PCM samples in a single audio
+// frame for the given sampleRate, assuming a fixed frame duration of
+// frameDurationMs (20ms). For example, at 48000 Hz this yields 960 samples
+// (48000 * 20 / 1000), matching the Opus 20ms frame size.
 func frameSizeForSampleRate(sampleRate int) int {
 	return sampleRate * frameDurationMs / 1000
 }

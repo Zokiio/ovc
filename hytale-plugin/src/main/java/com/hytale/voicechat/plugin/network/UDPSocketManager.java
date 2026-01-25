@@ -363,9 +363,10 @@ public class UDPSocketManager {
         }
 
         private int selectSampleRate(int requestedSampleRate) {
-            if (NetworkConfig.isSupportedSampleRate(requestedSampleRate)) {
-                return requestedSampleRate;
-            }
+            // Enforce a single sample rate on the server side to avoid codec mismatches.
+            // The plugin's OpusCodec operates at NetworkConfig.DEFAULT_SAMPLE_RATE, so we 
+            // must ensure all clients use the same rate to prevent audio quality issues 
+            // when routing packets between clients with different rates.
             return NetworkConfig.DEFAULT_SAMPLE_RATE;
         }
         
