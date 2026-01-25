@@ -124,27 +124,6 @@ func (am *SimpleAudioManager) Start() error {
 		}
 	}
 
-	// Start output stream with retry logic for Windows audio issues
-	var outputStartErr error
-	for i := 0; i < 3; i++ {
-		outputStartErr = am.outputStream.Start()
-		if outputStartErr == nil {
-			break
-		}
-		log.Printf("Failed to start output stream (attempt %d/3): %v", i+1, outputStartErr)
-		if i < 2 {
-			time.Sleep(time.Millisecond * 100)
-		}
-	}
-	if outputStartErr != nil {
-		am.outputStream.Close()
-		am.outputStream = nil
-		am.inputStream.Close()
-		am.inputStream = nil
-		portaudio.Terminate()
-		return fmt.Errorf("failed to start audio stream after 3 attempts: %w (try closing other audio applications or restarting)", outputStartErr)
-	}
-
 	// Start input stream with retry logic
 	var inputStartErr error
 	for i := 0; i < 3; i++ {
@@ -542,12 +521,60 @@ func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo
 	am.outputSampleRate = outputRate
 	am.outputFrameSize = frameSizeForSampleRate(outputRate)
 
-	// Try low latency first
+	// Try multiple configurations in order of preference
+	configs := []struct {
+		channels int
+		latency  time.Duration
+		desc     string
+	}{
+		{2, outputDevice.DefaultLowOutputLatency, "stereo low latency"},
+		{2, outputDevice.DefaultHighOutputLatency, "stereo high latency"},
+		{1, outputDevice.DefaultLowOutputLatency, "mono low latency"},
+		{1, outputDevice.DefaultHighOutputLatency, "mono high latency"},
+	}
+
+	// First try with the selected device
+	for _, cfg := range configs {
+		stream, err := am.tryOpenOutputStream(outputDevice, outputRate, cfg.channels, cfg.latency, cfg.desc)
+		if err == nil {
+			return stream, nil
+		}
+	}
+
+	// If all configs failed with selected device, try other devices (DirectSound, MME on Windows)
+	if runtime.GOOS == "windows" {
+		log.Printf("All configs failed with primary device, trying alternative devices...")
+		devices, err := portaudio.Devices()
+		if err == nil {
+			for _, altDevice := range devices {
+				if altDevice.MaxOutputChannels == 0 || altDevice == outputDevice {
+					continue
+				}
+				// Try DirectSound or MME devices
+				hostName := hostNameFromDevice(altDevice)
+				if !strings.Contains(hostName, "DirectSound") && !strings.Contains(hostName, "MME") {
+					continue
+				}
+				
+				for _, cfg := range configs {
+					stream, err := am.tryOpenOutputStream(altDevice, outputRate, cfg.channels, cfg.latency, fmt.Sprintf("%s (%s)", cfg.desc, hostName))
+					if err == nil {
+						return stream, nil
+					}
+				}
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("failed to open audio stream after trying all configurations and devices")
+}
+
+func (am *SimpleAudioManager) tryOpenOutputStream(outputDevice *portaudio.DeviceInfo, outputRate int, channels int, latency time.Duration, desc string) (*portaudio.Stream, error) {
 	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outputDevice,
-			Channels: 2,
-			Latency:  outputDevice.DefaultLowOutputLatency,
+			Channels: channels,
+			Latency:  latency,
 		},
 		SampleRate:      float64(outputRate),
 		FramesPerBuffer: am.outputFrameSize,
@@ -555,15 +582,23 @@ func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo
 
 	stream, err := portaudio.OpenStream(params, am.processOutput)
 	if err != nil {
-		// Fallback to high latency if low latency fails
-		log.Printf("Low latency output failed, trying high latency: %v", err)
-		params.Output.Latency = outputDevice.DefaultHighOutputLatency
-		stream, err = portaudio.OpenStream(params, am.processOutput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open audio stream (tried low and high latency): %w", err)
-		}
+		log.Printf("Failed to open output with %s: %v", desc, err)
+		return nil, err
 	}
 
+	// Try to start the stream to verify it actually works
+	err = stream.Start()
+	if err != nil {
+		log.Printf("Failed to start output with %s: %v", desc, err)
+		stream.Close()
+		return nil, err
+	}
+
+	// Success! Leave it running, caller will use it
+	if channels == 1 {
+		log.Printf("Warning: Using mono output (stereo not supported)")
+	}
+	log.Printf("Successfully initialized output stream with %s", desc)
 	return stream, nil
 }
 
@@ -779,13 +814,6 @@ func buildOutputDeviceOptions() ([]deviceOption, error) {
 	for _, device := range devices {
 		if device.MaxOutputChannels > 0 {
 			candidates = append(candidates, device)
-		}
-	}
-
-	if runtime.GOOS == "windows" {
-		wasapi := filterByHostAPI(candidates, "WASAPI")
-		if len(wasapi) > 0 {
-			candidates = wasapi
 		}
 	}
 
