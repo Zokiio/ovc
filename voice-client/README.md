@@ -21,14 +21,31 @@ A lightweight voice chat client for Hytale written in Go.
   - **Linux**: `apt-get install portaudio19-dev libopus-dev libopusfile-dev`
 
 ### Build for current platform
-```bash
-# On Windows (PowerShell), ensure MSYS2 MinGW is in PATH and CGO is enabled:
+
+**Windows (PowerShell) - Recommended:**
+```powershell
+# Use the build script (automatically copies DLLs):
+.\build.ps1
+
+# Or build with no console window:
+.\build.ps1 -NoWindow
+
+# Or use Make:
+make build-gui
+```
+
+**Manual build (Windows):**
+```powershell
 $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
 $env:CGO_ENABLED = "1"
-go build -o HytaleVoiceChat.exe ./cmd/voice-client
+go build -o dist\HytaleVoiceChat.exe .\cmd\voice-client
 
-# On macOS/Linux:
-go build -o HytaleVoiceChat ./cmd/voice-client
+# Then copy required DLLs from C:\msys64\mingw64\bin\ to dist\
+```
+
+**macOS/Linux:**
+```bash
+go build -o dist/HytaleVoiceChat ./cmd/voice-client
 ```
 
 ### Build for Windows (from macOS/Linux)
@@ -55,13 +72,38 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 
 ## Running
 
+The built application is in the `dist/` directory:
+
+**Windows:**
 ```bash
-./HytaleVoiceChat
+.\dist\HytaleVoiceChat.exe
+```
+
+**macOS/Linux:**
+```bash
+./dist/HytaleVoiceChat
+```
+
+Launch the client and enter connection details:
+
+### Connection Formats
+The server field supports multiple formats:
+- **Domain name**: `hytale.techynoodle.com` (uses default port 24454)
+- **Domain with port**: `hytale.techynoodle.com:25000`
+- **IP address**: `192.168.1.100` (uses default port 24454)
+- **IP with port**: `192.168.1.100:24454`
+- **Localhost**: `localhost` (uses default port 24454)
+
+The port field will auto-populate if a port is included in the server address.
+
+### Example Usage
+```bash
+./dist/HytaleVoiceChat
 ```
 
 Or on Windows:
 ```bash
-HytaleVoiceChat.exe
+.\dist\HytaleVoiceChat.exe
 ```
 
 ## Config and Logs

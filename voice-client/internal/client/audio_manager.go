@@ -116,23 +116,47 @@ func (am *SimpleAudioManager) Start() error {
 		}
 	}
 
-	if err := am.outputStream.Start(); err != nil {
+	// Start output stream with retry logic for Windows audio issues
+	var outputStartErr error
+	for i := 0; i < 3; i++ {
+		outputStartErr = am.outputStream.Start()
+		if outputStartErr == nil {
+			break
+		}
+		log.Printf("Failed to start output stream (attempt %d/3): %v", i+1, outputStartErr)
+		if i < 2 {
+			time.Sleep(time.Millisecond * 100)
+		}
+	}
+	if outputStartErr != nil {
 		am.outputStream.Close()
 		am.outputStream = nil
 		am.inputStream.Close()
 		am.inputStream = nil
 		portaudio.Terminate()
-		return fmt.Errorf("failed to start audio stream: %w", err)
+		return fmt.Errorf("failed to start audio stream after 3 attempts: %w (try closing other audio applications or restarting)", outputStartErr)
 	}
 
-	if err := am.inputStream.Start(); err != nil {
+	// Start input stream with retry logic
+	var inputStartErr error
+	for i := 0; i < 3; i++ {
+		inputStartErr = am.inputStream.Start()
+		if inputStartErr == nil {
+			break
+		}
+		log.Printf("Failed to start input stream (attempt %d/3): %v", i+1, inputStartErr)
+		if i < 2 {
+			time.Sleep(time.Millisecond * 100)
+		}
+	}
+	if inputStartErr != nil {
 		am.inputStream.Close()
 		am.inputStream = nil
 		am.outputStream.Stop()
 		am.outputStream.Close()
 		am.outputStream = nil
 		portaudio.Terminate()
-		return fmt.Errorf("failed to start audio stream: %w", err)
+		return fmt.Errorf("failed to start audio stream after 3 attempts: %w (try closing other audio applications or restarting)", inputStartErr)
 	}
 
 	codec := "PCM"
@@ -401,6 +425,7 @@ func (am *SimpleAudioManager) openInputStream() (*portaudio.Stream, string, *por
 		return nil, "", nil, fmt.Errorf("no input device available")
 	}
 
+	// Try low latency first
 	params := portaudio.StreamParameters{
 		Input: portaudio.StreamDeviceParameters{
 			Device:   inputDevice,
@@ -411,13 +436,15 @@ func (am *SimpleAudioManager) openInputStream() (*portaudio.Stream, string, *por
 		FramesPerBuffer: am.frameSize,
 	}
 
-	if err := portaudio.IsFormatSupported(params, am.processInput); err != nil {
-		return nil, "", nil, fmt.Errorf("audio format not supported: %w", err)
-	}
-
 	stream, err := portaudio.OpenStream(params, am.processInput)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("failed to open audio stream: %w", err)
+		// Fallback to high latency if low latency fails
+		log.Printf("Low latency input failed, trying high latency: %v", err)
+		params.Input.Latency = inputDevice.DefaultHighInputLatency
+		stream, err = portaudio.OpenStream(params, am.processInput)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("failed to open audio stream (tried low and high latency): %w", err)
+		}
 	}
 
 	return stream, inputLabel, inputDevice, nil
@@ -432,6 +459,7 @@ func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo
 		return nil, fmt.Errorf("no output device available")
 	}
 
+	// Try low latency first
 	params := portaudio.StreamParameters{
 		Output: portaudio.StreamDeviceParameters{
 			Device:   outputDevice,
@@ -442,13 +470,15 @@ func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo
 		FramesPerBuffer: am.frameSize,
 	}
 
-	if err := portaudio.IsFormatSupported(params, am.processOutput); err != nil {
-		return nil, fmt.Errorf("audio format not supported: %w", err)
-	}
-
 	stream, err := portaudio.OpenStream(params, am.processOutput)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open audio stream: %w", err)
+		// Fallback to high latency if low latency fails
+		log.Printf("Low latency output failed, trying high latency: %v", err)
+		params.Output.Latency = outputDevice.DefaultHighOutputLatency
+		stream, err = portaudio.OpenStream(params, am.processOutput)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open audio stream (tried low and high latency): %w", err)
+		}
 	}
 
 	return stream, nil

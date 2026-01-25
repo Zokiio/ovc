@@ -4,7 +4,6 @@
 
 1. Java 25
 2. Git
-3. Hytale Server files (official API)
 
 ## Initial Setup
 
@@ -15,16 +14,15 @@ git clone https://github.com/YOUR_USERNAME/hytale-voicechat.git
 cd hytale-voicechat
 ```
 
-### 2. Add Hytale API files
+### 2. Configure local properties (optional)
 
-The official Hytale API files need to be placed in your Hytale server directory:
+If you want auto-copy to your Hytale server's mods folder:
 
 ```bash
-# The build.gradle references files from your Hytale installation:
-# /path/to/hytale/server/HytaleServer.jar
+cd hytale-plugin
+cp gradle-local.properties.example gradle-local.properties
+# Edit gradle-local.properties with your Hytale server path
 ```
-
-**Note:** Update the path in `hytale-plugin/build.gradle` to match your Hytale installation location if needed.
 
 ### 3. Build the project
 
@@ -33,7 +31,9 @@ cd hytale-plugin
 ./gradlew clean build
 ```
 
-Gradle builds the shared library and the Hytale plugin:
+The build will automatically download the Hytale API from the official Maven repository.
+
+Gradle builds:
 - `common` - Shared models and packets
 - Plugin JAR with all dependencies
 
@@ -51,10 +51,9 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 cd hytale-plugin
 ./gradlew build
 # JAR is in: hytale-plugin/build/libs/
-# Copy manually to your Hytale server's mods/ directory
+# Copy to your Hytale server's mods/ directory
+# Or use ./gradlew copyToHytale if configured
 ```
-
-**Note:** You can configure auto-copy by setting up the `copyToHytale` task in `build.gradle` with your Hytale server path.
 
 ## Project Structure
 
@@ -72,7 +71,8 @@ hytale-voicechat/
 
 ## Important Notes
 
-- Use the Hytale Server JAR from your Hytale installation
+- The Hytale Server API is automatically downloaded from the official Maven repository
+- Configure `gradle-local.properties` for auto-copy to your server's mods folder
 - All changes are committed to git for version control
 - Use `git push` to sync with repository
 

@@ -6,6 +6,8 @@ import (
 	"log"
 	"math"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,6 +28,7 @@ const (
 	vadThresholdDefault      = 1200
 	vadHangoverFramesDefault = 30 // default hangover frames (~1.5 seconds at 20ms per frame)
 	positionalMaxDistance    = 30.0
+	DefaultVoicePort         = 24454
 )
 
 type VoiceClient struct {
@@ -197,6 +200,37 @@ func (vc *VoiceClient) SetDisconnectListener(fn func(reason string)) {
 	vc.disconnectCB.Store(fn)
 }
 
+// parseServerAddress parses a server address string that may contain a port.
+// Supports formats: "host:port", "host" (uses defaultPort)
+// Returns host and port, or error if invalid.
+func parseServerAddress(serverAddr string, defaultPort int) (string, int, error) {
+	if serverAddr == "" {
+		return "", 0, fmt.Errorf("server address cannot be empty")
+	}
+
+	// Check if the address contains a port
+	if strings.Contains(serverAddr, ":") {
+		host, portStr, err := net.SplitHostPort(serverAddr)
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid server address format: %w", err)
+		}
+		
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return "", 0, fmt.Errorf("invalid port number: %w", err)
+		}
+		
+		if port < 1 || port > 65535 {
+			return "", 0, fmt.Errorf("port must be between 1 and 65535, got %d", port)
+		}
+		
+		return host, port, nil
+	}
+
+	// No port specified, use default
+	return serverAddr, defaultPort, nil
+}
+
 func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string, outputDeviceLabel string) error {
 	vc.mu.Lock()
 	defer vc.mu.Unlock()
@@ -205,11 +239,17 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 		return fmt.Errorf("already connected")
 	}
 
-	vc.username = username
-	vc.serverAddr = serverAddr
-	vc.serverPort = serverPort
+	// Parse server address to extract host and port
+	host, port, err := parseServerAddress(serverAddr, serverPort)
+	if err != nil {
+		return fmt.Errorf("invalid server address: %w", err)
+	}
 
-	log.Printf("Connecting to voice server at %s:%d as user '%s'", serverAddr, serverPort, username)
+	vc.username = username
+	vc.serverAddr = host
+	vc.serverPort = port
+
+	log.Printf("Connecting to voice server at %s:%d as user '%s'", host, port, username)
 
 	// Initialize audio manager
 	audioManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel)

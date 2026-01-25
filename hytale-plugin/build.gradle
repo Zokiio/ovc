@@ -35,6 +35,10 @@ allprojects {
     apply plugin: 'java'
     
     repositories {
+        maven {
+            name = "Hytale"
+            url = uri("https://maven.hytale.com/release")
+        }
         mavenCentral()
         maven { url = 'https://maven.maxhenkel.de/repository/public' }
         maven { url = 'https://repo.papermc.io/repository/maven-public/' }
@@ -73,14 +77,9 @@ subprojects {
 dependencies {
     implementation project(':common')
     
-    // Hytale API - using official HytaleServer.jar from Hytale installation
-    // Set via -Phytale.api.path or HYTALE_API_PATH environment variable
-    def hytaleApiPath = project.findProperty('hytale.api.path') ?: System.getenv('HYTALE_API_PATH')
-    if (hytaleApiPath && file(hytaleApiPath).exists()) {
-        compileOnly files(hytaleApiPath)
-    } else {
-        throw new GradleException('Hytale API path not configured or file not found. Set -Phytale.api.path or HYTALE_API_PATH to compile the plugin.')
-    }
+    // Hytale API from Maven repository
+    // Version is managed in gradle.properties for easy updates
+    compileOnly "com.hypixel.hytale:Server:${hytale_server_version}"
     
     // Voice server dependencies
     implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"

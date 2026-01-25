@@ -115,7 +115,7 @@ func (gui *GUI) setupUI() {
 
 	// Server input
 	gui.serverInput = widget.NewEntry()
-	gui.serverInput.SetPlaceHolder("Server Address")
+	gui.serverInput.SetPlaceHolder("Server (e.g., URL or IP:port)")
 	gui.serverInput.SetText("localhost")
 
 	// Port input
@@ -417,15 +417,32 @@ func (gui *GUI) onConnectClicked() {
 	portStr := gui.portInput.Text
 	username := gui.usernameInput.Text
 
-	port, err := strconv.Atoi(portStr)
+	// Parse default port from port field
+	defaultPort := 24454
+	if portStr != "" {
+		p, err := strconv.Atoi(portStr)
+		if err != nil {
+			gui.statusLabel.SetText("Invalid port number")
+			return
+		}
+		defaultPort = p
+	}
+
+	// Parse server address (may contain embedded port)
+	host, port, err := parseServerAddress(server, defaultPort)
 	if err != nil {
-		gui.statusLabel.SetText("Invalid port number")
+		gui.statusLabel.SetText(fmt.Sprintf("Invalid server: %v", err))
 		return
 	}
 
-	gui.saveConfig(server, port, username, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold(), gui.volumeSlider.Value, gui.micGainSlider.Value, gui.modeRadio.Selected == "Push-to-Talk", gui.pttKeyEntry.Text)
+	// Update port field if it was parsed from server string
+	if strings.Contains(server, ":") {
+		gui.portInput.SetText(strconv.Itoa(port))
+	}
 
-	gui.statusLabel.SetText("Connecting...")
+	gui.saveConfig(host, port, username, gui.micSelect.Selected, gui.speakerSelect.Selected, gui.vadCheck.Checked, gui.currentVADThreshold(), gui.volumeSlider.Value, gui.micGainSlider.Value, gui.modeRadio.Selected == "Push-to-Talk", gui.pttKeyEntry.Text)
+
+	gui.statusLabel.SetText(fmt.Sprintf("Connecting to %s:%d...", host, port))
 	gui.connectBtn.Disable()
 	gui.setConnectionEditable(false)
 

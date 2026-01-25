@@ -95,6 +95,8 @@ hytale-voice-chat/
 1. Download the voice client for your platform
 2. Run `HytaleVoiceChat` executable
 3. Enter your Hytale username and server address
+   - Supports URLs: `hytale.techynoodle.com` (auto-uses port 24454)
+   - Or with custom port: `hytale.techynoodle.com:25000`
 4. Click "Connect" and start talking!
 
 See [`voice-client/README.md`](voice-client/README.md) for detailed instructions.
@@ -111,6 +113,8 @@ See [`voice-client/README.md`](voice-client/README.md) for detailed instructions
 2. Copy JAR from `hytale-plugin/build/libs/` to your Hytale server's `mods/` folder
 3. Start/restart the Hytale server
 4. Configure settings in `config/voicechat.yml` (if needed)
+
+**Keeping Updated:** The plugin uses the Hytale Server API from Maven. To check for and update to new API versions, run `hytale-plugin/check-hytale-version.ps1` or edit `hytale_server_version` in `hytale-plugin/gradle.properties`. See [`hytale-plugin/docs/HYTALE_VERSION_MANAGEMENT.md`](hytale-plugin/docs/HYTALE_VERSION_MANAGEMENT.md) for details.
 
 See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed instructions.
 
@@ -133,7 +137,7 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 ### Prerequisites
 
 - **Voice Client**: Go 1.25+, PortAudio
-- **Hytale Plugin**: Java 25, Gradle, Hytale Server API files
+- **Hytale Plugin**: Java 25, Gradle (no local Hytale API files needed - uses Maven)
 
 ### Building Both Components
 

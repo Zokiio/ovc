@@ -4,11 +4,11 @@
 # Uncomment and set for your platform:
 
 ## Windows example:
-# hytale.api.path=C:/Users/username/AppData/Roaming/Hytale/install/release/package/game/latest/Server/HytaleServer.jar
 # hytale.mods.path=C:/Users/username/hytale/server/mods
 # org.gradle.java.home=C:/Program Files/Eclipse Adoptium/jdk-25.0.1.8-hotspot
 
 ## Mac example:
-# hytale.api.path=/Users/username/Library/Application Support/Hytale/install/release/package/game/latest/Server/HytaleServer.jar
 # hytale.mods.path=/Users/username/hytale/server/mods
 # org.gradle.java.home=/Library/Java/JavaVirtualMachines/jdk-25.jdk/Contents/Home
+
+# Note: hytale.api.path is no longer needed - the plugin now uses the official Maven repository

@@ -37,7 +37,11 @@ hs_err_pid*
 # Logs
 logs/
 *.log
-# Go client executables
+# Go client executables and build outputs
 go-client/HytaleVoiceChat
 go-client/HytaleVoiceChat.exe
 go-client/fyne-cross/
+voice-client/HytaleVoiceChat
+voice-client/HytaleVoiceChat.exe
+voice-client/dist/
+voice-client/*.dll
