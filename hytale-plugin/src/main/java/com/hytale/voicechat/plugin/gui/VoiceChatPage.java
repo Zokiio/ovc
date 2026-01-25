@@ -34,8 +34,8 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
     // Static tracking of all open pages for auto-refresh
     // Maps player UUID -> (page, ref) pair
     private static class PageEntry {
-        VoiceChatPage page;
-        Ref<EntityStore> ref;
+        volatile VoiceChatPage page;
+        volatile Ref<EntityStore> ref;
         PageEntry(VoiceChatPage page, Ref<EntityStore> ref) {
             this.page = page;
             this.ref = ref;
@@ -49,10 +49,10 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
     private String groupNameInput = "";
     
     // Cache last known state to detect changes
-    private int lastGroupCount = -1;
-    private UUID lastPlayerGroupId = null;
-    private int lastMemberCount = 0;
-    private boolean lastConnectedStatus = false;
+    private volatile int lastGroupCount = -1;
+    private volatile UUID lastPlayerGroupId = null;
+    private volatile int lastMemberCount = 0;
+    private volatile boolean lastConnectedStatus = false;
 
     @SuppressWarnings("null")
     public VoiceChatPage(@Nonnull PlayerRef playerRef, @Nonnull GroupManager groupManager, @Nonnull HytaleVoiceChatPlugin plugin) {
