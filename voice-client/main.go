@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"hytale-voice-chat-go/internal/client"
+	"github.com/zokiio/hytale-voicechat/internal/client"
 )
 
 func main() {

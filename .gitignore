@@ -44,4 +44,4 @@ go-client/fyne-cross/
 voice-client/HytaleVoiceChat
 voice-client/HytaleVoiceChat.exe
 voice-client/dist/
-voice-client/*.dll
+voice-client/windows/*

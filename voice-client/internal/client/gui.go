@@ -4,9 +4,12 @@
 package client
 
 import (
+	_ "embed"
 	"fmt"
 	"image/color"
 	"log"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +21,9 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 )
+
+//go:embed resources/Icon.png
+var embeddedIcon []byte
 
 // GUI represents the voice chat GUI
 type GUI struct {
@@ -94,10 +100,47 @@ func (gui *GUI) runOnUI(fn func()) {
 	fyne.Do(fn)
 }
 
+func (gui *GUI) loadAppIcon() fyne.Resource {
+	if len(embeddedIcon) > 0 {
+		return fyne.NewStaticResource("Icon.png", embeddedIcon)
+	}
+
+	candidates := []string{"Icon.png"}
+	if exePath, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exePath)
+		candidates = append([]string{
+			filepath.Join(exeDir, "resources", "Icon.png"),
+			filepath.Join(exeDir, "Icon.png"),
+		}, candidates...)
+	}
+
+	for _, path := range candidates {
+		iconResource, err := fyne.LoadResourceFromPath(path)
+		if err == nil {
+			return iconResource
+		}
+	}
+
+	return nil
+}
+
 // Run starts the GUI application
 func (gui *GUI) Run() {
 	gui.myApp = app.New()
+
+	iconResource := gui.loadAppIcon()
+	if iconResource == nil {
+		log.Printf("Warning: Could not load icon from resources/Icon.png or Icon.png")
+	} else {
+		gui.myApp.SetIcon(iconResource)
+	}
+
 	gui.win = gui.myApp.NewWindow("Hytale Voice Chat")
+
+	// Also set window icon explicitly for better compatibility
+	if iconResource != nil {
+		gui.win.SetIcon(iconResource)
+	}
 
 	gui.setupUI()
 
