@@ -9,6 +9,7 @@ import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.audio.OpusCodec;
 import com.hytale.voicechat.plugin.command.VoiceProximityCommand;
 import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
+import com.hytale.voicechat.plugin.command.VoiceChatGuiCommand;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
@@ -35,6 +36,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private GroupManager groupManager;
     private int voicePort;
     private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
+    // EntityStore reference not required currently for voice auth gating
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -55,23 +57,25 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Initialize group manager
             groupManager = new GroupManager();
+            // No default groups: users create/join groups as needed
             
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
-            
-            // Register event system for player join/quit tracking
-            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker));
-            EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
-            
-            // Initialize event listener
-            eventListener = new PlayerEventListener(positionTracker);
             
             // Initialize and start UDP voice server
             udpServer = new UDPSocketManager(voicePort);
             udpServer.setProximityDistance(proximityDistance);
             udpServer.setPositionTracker(positionTracker);
+            
+            // Initialize event listener
+            eventListener = new PlayerEventListener(positionTracker);
             udpServer.setEventListener(eventListener);
             udpServer.setGroupManager(groupManager);
+            
+            // Register event system for player join/quit tracking (with udpServer reference for disconnection)
+            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, udpServer));
+            EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
+            
             udpServer.start();
             
             // Start position tracking
@@ -80,6 +84,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Register commands
             getCommandRegistry().registerCommand(new VoiceProximityCommand(this));
             getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager));
+            getCommandRegistry().registerCommand(new VoiceChatGuiCommand(groupManager, this));
             
             logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
@@ -95,6 +100,20 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     protected void shutdown() {
         logger.atInfo().log("Shutting down Hytale Voice Chat Plugin...");
         
+        // Notify clients of graceful shutdown before stopping the UDP server
+        if (udpServer != null) {
+            try {
+                udpServer.broadcastShutdown("Plugin disabled - server shutting down");
+                // Allow time for shutdown packets to be delivered before closing the channel
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.atFine().log("Interrupted while waiting for shutdown broadcast");
+            } catch (Exception e) {
+                logger.atFine().log("Failed to broadcast shutdown: " + e.getMessage());
+            }
+        }
+
         if (positionTracker != null) {
             positionTracker.stop();
         }
@@ -114,6 +133,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         
         logger.atInfo().log("Hytale Voice Chat Plugin shutdown complete");
     }
+
     
     /**
      * Handle player movement
@@ -172,6 +192,20 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     public double getProximityDistance() {
         return proximityDistance;
+    }
+
+    /**
+     * Get the UDP socket manager
+     */
+    public UDPSocketManager getUdpServer() {
+        return udpServer;
+    }
+
+    /**
+     * Get the position tracker
+     */
+    public PlayerPositionTracker getPositionTracker() {
+        return positionTracker;
     }
 
     // TODO: Register Hytale event listeners when API becomes available

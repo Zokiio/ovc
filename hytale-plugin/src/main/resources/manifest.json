@@ -1,9 +1,20 @@
 {
-  "Main": "com.hytale.voicechat.plugin.HytaleVoiceChatPlugin",
-  "Name": "HytaleVoiceChat",
   "Group": "com.zottik.voicechat",
+  "Name": "HytaleVoiceChat",
   "Version": "1.0.0",
   "Description": "Proximity-based voice chat system for Hytale",
-  "Author": "Voice Chat Team",
-  "IncludesAssetPack": false
+  "Authors": [
+    {
+      "Name": "Zokiio"
+    }
+  ],
+  "Website": "https://github.com/Zokiio/hytale-voicechat",
+  "ServerVersion": "*",
+  "Dependencies": {
+    "Hytale:EntityModule": "*"
+  },
+  "OptionalDependencies": {},
+  "DisabledByDefault": false,
+  "Main": "com.hytale.voicechat.plugin.HytaleVoiceChatPlugin",
+  "IncludesAssetPack": true
 }

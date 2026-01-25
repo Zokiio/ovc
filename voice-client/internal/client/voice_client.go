@@ -19,6 +19,7 @@ const (
 	PacketTypeAuthAck        = 0x03
 	PacketTypeDisconnect     = 0x04
 	PacketTypeTestAudio      = 0x05
+	PacketTypeServerShutdown = 0x09
 	AuthTimeoutSeconds       = 5
 	audioHeaderLegacy        = 25
 	audioHeaderWithCodec     = 26
@@ -42,6 +43,7 @@ type VoiceClient struct {
 	vadActive         bool
 	vadHangover       int
 	vadStateCB        atomic.Value // func(enabled bool, active bool)
+	disconnectCB      atomic.Value // func(reason string) - called when disconnected
 	pttEnabled        atomic.Bool
 	pttActive         atomic.Bool
 	pttKey            string
@@ -188,6 +190,11 @@ func (vc *VoiceClient) newAudioManager(inputDeviceLabel string, outputDeviceLabe
 // SetVADStateListener registers a callback invoked when VAD enabled/active state changes.
 func (vc *VoiceClient) SetVADStateListener(fn func(enabled bool, active bool)) {
 	vc.vadStateCB.Store(fn)
+}
+
+// SetDisconnectListener registers a callback invoked when the client disconnects.
+func (vc *VoiceClient) SetDisconnectListener(fn func(reason string)) {
+	vc.disconnectCB.Store(fn)
 }
 
 func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string, outputDeviceLabel string) error {
@@ -396,6 +403,17 @@ func (vc *VoiceClient) sendAuthentication() error {
 	return err
 }
 
+type authRejectReason byte
+
+const (
+	authAccepted       authRejectReason = 0
+	authPlayerNotFound authRejectReason = 1
+	authServerNotReady authRejectReason = 2
+	authInvalidCreds   authRejectReason = 3
+)
+
+var errPlayerNotInGame = fmt.Errorf("player not in game")
+
 func (vc *VoiceClient) waitForAcknowledgment() error {
 	buffer := make([]byte, 256)
 
@@ -413,15 +431,18 @@ func (vc *VoiceClient) waitForAcknowledgment() error {
 			continue
 		}
 
-		ackClientID, accepted, message, ok := parseAuthAck(buffer[:n])
+		ackClientID, reason, message, ok := parseAuthAck(buffer[:n])
 		if !ok {
 			continue
 		}
 		if ackClientID != vc.clientID {
 			continue
 		}
-		if !accepted {
-			return fmt.Errorf("authentication rejected: %s", message)
+		if reason != authAccepted {
+			if reason == authPlayerNotFound {
+				return errPlayerNotInGame
+			}
+			return fmt.Errorf("authentication rejected (reason=%d): %s", reason, message)
 		}
 		log.Printf("Received authentication acknowledgment: %s", message)
 		return nil
@@ -438,9 +459,33 @@ func (vc *VoiceClient) receiveLoop() {
 		n, _, err := vc.socket.ReadFromUDP(buffer)
 		if err != nil {
 			if vc.connected.Load() {
-				log.Printf("Receive error: %v", err)
+				log.Printf("Socket closed or receive error: %v", err)
+				// Server shutdown or socket closed - disconnect
+				vc.connected.Store(false)
+				vc.notifyDisconnect("Server connection lost")
+				_ = vc.Disconnect()
 			}
-			continue
+			return
+		}
+
+		// Handle server shutdown packet
+		if n >= 1 && buffer[0] == PacketTypeServerShutdown {
+			reason := "Server shutdown"
+			if n >= 3 {
+				msgLen := binary.BigEndian.Uint16(buffer[1:3])
+				reasonLen := int(msgLen)
+				end := 3 + reasonLen
+				if reasonLen >= 0 && end <= n && end <= len(buffer) {
+					reason = string(buffer[3:end])
+					log.Printf("Server shutdown: %s", reason)
+				} else {
+					log.Printf("Server shutdown (malformed packet)")
+				}
+			}
+			vc.connected.Store(false)
+			vc.notifyDisconnect(reason)
+			_ = vc.Disconnect()
+			return
 		}
 
 		if n < audioHeaderLegacy {
@@ -599,6 +644,14 @@ func (vc *VoiceClient) notifyVADState() {
 	cb(vc.vadEnabled.Load(), vc.vadActive)
 }
 
+func (vc *VoiceClient) notifyDisconnect(reason string) {
+	cb, ok := vc.disconnectCB.Load().(func(string))
+	if !ok || cb == nil {
+		return
+	}
+	cb(reason)
+}
+
 func calculateRMS(samples []int16) float64 {
 	if len(samples) == 0 {
 		return 0
@@ -720,28 +773,29 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 	return out
 }
 
-func parseAuthAck(data []byte) (uuid.UUID, bool, string, bool) {
+func parseAuthAck(data []byte) (uuid.UUID, authRejectReason, string, bool) {
 	if len(data) < 20 {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 	if data[0] != PacketTypeAuthAck {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 
 	var idBytes [16]byte
 	copy(idBytes[:], data[1:17])
 	ackClientID, err := uuid.FromBytes(idBytes[:])
 	if err != nil {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 
-	accepted := data[17] == 1
+	// rejection reason (0=accepted)
+	reason := authRejectReason(data[17])
 	messageLen := binary.BigEndian.Uint16(data[18:20])
 	if 20+int(messageLen) > len(data) {
-		return uuid.UUID{}, false, "", false
+		return uuid.UUID{}, 0, "", false
 	}
 	message := string(data[20 : 20+int(messageLen)])
-	return ackClientID, accepted, message, true
+	return ackClientID, reason, message, true
 }
 
 func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {
