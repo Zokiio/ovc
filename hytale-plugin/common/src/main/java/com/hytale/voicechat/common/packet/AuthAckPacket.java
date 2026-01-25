@@ -6,20 +6,46 @@ import java.util.UUID;
 
 /**
  * Server acknowledgment of client authentication
+ * 
+ * Rejection reason codes:
+ * 0 = ACCEPTED
+ * 1 = PLAYER_NOT_FOUND (player UUID not in-game yet)
+ * 2 = SERVER_NOT_READY (server initializing)
+ * 3 = INVALID_CREDENTIALS
  */
 public class AuthAckPacket {
     private static final byte PACKET_TYPE = 0x03;
+    
+    public static final byte REASON_ACCEPTED = 0;
+    public static final byte REASON_PLAYER_NOT_FOUND = 1;
+    public static final byte REASON_SERVER_NOT_READY = 2;
+    public static final byte REASON_INVALID_CREDENTIALS = 3;
+    
     private UUID clientId;
-    private boolean accepted;
+    private byte rejectionReason;  // 0 = accepted, >0 = rejection reason
     private String message;
 
     public AuthAckPacket() {
     }
 
-    public AuthAckPacket(UUID clientId, boolean accepted, String message) {
+    public AuthAckPacket(UUID clientId, byte rejectionReason, String message) {
         this.clientId = clientId;
-        this.accepted = accepted;
+        this.rejectionReason = rejectionReason;
         this.message = message;
+    }
+    
+    /**
+     * Convenience constructor for accepted auth
+     */
+    public static AuthAckPacket accepted(UUID clientId, String message) {
+        return new AuthAckPacket(clientId, REASON_ACCEPTED, message);
+    }
+    
+    /**
+     * Convenience constructor for rejected auth
+     */
+    public static AuthAckPacket rejected(UUID clientId, byte reason, String message) {
+        return new AuthAckPacket(clientId, reason, message);
     }
 
     public byte[] serialize() {
@@ -32,8 +58,8 @@ public class AuthAckPacket {
         buffer.putLong(clientId.getMostSignificantBits());
         buffer.putLong(clientId.getLeastSignificantBits());
         
-        // Accepted flag
-        buffer.put((byte) (accepted ? 1 : 0));
+        // Rejection reason (0 = accepted, >0 = rejection code)
+        buffer.put(rejectionReason);
         
         // Message (UTF-8 string with length prefix)
         byte[] messageBytes = message != null ? message.getBytes(StandardCharsets.UTF_8) : new byte[0];
@@ -57,8 +83,8 @@ public class AuthAckPacket {
         long lsb = buffer.getLong();
         UUID clientId = new UUID(msb, lsb);
         
-        // Accepted flag
-        boolean accepted = buffer.get() == 1;
+        // Rejection reason
+        byte rejectionReason = buffer.get();
         
         // Message
         short messageLength = buffer.getShort();
@@ -68,7 +94,7 @@ public class AuthAckPacket {
         
         AuthAckPacket packet = new AuthAckPacket();
         packet.clientId = clientId;
-        packet.accepted = accepted;
+        packet.rejectionReason = rejectionReason;
         packet.message = message;
         return packet;
     }
@@ -77,8 +103,12 @@ public class AuthAckPacket {
         return clientId;
     }
 
+    public byte getRejectionReason() {
+        return rejectionReason;
+    }
+
     public boolean isAccepted() {
-        return accepted;
+        return rejectionReason == REASON_ACCEPTED;
     }
 
     public String getMessage() {
