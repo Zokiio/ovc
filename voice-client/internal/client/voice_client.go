@@ -40,6 +40,8 @@ type VoiceClient struct {
 	socket            *net.UDPConn
 	audioManager      *SimpleAudioManager
 	codec             byte
+	requestedSampleRate int
+	selectedSampleRate  int
 	vadEnabled        atomic.Bool
 	vadThreshold      atomic.Uint32
 	vadHangoverFrames atomic.Uint32
@@ -68,6 +70,8 @@ func NewVoiceClient() *VoiceClient {
 		pttKey:       "Space",
 		masterVolume: 1.0,
 		micGain:      1.0,
+		requestedSampleRate: defaultSampleRate,
+		selectedSampleRate:  defaultSampleRate,
 	}
 	vc.vadEnabled.Store(true)
 	vc.vadThreshold.Store(vadThresholdDefault)
@@ -144,6 +148,12 @@ func (vc *VoiceClient) SetMicGain(gain float64) {
 	vc.mu.Unlock()
 }
 
+func (vc *VoiceClient) SetRequestedSampleRate(sampleRate int) {
+	vc.mu.Lock()
+	vc.requestedSampleRate = sanitizeSampleRate(sampleRate)
+	vc.mu.Unlock()
+}
+
 func (vc *VoiceClient) SwitchAudioDevices(inputDeviceLabel string, outputDeviceLabel string) error {
 	vc.mu.Lock()
 	if !vc.connected.Load() {
@@ -151,9 +161,10 @@ func (vc *VoiceClient) SwitchAudioDevices(inputDeviceLabel string, outputDeviceL
 		return fmt.Errorf("not connected")
 	}
 	current := vc.audioManager
+	selectedSampleRate := vc.selectedSampleRate
 	vc.mu.Unlock()
 
-	newManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel)
+	newManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel, selectedSampleRate)
 	if err != nil {
 		return err
 	}
@@ -180,8 +191,8 @@ func (vc *VoiceClient) SwitchAudioDevices(inputDeviceLabel string, outputDeviceL
 	return nil
 }
 
-func (vc *VoiceClient) newAudioManager(inputDeviceLabel string, outputDeviceLabel string) (*SimpleAudioManager, error) {
-	am, err := NewSimpleAudioManager()
+func (vc *VoiceClient) newAudioManager(inputDeviceLabel string, outputDeviceLabel string, sampleRate int) (*SimpleAudioManager, error) {
+	am, err := NewSimpleAudioManager(sampleRate)
 	if err != nil {
 		return nil, err
 	}
@@ -251,30 +262,9 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 
 	log.Printf("Connecting to voice server at %s:%d as user '%s'", host, port, username)
 
-	// Initialize audio manager
-	audioManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel)
-	if err != nil {
-		return fmt.Errorf("failed to initialize audio: %w", err)
-	}
-	if audioManager == nil {
-		return fmt.Errorf("audio manager unavailable")
-	}
-	if err := audioManager.Start(); err != nil {
-		return fmt.Errorf("failed to start audio: %w", err)
-	}
-	vc.audioManager = audioManager
-	vc.audioManager.SetOutputGain(vc.masterVolume)
-	vc.audioManager.SetMicGain(vc.micGain)
-
-	vc.codec = AudioCodecPCM
-	if audioManager.useOpus && audioManager.encoder != nil && audioManager.decoder != nil {
-		vc.codec = AudioCodecOpus
-	}
-
 	// Create UDP socket
 	socket, err := net.ListenUDP("udp", nil)
 	if err != nil {
-		vc.audioManager.Stop()
 		return fmt.Errorf("failed to create UDP socket: %w", err)
 	}
 	vc.socket = socket
@@ -287,6 +277,8 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 		return fmt.Errorf("failed to resolve server address: %w", err)
 	}
 	vc.serverUDPAddr = serverUDPAddr
+
+	vc.requestedSampleRate = sanitizeSampleRate(vc.requestedSampleRate)
 
 	// Retry logic for authentication with exponential backoff
 	const maxRetries = 3
@@ -305,14 +297,39 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 
 		// Wait for server acknowledgment
 		socket.SetReadDeadline(time.Now().Add(time.Duration(AuthTimeoutSeconds) * time.Second))
-		if err := vc.waitForAcknowledgment(); err != nil {
+		selectedSampleRate, err := vc.waitForAcknowledgment()
+		if err != nil {
 			lastErr = err
 			if attempt < maxRetries {
 				continue
 			}
 			vc.socket.Close()
-			vc.audioManager.Stop()
 			return fmt.Errorf("server did not acknowledge authentication after %d attempts: %w", maxRetries, err)
+		}
+
+		vc.selectedSampleRate = sanitizeSampleRate(selectedSampleRate)
+
+		// Initialize audio manager after auth so we can use the negotiated sample rate
+		audioManager, err := vc.newAudioManager(inputDeviceLabel, outputDeviceLabel, vc.selectedSampleRate)
+		if err != nil {
+			vc.socket.Close()
+			return fmt.Errorf("failed to initialize audio: %w", err)
+		}
+		if audioManager == nil {
+			vc.socket.Close()
+			return fmt.Errorf("audio manager unavailable")
+		}
+		if err := audioManager.Start(); err != nil {
+			vc.socket.Close()
+			return fmt.Errorf("failed to start audio: %w", err)
+		}
+		vc.audioManager = audioManager
+		vc.audioManager.SetOutputGain(vc.masterVolume)
+		vc.audioManager.SetMicGain(vc.micGain)
+
+		vc.codec = AudioCodecPCM
+		if audioManager.useOpus && audioManager.encoder != nil && audioManager.decoder != nil {
+			vc.codec = AudioCodecOpus
 		}
 
 		// Success
@@ -328,7 +345,6 @@ func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username strin
 	}
 
 	vc.socket.Close()
-	vc.audioManager.Stop()
 	return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -347,10 +363,13 @@ func (vc *VoiceClient) SendBroadcastTestTone(duration time.Duration) error {
 	if !vc.connected.Load() {
 		return fmt.Errorf("not connected")
 	}
+	if vc.audioManager == nil {
+		return fmt.Errorf("audio not initialized")
+	}
 
 	// Generate and send tone frames directly so they bypass VAD and are marked as broadcast/test.
-	frameSize := 960
-	sampleRate := 48000
+	frameSize := vc.audioManager.frameSize
+	sampleRate := vc.audioManager.sampleRate
 	frameDuration := time.Duration(float64(time.Second) * float64(frameSize) / float64(sampleRate))
 	totalFrames := int(duration / frameDuration)
 	if totalFrames < 1 {
@@ -433,11 +452,13 @@ func (vc *VoiceClient) sendDisconnect() {
 
 func (vc *VoiceClient) sendAuthentication() error {
 	usernameBytes := []byte(vc.username)
-	packet := make([]byte, 1+16+4+len(usernameBytes))
+	requestedSampleRate := sanitizeSampleRate(vc.requestedSampleRate)
+	packet := make([]byte, 1+16+4+len(usernameBytes)+4)
 	packet[0] = PacketTypeAuthentication
 	copy(packet[1:17], vc.clientID[:])
 	binary.BigEndian.PutUint32(packet[17:21], uint32(len(usernameBytes)))
 	copy(packet[21:], usernameBytes)
+	binary.BigEndian.PutUint32(packet[21+len(usernameBytes):], uint32(requestedSampleRate))
 
 	_, err := vc.socket.WriteToUDP(packet, vc.serverUDPAddr)
 	return err
@@ -454,13 +475,13 @@ const (
 
 var errPlayerNotInGame = fmt.Errorf("player not in game")
 
-func (vc *VoiceClient) waitForAcknowledgment() error {
+func (vc *VoiceClient) waitForAcknowledgment() (int, error) {
 	buffer := make([]byte, 256)
 
 	for {
 		n, _, err := vc.socket.ReadFromUDP(buffer)
 		if err != nil {
-			return err
+			return defaultSampleRate, err
 		}
 
 		if n < 20 {
@@ -471,7 +492,7 @@ func (vc *VoiceClient) waitForAcknowledgment() error {
 			continue
 		}
 
-		ackClientID, reason, message, ok := parseAuthAck(buffer[:n])
+		ackClientID, reason, message, selectedSampleRate, ok := parseAuthAck(buffer[:n])
 		if !ok {
 			continue
 		}
@@ -480,12 +501,12 @@ func (vc *VoiceClient) waitForAcknowledgment() error {
 		}
 		if reason != authAccepted {
 			if reason == authPlayerNotFound {
-				return errPlayerNotInGame
+				return defaultSampleRate, errPlayerNotInGame
 			}
-			return fmt.Errorf("authentication rejected (reason=%d): %s", reason, message)
+			return defaultSampleRate, fmt.Errorf("authentication rejected (reason=%d): %s", reason, message)
 		}
 		log.Printf("Received authentication acknowledgment: %s", message)
-		return nil
+		return selectedSampleRate, nil
 	}
 }
 
@@ -813,29 +834,34 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 	return out
 }
 
-func parseAuthAck(data []byte) (uuid.UUID, authRejectReason, string, bool) {
+func parseAuthAck(data []byte) (uuid.UUID, authRejectReason, string, int, bool) {
 	if len(data) < 20 {
-		return uuid.UUID{}, 0, "", false
+		return uuid.UUID{}, 0, "", defaultSampleRate, false
 	}
 	if data[0] != PacketTypeAuthAck {
-		return uuid.UUID{}, 0, "", false
+		return uuid.UUID{}, 0, "", defaultSampleRate, false
 	}
 
 	var idBytes [16]byte
 	copy(idBytes[:], data[1:17])
 	ackClientID, err := uuid.FromBytes(idBytes[:])
 	if err != nil {
-		return uuid.UUID{}, 0, "", false
+		return uuid.UUID{}, 0, "", defaultSampleRate, false
 	}
 
 	// rejection reason (0=accepted)
 	reason := authRejectReason(data[17])
 	messageLen := binary.BigEndian.Uint16(data[18:20])
 	if 20+int(messageLen) > len(data) {
-		return uuid.UUID{}, 0, "", false
+		return uuid.UUID{}, 0, "", defaultSampleRate, false
 	}
 	message := string(data[20 : 20+int(messageLen)])
-	return ackClientID, reason, message, true
+	readIndex := 20 + int(messageLen)
+	sampleRate := defaultSampleRate
+	if readIndex+4 <= len(data) {
+		sampleRate = int(binary.BigEndian.Uint32(data[readIndex : readIndex+4]))
+	}
+	return ackClientID, reason, message, sanitizeSampleRate(sampleRate), true
 }
 
 func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, bool) {

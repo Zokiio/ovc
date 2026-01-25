@@ -1,5 +1,6 @@
 package com.hytale.voicechat.plugin.audio;
 
+import com.hytale.voicechat.common.network.NetworkConfig;
 import de.maxhenkel.opus4j.OpusDecoder;
 import de.maxhenkel.opus4j.OpusEncoder;
 import de.maxhenkel.opus4j.UnknownPlatformException;
@@ -15,17 +16,23 @@ import java.io.IOException;
  * Channels: Mono
  */
 public class OpusCodec implements Closeable {
-    private static final int SAMPLE_RATE = 48000;
-    private static final int FRAME_SIZE = 960;
     private static final int CHANNELS = 1;
 
     private final OpusEncoder encoder;
     private final OpusDecoder decoder;
 
     public OpusCodec() throws IOException, UnknownPlatformException {
-        this.encoder = new OpusEncoder(SAMPLE_RATE, CHANNELS, OpusEncoder.Application.VOIP);
-        this.decoder = new OpusDecoder(SAMPLE_RATE, CHANNELS);
-        this.decoder.setFrameSize(FRAME_SIZE);
+        this(NetworkConfig.DEFAULT_SAMPLE_RATE);
+    }
+
+    public OpusCodec(int sampleRate) throws IOException, UnknownPlatformException {
+        int resolvedRate = NetworkConfig.isSupportedSampleRate(sampleRate)
+                ? sampleRate
+                : NetworkConfig.DEFAULT_SAMPLE_RATE;
+        int frameSize = NetworkConfig.frameSizeForSampleRate(resolvedRate);
+        this.encoder = new OpusEncoder(resolvedRate, CHANNELS, OpusEncoder.Application.VOIP);
+        this.decoder = new OpusDecoder(resolvedRate, CHANNELS);
+        this.decoder.setFrameSize(frameSize);
     }
     
     public byte[] encode(short[] pcmData) {

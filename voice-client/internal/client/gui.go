@@ -25,6 +25,71 @@ import (
 //go:embed resources/Icon.png
 var embeddedIcon []byte
 
+// TruncatedStatusLabel is a label that truncates long text with "...",
+// shows full text on hover, and copies to clipboard on click.
+type TruncatedStatusLabel struct {
+	widget.Label
+	fullText string
+	maxChars int
+	window   fyne.Window
+}
+
+// NewTruncatedStatusLabel creates a new truncated status label with window reference.
+func NewTruncatedStatusLabel(maxChars int, window fyne.Window) *TruncatedStatusLabel {
+	label := &TruncatedStatusLabel{
+		maxChars: maxChars,
+		window:   window,
+	}
+	label.ExtendBaseWidget(label)
+	return label
+}
+
+// SetText sets the full text and displays truncated version.
+func (tsl *TruncatedStatusLabel) SetText(text string) {
+	tsl.fullText = text
+	if len(text) > tsl.maxChars {
+		tsl.Label.SetText(text[:tsl.maxChars] + "...")
+	} else {
+		tsl.Label.SetText(text)
+	}
+}
+
+// MouseIn shows tooltip with full text on hover.
+func (tsl *TruncatedStatusLabel) MouseIn(*desktop.MouseEvent) {
+	if len(tsl.fullText) > tsl.maxChars {
+		tsl.showPopUp(tsl.fullText)
+	}
+}
+
+// MouseOut hides the tooltip.
+func (tsl *TruncatedStatusLabel) MouseOut() {
+	// PopUp auto-hides; no action needed
+}
+
+// Tapped copies full text to clipboard on click.
+func (tsl *TruncatedStatusLabel) Tapped(*fyne.PointEvent) {
+	if tsl.fullText != "" && tsl.window != nil {
+		tsl.window.Clipboard().SetContent(tsl.fullText)
+	}
+}
+
+// showPopUp displays a tooltip above the label.
+func (tsl *TruncatedStatusLabel) showPopUp(text string) {
+	if tsl.window == nil {
+		return
+	}
+	pop := widget.NewPopUp(
+		widget.NewLabel(text),
+		tsl.window.Canvas(),
+	)
+	pop.ShowAtPosition(fyne.NewPos(
+		tsl.Position().X,
+		tsl.Position().Y-40,
+	))
+	// Auto-hide after 3 seconds
+	time.AfterFunc(3*time.Second, pop.Hide)
+}
+
 // GUI represents the voice chat GUI
 type GUI struct {
 	myApp       fyne.App
@@ -41,7 +106,7 @@ type GUI struct {
 	connectBtn        *widget.Button
 	testToneBtn       *widget.Button
 	posTestBtn        *widget.Button
-	statusLabel       *widget.Label
+	statusLabel       *TruncatedStatusLabel
 	volumeSlider      *widget.Slider
 	micGainSlider     *widget.Slider
 	vadCheck          *widget.Check
@@ -150,12 +215,6 @@ func (gui *GUI) Run() {
 }
 
 func (gui *GUI) setupUI() {
-	// Title
-	title := canvas.NewText("Hytale Voice Chat", color.White)
-	title.TextSize = 24
-	title.TextStyle = fyne.TextStyle{Bold: true}
-	title.Alignment = fyne.TextAlignCenter
-
 	// Server input
 	gui.serverInput = widget.NewEntry()
 	gui.serverInput.SetPlaceHolder("Server (e.g., URL or IP:port)")
@@ -177,9 +236,11 @@ func (gui *GUI) setupUI() {
 	micOptions, err := ListInputDevices()
 	if err != nil {
 		micOptions = []string{DefaultDeviceLabel}
-		gui.statusLabel = widget.NewLabel("Audio devices unavailable")
+		gui.statusLabel = NewTruncatedStatusLabel(50, gui.win)
+		gui.statusLabel.SetText("Audio devices unavailable")
 	} else {
-		gui.statusLabel = widget.NewLabel("Disconnected")
+		gui.statusLabel = NewTruncatedStatusLabel(50, gui.win)
+		gui.statusLabel.SetText("Disconnected")
 	}
 	gui.micSelect = widget.NewSelect(micOptions, nil)
 	gui.micSelect.SetSelected(DefaultDeviceLabel)
@@ -192,7 +253,7 @@ func (gui *GUI) setupUI() {
 	gui.speakerSelect = widget.NewSelect(speakerOptions, nil)
 	gui.speakerSelect.SetSelected(DefaultDeviceLabel)
 
-	// Set callbacks after both selects are created
+	// Set callbacks after all selects are created
 	gui.micSelect.OnChanged = func(selected string) {
 		if !gui.uiReady {
 			return
@@ -415,8 +476,6 @@ func (gui *GUI) setupUI() {
 	)
 
 	content := container.NewVBox(
-		title,
-		widget.NewSeparator(),
 		body,
 	)
 
@@ -593,6 +652,7 @@ func (gui *GUI) saveConfig(server string, port int, username string, micLabel st
 		Username:     username,
 		MicLabel:     micLabel,
 		SpeakerLabel: speakerLabel,
+		SampleRate:   defaultSampleRate,
 		VADEnabled:   vadEnabled,
 		VADThreshold: vadThreshold,
 		MasterVolume: masterVol,
@@ -677,6 +737,7 @@ func (gui *GUI) currentVADThreshold() int {
 	}
 	return int(gui.vadSlider.Value)
 }
+
 
 func (gui *GUI) updateVADIndicator(enabled bool, active bool) {
 	if gui.vadBar == nil || gui.vadStateLabel == nil {

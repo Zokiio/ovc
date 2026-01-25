@@ -43,6 +43,7 @@ public class UDPSocketManager {
     private final Map<String, UUID> usernameToClientUUID; // username -> voice client UUID
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
     private final Map<UUID, UUID> playerToClientUUID; // Hytale player UUID -> voice client UUID (reverse lookup)
+    private final Map<UUID, Integer> clientSampleRates; // voice client UUID -> negotiated sample rate
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
     private volatile GroupManager groupManager;
@@ -55,6 +56,7 @@ public class UDPSocketManager {
         this.usernameToClientUUID = new ConcurrentHashMap<>();
         this.clientToPlayerUUID = new ConcurrentHashMap<>();
         this.playerToClientUUID = new ConcurrentHashMap<>();
+        this.clientSampleRates = new ConcurrentHashMap<>();
     }
 
     public void setProximityDistance(double proximityDistance) {
@@ -90,6 +92,7 @@ public class UDPSocketManager {
                             usernameToClientUUID, 
                             clientToPlayerUUID,
                             playerToClientUUID,
+                            clientSampleRates,
                             positionTracker,
                             eventListener,
                             groupManager
@@ -168,6 +171,7 @@ public class UDPSocketManager {
         // Remove from all tracking maps
         clients.remove(clientUuid);
         clientToPlayerUUID.remove(clientUuid);
+        clientSampleRates.remove(clientUuid);
         
         // Find and remove username mapping
         String username = null;
@@ -214,6 +218,7 @@ public class UDPSocketManager {
         private final Map<String, UUID> usernameToClientUUID;
         private final Map<UUID, UUID> clientToPlayerUUID;
         private final Map<UUID, UUID> playerToClientUUID;
+        private final Map<UUID, Integer> clientSampleRates;
         private final PlayerPositionTracker positionTracker;
         private final PlayerEventListener eventListener;
         private final GroupManager groupManager;
@@ -222,6 +227,7 @@ public class UDPSocketManager {
                                   Map<String, UUID> usernameToClientUUID,
                                   Map<UUID, UUID> clientToPlayerUUID,
                                   Map<UUID, UUID> playerToClientUUID,
+                                  Map<UUID, Integer> clientSampleRates,
                                   PlayerPositionTracker positionTracker,
                                   PlayerEventListener eventListener,
                                   GroupManager groupManager) {
@@ -229,6 +235,7 @@ public class UDPSocketManager {
             this.usernameToClientUUID = usernameToClientUUID;
             this.clientToPlayerUUID = clientToPlayerUUID;
             this.playerToClientUUID = playerToClientUUID;
+            this.clientSampleRates = clientSampleRates;
             this.positionTracker = positionTracker;
             this.eventListener = eventListener;
             this.groupManager = groupManager;
@@ -285,6 +292,8 @@ public class UDPSocketManager {
                 AuthenticationPacket authPacket = AuthenticationPacket.deserialize(data);
                 UUID clientId = authPacket.getSenderId();
                 String username = authPacket.getUsername();
+                int requestedSampleRate = authPacket.getRequestedSampleRate();
+                int selectedSampleRate = selectSampleRate(requestedSampleRate);
                 
                 // Check if this client ID is already connected from a different address
                 InetSocketAddress existingAddr = clients.get(clientId);
@@ -299,6 +308,7 @@ public class UDPSocketManager {
                     logger.atInfo().log("Username '" + username + "' already connected with different client ID, removing old connection");
                     // Remove old client mappings
                     clients.remove(existingClientId);
+                    clientSampleRates.remove(existingClientId);
                     UUID oldPlayerUUID = clientToPlayerUUID.remove(existingClientId);
                     if (oldPlayerUUID != null) {
                         playerToClientUUID.remove(oldPlayerUUID);
@@ -323,7 +333,7 @@ public class UDPSocketManager {
                     
                     // Send rejection with PLAYER_NOT_FOUND reason
                     sendAuthAck(ctx, clientId, sender, AuthAckPacket.REASON_PLAYER_NOT_FOUND, 
-                                "Player not in-game yet. Join the game and try connecting again.");
+                                "Player not in-game yet. Join the game and try connecting again.", selectedSampleRate);
                     return;
                 }
                 
@@ -332,6 +342,7 @@ public class UDPSocketManager {
                 usernameToClientUUID.put(username, clientId);
                 clientToPlayerUUID.put(clientId, playerUUID);
                 playerToClientUUID.put(playerUUID, clientId);
+                clientSampleRates.put(clientId, selectedSampleRate);
                 
                 logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
                 logger.atInfo().log("║ VOICE CLIENT CONNECTED");
@@ -339,15 +350,23 @@ public class UDPSocketManager {
                 logger.atInfo().log("║ Client UUID: " + clientId);
                 logger.atInfo().log("║ Player UUID: " + playerUUID);
                 logger.atInfo().log("║ Address: " + sender);
+                logger.atInfo().log("║ Sample Rate: " + selectedSampleRate + " Hz");
                 logger.atInfo().log("║ Total clients: " + clients.size());
                 logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
                 
                 // Send acceptance packet
-                sendAuthAck(ctx, clientId, sender, AuthAckPacket.REASON_ACCEPTED, "Authentication accepted");
+                sendAuthAck(ctx, clientId, sender, AuthAckPacket.REASON_ACCEPTED, "Authentication accepted", selectedSampleRate);
                 
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error handling authentication");
             }
+        }
+
+        private int selectSampleRate(int requestedSampleRate) {
+            if (NetworkConfig.isSupportedSampleRate(requestedSampleRate)) {
+                return requestedSampleRate;
+            }
+            return NetworkConfig.DEFAULT_SAMPLE_RATE;
         }
         
         private void handleDisconnect(ChannelHandlerContext ctx, byte[] data, InetSocketAddress sender) {
@@ -389,6 +408,7 @@ public class UDPSocketManager {
                 if (playerUUID != null) {
                     playerToClientUUID.remove(playerUUID);
                 }
+                clientSampleRates.remove(clientId);
                 if (disconnectedUsername != null) {
                     usernameToClientUUID.remove(disconnectedUsername);
                 }
@@ -788,13 +808,13 @@ public class UDPSocketManager {
         }
         
         private void sendAuthAck(ChannelHandlerContext ctx, UUID clientId, InetSocketAddress address, 
-                                 byte rejectionReason, String message) {
+                                 byte rejectionReason, String message, int selectedSampleRate) {
             try {
                 AuthAckPacket ackPacket;
                 if (rejectionReason == AuthAckPacket.REASON_ACCEPTED) {
-                    ackPacket = AuthAckPacket.accepted(clientId, message);
+                    ackPacket = AuthAckPacket.accepted(clientId, message, selectedSampleRate);
                 } else {
-                    ackPacket = AuthAckPacket.rejected(clientId, rejectionReason, message);
+                    ackPacket = AuthAckPacket.rejected(clientId, rejectionReason, message, selectedSampleRate);
                 }
                 byte[] data = ackPacket.serialize();
                 ByteBuf buf = ctx.alloc().buffer(data.length);

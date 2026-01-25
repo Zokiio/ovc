@@ -5,7 +5,7 @@ Icon = "Icon.png"
 Name = "Hytale Voice Chat"
 ID = "com.zottik.hytale-voicechat"
 Version = "1.0.0"
-Build = 9
+Build = 10
 
 [LinuxAndBSD]
 GenericName = "Voice Chat Client"
