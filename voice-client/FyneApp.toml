@@ -1,18 +1,14 @@
-Website = "https://hytale.com"
-Icon = "internal/client/resources/Icon.png"
+Website = "https://github.com/Zokiio/hytale-voicechat"
 
 [Details]
-  Name = "Hytale Voice Chat"
-  ID = "com.zottik.hytale-voicechat"
-  Version = "1.0.0"
-  Build = 1
+Icon = "Icon.png"
+Name = "Hytale Voice Chat"
+ID = "com.zottik.hytale-voicechat"
+Version = "1.0.0"
+Build = 9
 
-[Windows]
-  CompanyName = "Zottik"
-  FileDescription = "Voice Chat Client for Hytale"
-  InternalName = "HytaleVoiceChat"
-  LegalCopyright = "Copyright © 2026 Zottik"
-  OriginalFilename = "HytaleVoiceChat.exe"
-  ProductName = "Hytale Voice Chat"
-
-
+[LinuxAndBSD]
+GenericName = "Voice Chat Client"
+Categories = ["Network", "Audio"]
+Comment = "Proximity voice chat client for Hytale"
+Keywords = ["hytale", "voice", "chat", "audio"]

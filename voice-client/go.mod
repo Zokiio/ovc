@@ -1,4 +1,4 @@
-module hytale-voice-chat-go
+module github.com/zokiio/hytale-voicechat
 
 go 1.25.0
 
