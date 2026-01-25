@@ -267,27 +267,21 @@ func (am *SimpleAudioManager) DecodeAudio(codec byte, data []byte) ([]int16, err
 		} else {
 			pcm = pcm[:n]
 		}
-		
-		// Resample from network rate to output device rate if needed
-		if am.outputSampleRate != am.sampleRate {
-			pcm = resampleLinear(pcm, am.sampleRate, am.outputSampleRate, am.outputFrameSize)
-		}
-		pcm = fitSamples(pcm, am.outputFrameSize)
-		
-		return pcm, nil
+		return am.applyOutputResampling(pcm), nil
 	case AudioCodecPCM:
 		pcm := decodePCM(data, am.frameSize)
-		
-		// Resample from network rate to output device rate if needed
-		if am.outputSampleRate != am.sampleRate {
-			pcm = resampleLinear(pcm, am.sampleRate, am.outputSampleRate, am.outputFrameSize)
-		}
-		pcm = fitSamples(pcm, am.outputFrameSize)
-		
-		return pcm, nil
+		return am.applyOutputResampling(pcm), nil
 	default:
 		return nil, fmt.Errorf("unknown codec: %d", codec)
 	}
+}
+
+// applyOutputResampling resamples audio from network rate to output device rate if needed
+func (am *SimpleAudioManager) applyOutputResampling(pcm []int16) []int16 {
+	if am.outputSampleRate != am.sampleRate {
+		pcm = resampleLinear(pcm, am.sampleRate, am.outputSampleRate, am.outputFrameSize)
+	}
+	return fitSamples(pcm, am.outputFrameSize)
 }
 
 func encodePCM(samples []int16) []byte {

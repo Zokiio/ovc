@@ -105,8 +105,8 @@ func (tsl *TruncatedStatusLabel) showPopUp(text string) {
 	time.AfterFunc(3*time.Second, func() {
 		tsl.popupMu.Lock()
 		defer tsl.popupMu.Unlock()
-		pop.Hide()
 		if tsl.activePopup == pop {
+			pop.Hide()
 			tsl.activePopup = nil
 		}
 	})
