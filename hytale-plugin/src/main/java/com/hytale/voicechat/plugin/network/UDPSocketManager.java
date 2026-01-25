@@ -8,11 +8,13 @@ import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import com.hytale.voicechat.common.packet.GroupManagementPacket;
 import com.hytale.voicechat.common.packet.GroupStatePacket;
 import com.hytale.voicechat.common.packet.GroupListPacket;
+import com.hytale.voicechat.common.packet.ServerShutdownPacket;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
+// Removed direct EntityStore/PlayerRef querying for player validation; rely on tracker
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
@@ -70,6 +72,8 @@ public class UDPSocketManager {
     public void setGroupManager(GroupManager manager) {
         this.groupManager = manager;
     }
+    
+    // EntityStore not needed for current validation; using PlayerPositionTracker
 
     public void start() throws InterruptedException {
         group = new NioEventLoopGroup();
@@ -116,6 +120,84 @@ public class UDPSocketManager {
         logger.atInfo().log("  Disconnected " + connectedClients + " client(s)");
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
     }
+
+    /**
+     * Broadcast shutdown notification to all connected clients
+     */
+    public void broadcastShutdown(String reason) {
+        if (clients.isEmpty()) {
+            logger.atInfo().log("No clients connected, skipping shutdown broadcast");
+            return;
+        }
+        
+        ServerShutdownPacket shutdownPacket = new ServerShutdownPacket(reason);
+        byte[] data = shutdownPacket.serialize();
+        
+        logger.atInfo().log("Broadcasting shutdown notification to " + clients.size() + " client(s)");
+        for (InetSocketAddress address : clients.values()) {
+            try {
+                if (channel != null && channel.isOpen()) {
+                    ByteBuf buf = channel.alloc().buffer(data.length);
+                    buf.writeBytes(data);
+                    channel.writeAndFlush(new DatagramPacket(buf, address));
+                }
+            } catch (Exception e) {
+                logger.atFine().log("Error sending shutdown packet to " + address + ": " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Disconnect a voice client associated with a player that quit
+     * @param playerUuid The Hytale player UUID that quit
+     */
+    public void disconnectPlayerVoiceClient(UUID playerUuid) {
+        UUID clientUuid = playerToClientUUID.remove(playerUuid);
+        if (clientUuid == null) {
+            logger.atFine().log("Player " + playerUuid + " had no voice client connected");
+            return;
+        }
+        
+        // Get the client's address
+        InetSocketAddress clientAddress = clients.get(clientUuid);
+        if (clientAddress == null) {
+            logger.atFine().log("Client address not found for voice client " + clientUuid);
+            return;
+        }
+        
+        // Remove from all tracking maps
+        clients.remove(clientUuid);
+        clientToPlayerUUID.remove(clientUuid);
+        
+        // Find and remove username mapping
+        String username = null;
+        for (Map.Entry<String, UUID> entry : usernameToClientUUID.entrySet()) {
+            if (entry.getValue().equals(clientUuid)) {
+                username = entry.getKey();
+                break;
+            }
+        }
+        if (username != null) {
+            usernameToClientUUID.remove(username);
+        }
+        
+        // Send shutdown packet to the disconnected client
+        ServerShutdownPacket shutdownPacket = new ServerShutdownPacket("Your player account logged out");
+        byte[] data = shutdownPacket.serialize();
+        
+        try {
+            if (channel != null && channel.isOpen()) {
+                ByteBuf buf = channel.alloc().buffer(data.length);
+                buf.writeBytes(data);
+                channel.writeAndFlush(new DatagramPacket(buf, clientAddress));
+                logger.atInfo().log("Sent disconnect notification to voice client " + clientUuid + " (player " + playerUuid + ")");
+            }
+        } catch (Exception e) {
+            logger.atFine().log("Error sending disconnect packet to " + clientAddress + ": " + e.getMessage());
+        }
+    }
+
+    // Player UUID validation is handled via PlayerPositionTracker presence
 
     /**
      * Check if a player has an active voice client connection
@@ -223,40 +305,45 @@ public class UDPSocketManager {
                     }
                 }
                 
-                // Register client
-                clients.put(clientId, sender);
-                usernameToClientUUID.put(username, clientId);
-                
                 // Try to link to Hytale player UUID
                 UUID playerUUID = null;
                 if (positionTracker != null) {
                     playerUUID = positionTracker.getPlayerUUIDByUsername(username);
                 }
                 
-                if (playerUUID != null) {
-                    clientToPlayerUUID.put(clientId, playerUUID);
-                    playerToClientUUID.put(playerUUID, clientId);
-                    logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
-                    logger.atInfo().log("║ VOICE CLIENT CONNECTED");
-                    logger.atInfo().log("║ Username: " + username);
-                    logger.atInfo().log("║ Client UUID: " + clientId);
-                    logger.atInfo().log("║ Player UUID: " + playerUUID);
-                    logger.atInfo().log("║ Address: " + sender);
-                    logger.atInfo().log("║ Total clients: " + clients.size());
-                    logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
-                } else {
+                // VALIDATE: Player must exist in-game
+                if (playerUUID == null) {
                     logger.atWarning().log("╔══════════════════════════════════════════════════════════════");
-                    logger.atWarning().log("║ VOICE CLIENT CONNECTED (Player not in game)");
+                    logger.atWarning().log("║ AUTH REJECTED - Player not in-game");
                     logger.atWarning().log("║ Username: " + username);
                     logger.atWarning().log("║ Client UUID: " + clientId);
                     logger.atWarning().log("║ Address: " + sender);
-                    logger.atWarning().log("║ Status: Player '" + username + "' not found on server");
-                    logger.atWarning().log("║ Total clients: " + clients.size());
+                    logger.atWarning().log("║ Reason: Player UUID not found in tracker");
                     logger.atWarning().log("╚══════════════════════════════════════════════════════════════");
+                    
+                    // Send rejection with PLAYER_NOT_FOUND reason
+                    sendAuthAck(ctx, clientId, sender, AuthAckPacket.REASON_PLAYER_NOT_FOUND, 
+                                "Player not in-game yet. Join the game and try connecting again.");
+                    return;
                 }
                 
-                // Send acknowledgment packet back to client
-                sendAuthAck(ctx, clientId, sender, true, "Authentication accepted");
+                // Player is in-game, accept connection
+                clients.put(clientId, sender);
+                usernameToClientUUID.put(username, clientId);
+                clientToPlayerUUID.put(clientId, playerUUID);
+                playerToClientUUID.put(playerUUID, clientId);
+                
+                logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
+                logger.atInfo().log("║ VOICE CLIENT CONNECTED");
+                logger.atInfo().log("║ Username: " + username);
+                logger.atInfo().log("║ Client UUID: " + clientId);
+                logger.atInfo().log("║ Player UUID: " + playerUUID);
+                logger.atInfo().log("║ Address: " + sender);
+                logger.atInfo().log("║ Total clients: " + clients.size());
+                logger.atInfo().log("╚══════════════════════════════════════════════════════════════");
+                
+                // Send acceptance packet
+                sendAuthAck(ctx, clientId, sender, AuthAckPacket.REASON_ACCEPTED, "Authentication accepted");
                 
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error handling authentication");
@@ -701,9 +788,14 @@ public class UDPSocketManager {
         }
         
         private void sendAuthAck(ChannelHandlerContext ctx, UUID clientId, InetSocketAddress address, 
-                                 boolean accepted, String message) {
+                                 byte rejectionReason, String message) {
             try {
-                AuthAckPacket ackPacket = new AuthAckPacket(clientId, accepted, message);
+                AuthAckPacket ackPacket;
+                if (rejectionReason == AuthAckPacket.REASON_ACCEPTED) {
+                    ackPacket = AuthAckPacket.accepted(clientId, message);
+                } else {
+                    ackPacket = AuthAckPacket.rejected(clientId, rejectionReason, message);
+                }
                 byte[] data = ackPacket.serialize();
                 ByteBuf buf = ctx.alloc().buffer(data.length);
                 buf.writeBytes(data);
