@@ -1,4 +1,4 @@
-![Voice Client Screenshot](.github/images/logo.png)
+![Hytale Voice Chat Logo](.github/images/logo.png)
 
 # Hytale Voice Chat
 
