@@ -19,15 +19,21 @@ public class ServerShutdownPacket {
     }
 
     public byte[] serialize() {
-        ByteBuffer buffer = ByteBuffer.allocate(512);
-        
+        // Encode reason as UTF-8
+        byte[] reasonBytes = reason.getBytes(StandardCharsets.UTF_8);
+
+        // Clamp length to what fits into a Java short to avoid overflow in the length prefix
+        int reasonLength = Math.min(reasonBytes.length, Short.MAX_VALUE);
+
+        // Allocate buffer exactly large enough for: 1 byte type + 2 bytes length + reason bytes
+        ByteBuffer buffer = ByteBuffer.allocate(1 + 2 + reasonLength);
+
         // Packet type
         buffer.put(PACKET_TYPE);
-        
+
         // Reason (UTF-8 string with length prefix)
-        byte[] reasonBytes = reason.getBytes(StandardCharsets.UTF_8);
-        buffer.putShort((short) reasonBytes.length);
-        buffer.put(reasonBytes);
+        buffer.putShort((short) reasonLength);
+        buffer.put(reasonBytes, 0, reasonLength);
         
         // Return trimmed array
         byte[] data = new byte[buffer.position()];
@@ -43,6 +49,22 @@ public class ServerShutdownPacket {
         
         // Reason
         short reasonLength = buffer.getShort();
+
+        // Validate reason length to prevent excessive allocation or buffer underflow
+        if (reasonLength < 0) {
+            throw new IllegalArgumentException("Invalid reason length: " + reasonLength);
+        }
+
+        final int MAX_REASON_LENGTH = 1024;
+        if (reasonLength > MAX_REASON_LENGTH) {
+            throw new IllegalArgumentException("Reason length exceeds maximum allowed: " + reasonLength);
+        }
+
+        if (buffer.remaining() < reasonLength) {
+            throw new IllegalArgumentException("Not enough data to read reason: remaining=" 
+                    + buffer.remaining() + ", expected=" + reasonLength);
+        }
+        
         byte[] reasonBytes = new byte[reasonLength];
         buffer.get(reasonBytes);
         String reason = new String(reasonBytes, StandardCharsets.UTF_8);

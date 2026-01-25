@@ -462,9 +462,13 @@ func (vc *VoiceClient) receiveLoop() {
 		if n >= 1 && buffer[0] == PacketTypeServerShutdown {
 			if n >= 3 {
 				msgLen := binary.BigEndian.Uint16(buffer[1:3])
-				if int(3+msgLen) <= n {
-					reason := string(buffer[3 : 3+msgLen])
+				reasonLen := int(msgLen)
+				end := 3 + reasonLen
+				if reasonLen >= 0 && end <= n && end <= len(buffer) {
+					reason := string(buffer[3:end])
 					log.Printf("Server shutdown: %s", reason)
+				} else {
+					log.Printf("Server shutdown (malformed packet)")
 				}
 			}
 			vc.connected.Store(false)
