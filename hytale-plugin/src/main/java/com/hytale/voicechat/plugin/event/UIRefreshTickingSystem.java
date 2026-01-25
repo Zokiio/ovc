@@ -22,13 +22,18 @@ public class UIRefreshTickingSystem extends TickingSystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final int REFRESH_INTERVAL_TICKS = 10; // Refresh every 10 ticks (~500ms if tick ≈ 50ms)
 
+    private int localTickCounter = 0; // local counter to avoid relying on external tickCount semantics
+
     public UIRefreshTickingSystem() {
     }
 
     @Override
     public void tick(float deltaSeconds, int tickCount, @Nonnull Store<EntityStore> store) {
-        // Only refresh on the specified interval using the provided tickCount to avoid overflow
-        if (tickCount % REFRESH_INTERVAL_TICKS == 0) {
+        // Use a local counter in case tickCount semantics differ across environments
+        localTickCounter++;
+
+        if (localTickCounter >= REFRESH_INTERVAL_TICKS) {
+            localTickCounter = 0;
             try {
                 // Trigger refresh on all open VoiceChatPage instances
                 VoiceChatPage.refreshAllPages(store);
