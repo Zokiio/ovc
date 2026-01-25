@@ -381,17 +381,19 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             }
             
             // Calculate hash of all group IDs to detect changes beyond count
+            // Use reduce with XOR to avoid collision issues with sum()
             int currentGroupListHash = allGroups.stream()
                 .map(Group::getGroupId)
                 .mapToInt(UUID::hashCode)
-                .sum();
+                .reduce(0, (a, b) -> a ^ b);
             
             // Calculate hash of member UUIDs to detect member changes beyond count
+            // Use reduce with XOR to avoid collision issues with sum()
             int currentMemberListHash = 0;
             if (currentGroup != null) {
                 currentMemberListHash = currentGroup.getMembers().stream()
                     .mapToInt(UUID::hashCode)
-                    .sum();
+                    .reduce(0, (a, b) -> a ^ b);
             }
             
             // Only update if state changed
