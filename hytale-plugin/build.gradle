@@ -8,10 +8,12 @@ if (localPropertiesFile.exists()) {
     def localProperties = new Properties()
     localPropertiesFile.withInputStream { localProperties.load(it) }
     localProperties.each { key, value ->
-        project.ext.set(key.toString(), value)
-        // Also set as system property for gradle
-        if (key.toString().startsWith('org.gradle.')) {
-            System.setProperty(key.toString(), value)
+        def k = key.toString()
+        project.ext.set(k, value)
+        // Do NOT set org.gradle.* as system properties here; those must be configured
+        // via standard gradle.properties or toolchains so Gradle can pick them up early.
+        if (k.startsWith('org.gradle.')) {
+            logger.warn("Ignoring org.gradle.* property '{}' from gradle-local.properties; configure it via gradle.properties or Gradle toolchains instead.", k)
         }
     }
 }
@@ -77,7 +79,7 @@ dependencies {
     if (hytaleApiPath && file(hytaleApiPath).exists()) {
         compileOnly files(hytaleApiPath)
     } else {
-        logger.warn('Hytale API path not configured or file not found. Set -Phytale.api.path or HYTALE_API_PATH')
+        throw new GradleException('Hytale API path not configured or file not found. Set -Phytale.api.path or HYTALE_API_PATH to compile the plugin.')
     }
     
     // Voice server dependencies

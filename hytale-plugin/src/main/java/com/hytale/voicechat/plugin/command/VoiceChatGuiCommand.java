@@ -17,9 +17,9 @@ import org.checkerframework.checker.nullness.compatqual.NonNullDecl;
 
 import java.util.concurrent.CompletableFuture;
 
-import static com.hypixel.hytale.server.core.command.commands.player.inventory.InventorySeeCommand.MESSAGE_COMMANDS_ERRORS_PLAYER_NOT_IN_WORLD;
-
 public class VoiceChatGuiCommand extends AbstractAsyncCommand {
+
+    private static final String MESSAGE_PLAYER_NOT_IN_WORLD = "You must be in a world to use this command.";
 
     private final GroupManager groupManager;
     private final HytaleVoiceChatPlugin plugin;
@@ -53,10 +53,11 @@ public class VoiceChatGuiCommand extends AbstractAsyncCommand {
                     }
                 }, world);
             } else {
-                commandContext.sendMessage(MESSAGE_COMMANDS_ERRORS_PLAYER_NOT_IN_WORLD);
+                commandContext.sendMessage(MESSAGE_PLAYER_NOT_IN_WORLD);
                 return CompletableFuture.completedFuture(null);
             }
         } else {
+            commandContext.sendMessage("Only players can use this command.");
             return CompletableFuture.completedFuture(null);
         }
     }
