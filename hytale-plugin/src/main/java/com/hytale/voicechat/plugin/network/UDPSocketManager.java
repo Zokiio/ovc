@@ -148,6 +148,56 @@ public class UDPSocketManager {
         }
     }
 
+    /**
+     * Disconnect a voice client associated with a player that quit
+     * @param playerUuid The Hytale player UUID that quit
+     */
+    public void disconnectPlayerVoiceClient(UUID playerUuid) {
+        UUID clientUuid = playerToClientUUID.remove(playerUuid);
+        if (clientUuid == null) {
+            logger.atFine().log("Player " + playerUuid + " had no voice client connected");
+            return;
+        }
+        
+        // Get the client's address
+        InetSocketAddress clientAddress = clients.get(clientUuid);
+        if (clientAddress == null) {
+            logger.atFine().log("Client address not found for voice client " + clientUuid);
+            return;
+        }
+        
+        // Remove from all tracking maps
+        clients.remove(clientUuid);
+        clientToPlayerUUID.remove(clientUuid);
+        
+        // Find and remove username mapping
+        String username = null;
+        for (Map.Entry<String, UUID> entry : usernameToClientUUID.entrySet()) {
+            if (entry.getValue().equals(clientUuid)) {
+                username = entry.getKey();
+                break;
+            }
+        }
+        if (username != null) {
+            usernameToClientUUID.remove(username);
+        }
+        
+        // Send shutdown packet to the disconnected client
+        ServerShutdownPacket shutdownPacket = new ServerShutdownPacket("Your player account logged out");
+        byte[] data = shutdownPacket.serialize();
+        
+        try {
+            if (channel != null && channel.isOpen()) {
+                ByteBuf buf = channel.alloc().buffer(data.length);
+                buf.writeBytes(data);
+                channel.writeAndFlush(new DatagramPacket(buf, clientAddress));
+                logger.atInfo().log("Sent disconnect notification to voice client " + clientUuid + " (player " + playerUuid + ")");
+            }
+        } catch (Exception e) {
+            logger.atFine().log("Error sending disconnect packet to " + clientAddress + ": " + e.getMessage());
+        }
+    }
+
     // Player UUID validation is handled via PlayerPositionTracker presence
 
     /**
