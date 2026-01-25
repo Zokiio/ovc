@@ -1,3 +1,7 @@
+<div align="center">
+  <img src=".github/images/logo.png" alt="Hytale Voice Chat Logo" width="200"/>
+</div>
+
 # Hytale Voice Chat
 
 Proximity-based voice chat system for Hytale with two independent components:
@@ -51,6 +55,9 @@ The Java plugin runs **inside the Hytale server** and handles voice routing base
 - Proximity-based audio routing (configurable range)
 - Player position tracking via Hytale API
 - Authentication and session management
+- In-game GUI for voice settings and group management
+
+![Voice Chat GUI](.github/images/voicechat-gui.png)
 
 ### Quick Start
 
