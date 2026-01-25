@@ -5,6 +5,7 @@ import com.hypixel.hytale.codec.KeyedCodec;
 import com.hypixel.hytale.codec.builder.BuilderCodec;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
+import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.protocol.packets.interface_.CustomPageLifetime;
 import com.hypixel.hytale.protocol.packets.interface_.CustomUIEventBindingType;
 import com.hypixel.hytale.server.core.Message;
@@ -26,6 +27,7 @@ import java.util.UUID;
 
 public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceChatData> {
 
+    private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final String PAGE_LAYOUT = "Pages/VoiceChatGUI.ui";
     private final GroupManager groupManager;
     private final HytaleVoiceChatPlugin plugin;
@@ -189,7 +191,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         var currentGroup = groupManager.getPlayerGroup(playerRef.getUuid());
         UUID currentGroupId = currentGroup != null ? currentGroup.getGroupId() : null;
         
-        plugin.getLogger().atDebug().log("Updating groups list - found " + allGroups.size() + " groups");
+        logger.atFine().log("Updating groups list - found " + allGroups.size() + " groups");
         
         if (allGroups.isEmpty()) {
             commands.set("#GroupsListPlaceholder.Text", "No groups available.\nCreate one using the field above!");
@@ -200,7 +202,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 Group group = allGroups.get(i);
                 boolean isCurrentGroup = group.getGroupId().equals(currentGroupId);
 
-                plugin.getLogger().atInfo().log("Group: " + group.getName() + " (members: " + group.getMemberCount() + ")");
+                logger.atInfo().log("Group: " + group.getName() + " (members: " + group.getMemberCount() + ")");
 
                 groupsText.append("• ");
                 groupsText.append(group.getName());
@@ -284,8 +286,8 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                     if (playerName != null && !playerName.isEmpty()) {
                         membersText.append(playerName).append("\n");
                     } else {
-                        // Player name not found - log at debug level to avoid log spam
-                        plugin.getLogger().atDebug().log(
+                        // Player name not found - log at fine level to avoid log spam
+                        logger.atFine().log(
                             "Cannot resolve player name for UUID " + memberUuid + " in group member list");
                         membersText.append("Unknown\n");
                     }

@@ -6,6 +6,7 @@ import com.hytale.voicechat.plugin.gui.VoiceChatPage;
 import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.protocol.GameMode;
+import com.hypixel.hytale.server.core.Message;
 import com.hypixel.hytale.server.core.command.system.CommandContext;
 import com.hypixel.hytale.server.core.command.system.CommandSender;
 import com.hypixel.hytale.server.core.command.system.basecommands.AbstractAsyncCommand;
@@ -53,11 +54,11 @@ public class VoiceChatGuiCommand extends AbstractAsyncCommand {
                     }
                 }, world);
             } else {
-                commandContext.sendMessage(MESSAGE_PLAYER_NOT_IN_WORLD);
+                commandContext.sendMessage(Message.raw(MESSAGE_PLAYER_NOT_IN_WORLD));
                 return CompletableFuture.completedFuture(null);
             }
         } else {
-            commandContext.sendMessage("Only players can use this command.");
+            commandContext.sendMessage(Message.raw("Only players can use this command."));
             return CompletableFuture.completedFuture(null);
         }
     }
