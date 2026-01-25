@@ -17,12 +17,17 @@ public class GroupStatePacket extends VoicePacket {
     private final UUID groupId;
     private final String groupName;
     private final List<UUID> memberIds;
+    private final UUID creatorUuid;
+    private final boolean isIsolated;
 
-    public GroupStatePacket(UUID serverId, UUID groupId, String groupName, List<UUID> memberIds) {
+    public GroupStatePacket(UUID serverId, UUID groupId, String groupName, List<UUID> memberIds, 
+                           UUID creatorUuid, boolean isIsolated) {
         super(serverId);
         this.groupId = groupId;
         this.groupName = groupName;
         this.memberIds = memberIds != null ? memberIds : new ArrayList<>();
+        this.creatorUuid = creatorUuid;
+        this.isIsolated = isIsolated;
     }
 
     public UUID getGroupId() {
@@ -37,12 +42,20 @@ public class GroupStatePacket extends VoicePacket {
         return memberIds;
     }
 
+    public UUID getCreatorUuid() {
+        return creatorUuid;
+    }
+
+    public boolean isIsolated() {
+        return isIsolated;
+    }
+
     @Override
     public byte[] serialize() {
         byte[] nameBytes = groupName.getBytes(StandardCharsets.UTF_8);
         
-        // Calculate buffer size
-        int bufferSize = 1 + 16 + 16 + 2 + nameBytes.length + 2 + (memberIds.size() * 16);
+        // Calculate buffer size: header + groupId + name + members + creatorUuid + isolation flag
+        int bufferSize = 1 + 16 + 16 + 2 + nameBytes.length + 2 + (memberIds.size() * 16) + 16 + 1;
         ByteBuffer buffer = ByteBuffer.allocate(bufferSize);
         
         buffer.put((byte) 0x07); // Packet type: GROUP_STATE
@@ -58,6 +71,13 @@ public class GroupStatePacket extends VoicePacket {
             buffer.putLong(memberId.getMostSignificantBits());
             buffer.putLong(memberId.getLeastSignificantBits());
         }
+        
+        // Add creator UUID
+        buffer.putLong(creatorUuid.getMostSignificantBits());
+        buffer.putLong(creatorUuid.getLeastSignificantBits());
+        
+        // Add isolation setting (1 byte)
+        buffer.put(isIsolated ? (byte) 0x01 : (byte) 0x00);
         
         return buffer.array();
     }
@@ -132,6 +152,20 @@ public class GroupStatePacket extends VoicePacket {
             memberIds.add(new UUID(memberMostSig, memberLeastSig));
         }
         
-        return new GroupStatePacket(serverId, groupId, groupName, memberIds);
+        // Read creator UUID (16 bytes)
+        if (buffer.remaining() < 16) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: insufficient data for creator UUID");
+        }
+        long creatorMostSig = buffer.getLong();
+        long creatorLeastSig = buffer.getLong();
+        UUID creatorUuid = new UUID(creatorMostSig, creatorLeastSig);
+        
+        // Read isolation setting (1 byte)
+        if (buffer.remaining() < 1) {
+            throw new IllegalArgumentException("Malformed GroupStatePacket: insufficient data for isolation setting");
+        }
+        boolean isIsolated = buffer.get() == (byte) 0x01;
+        
+        return new GroupStatePacket(serverId, groupId, groupName, memberIds, creatorUuid, isIsolated);
     }
 }

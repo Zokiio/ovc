@@ -44,6 +44,7 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
         addSubCommand(new LeaveSubCommand(groupManager));
         addSubCommand(new ListSubCommand(groupManager));
         addSubCommand(new GuiSubCommand(groupManager, plugin));
+        addSubCommand(new IsolatedSubCommand(groupManager));
         addSubCommand(new ProximitySubCommand(plugin));
     }
 
@@ -77,7 +78,7 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
             }
 
             String name = context.get(nameArg);
-            Group group = groupManager.createGroup(name, false);
+            Group group = groupManager.createGroup(name, false, playerId);
             if (group == null) {
                 context.sendMessage(Message.raw("Failed to create group."));
                 return;
@@ -166,11 +167,12 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
 
             String groupName = current.getName();
 
-            if (groupManager.leaveGroup(playerId)) {
-                context.sendMessage(Message.raw("Left group: " + groupName));
-                logger.atInfo().log(context.sender().getDisplayName() + " left group: " + groupName);
-            } else {
-                context.sendMessage(Message.raw("Failed to leave group."));
+            UUID newOwner = groupManager.leaveGroup(playerId);
+            context.sendMessage(Message.raw("Left group: " + groupName));
+            logger.atInfo().log(context.sender().getDisplayName() + " left group: " + groupName);
+            
+            if (newOwner != null) {
+                context.sendMessage(Message.raw("Ownership transferred to another member."));
             }
         }
     }
@@ -261,6 +263,58 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
                     context.sendMessage(Message.raw("An error occurred while opening the voice chat GUI. Please try again later."));
                 }
             }, world);
+        }
+    }
+
+    // Spatial subcommand
+    // Isolated subcommand
+    static class IsolatedSubCommand extends CommandBase {
+        private final GroupManager groupManager;
+        private final RequiredArg<Boolean> enabledArg;
+
+        IsolatedSubCommand(GroupManager groupManager) {
+            super("isolated", "Toggle isolation mode for your group (creator only)");
+            this.groupManager = groupManager;
+            this.enabledArg = withRequiredArg("enabled", "true/false", ArgTypes.BOOLEAN);
+        }
+
+        @Override
+        protected boolean canGeneratePermission() {
+            return false;
+        }
+
+        @Override
+        protected void executeSync(CommandContext context) {
+            UUID playerId = context.sender().getUuid();
+            if (playerId == null) {
+                context.sendMessage(Message.raw("Only players can use this command."));
+                return;
+            }
+
+            Group group = groupManager.getPlayerGroup(playerId);
+            if (group == null) {
+                context.sendMessage(Message.raw("You are not in a group."));
+                return;
+            }
+
+            if (!group.isCreator(playerId)) {
+                context.sendMessage(Message.raw("Only the group creator can change settings."));
+                return;
+            }
+
+            boolean enabled = context.get(enabledArg);
+            boolean success = groupManager.updateGroupSettings(
+                group.getGroupId(),
+                playerId,
+                enabled
+            );
+
+            if (success) {
+                context.sendMessage(Message.raw("Isolation mode " + (enabled ? "enabled" : "disabled") + " for group: " + group.getName()));
+                logger.atInfo().log(context.sender().getDisplayName() + " set isolated=" + enabled + " for group " + group.getName());
+            } else {
+                context.sendMessage(Message.raw("Failed to update group settings."));
+            }
         }
     }
 

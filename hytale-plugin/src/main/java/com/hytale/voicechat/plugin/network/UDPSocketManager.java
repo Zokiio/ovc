@@ -14,6 +14,8 @@ import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.Message;
+import com.hypixel.hytale.server.core.entity.entities.Player;
 // Removed direct EntityStore/PlayerRef querying for player validation; rely on tracker
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -524,10 +526,20 @@ public class UDPSocketManager {
             GroupManager localGroupManager = groupManager;
             Group senderGroup = localGroupManager != null ? localGroupManager.getPlayerGroup(playerUUID) : null;
             
-            // Pre-serialize packet for group members (efficiency - serialize once, reuse for all)
+            // Pre-serialize packet for non-spatial group audio
+            // Create a non-spatial version by creating a new packet without position data
             byte[] groupAudioData = null;
             if (senderGroup != null) {
-                groupAudioData = packet.serialize();
+                // Create non-spatial version (no position data)
+                AudioPacket nonSpatialPacket = new AudioPacket(
+                    packet.getSenderId(),
+                    packet.getCodec(),
+                    packet.getAudioData(),
+                    packet.getSequenceNumber()
+                    // Note: no dx, dy, dz parameters - creates non-spatial packet
+                );
+                groupAudioData = nonSpatialPacket.serialize();
+                logger.atFine().log("Routing audio from group " + senderGroup.getName());
             }
             
             // Track which players have received audio to avoid duplicates
@@ -543,6 +555,21 @@ public class UDPSocketManager {
                     double distance = senderPos.distanceTo(position);
                     boolean inProximity = distance <= proximityDistance;
                     
+                    // Check isolation: if sender is in isolated group, skip non-group players
+                    // Check isolation: if receiver is in different isolated group, skip them
+                    Group receiverGroup = localGroupManager != null ? localGroupManager.getPlayerGroup(otherPlayerUUID) : null;
+                    boolean senderIsIsolated = senderGroup != null && senderGroup.isIsolated();
+                    boolean receiverIsIsolated = receiverGroup != null && receiverGroup.isIsolated() && !inSameGroup;
+                    
+                    if (senderIsIsolated && !inSameGroup) {
+                        // Sender is isolated - only route to same group
+                        continue;
+                    }
+                    if (receiverIsIsolated) {
+                        // Receiver is in different isolated group - skip
+                        continue;
+                    }
+                    
                     // Send if in same group OR within proximity distance
                     if (inSameGroup || inProximity) {
                         // Find voice client for this player
@@ -552,7 +579,7 @@ public class UDPSocketManager {
                             InetSocketAddress clientAddr = clients.get(otherClientId);
                             
                             if (clientAddr != null) {
-                                // Priority: proximity audio (spatial 3D) takes precedence over group audio (non-spatial)
+                                // Priority: proximity audio (spatial 3D) takes precedence over group audio
                                 if (inProximity) {
                                     // Proximity audio: send WITH position (spatial 3D)
                                     float dx = (float) (senderPos.getX() - position.getX());
@@ -568,7 +595,7 @@ public class UDPSocketManager {
                                     routedCount++;
                                     routedPlayers.add(otherPlayerUUID);
                                 } else if (inSameGroup) {
-                                    // Group audio only (not in proximity): send WITHOUT position (center-channel, non-spatial)
+                                    // Group audio only (not in proximity) - always non-spatial
                                     ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
                                     buf.writeBytes(groupAudioData);
                                     ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
@@ -693,7 +720,7 @@ public class UDPSocketManager {
                         if (packet.isPermanent()) {
                             logger.atWarning().log("Client " + playerUUID + " attempted to create permanent group: " + packet.getGroupName() + " – creating non-permanent group instead");
                         }
-                        affectedGroup = groupManager.createGroup(packet.getGroupName(), false);
+                        affectedGroup = groupManager.createGroup(packet.getGroupName(), false, playerUUID);
                         if (affectedGroup != null) {
                             groupManager.joinGroup(playerUUID, affectedGroup.getGroupId());
                             logMessage = "Group created: " + packet.getGroupName();
@@ -709,8 +736,30 @@ public class UDPSocketManager {
                     
                     case LEAVE:
                         affectedGroup = groupManager.getPlayerGroup(playerUUID);
-                        if (groupManager.leaveGroup(playerUUID)) {
+                        UUID newOwner = groupManager.leaveGroup(playerUUID);
+                        if (newOwner != null) {
+                            logMessage = "Player left group, ownership transferred to " + newOwner;
+                            // Send notification to new owner
+                            sendOwnershipTransferNotification(newOwner, affectedGroup.getName());
+                        } else if (affectedGroup != null) {
                             logMessage = "Player left group";
+                        }
+                        break;
+                    
+                    case UPDATE_SETTINGS:
+                        affectedGroup = groupManager.getGroup(packet.getGroupId());
+                        if (affectedGroup != null) {
+                            boolean success = groupManager.updateGroupSettings(
+                                packet.getGroupId(),
+                                playerUUID,
+                                packet.isIsolated()
+                            );
+                            if (success) {
+                                logMessage = "Group settings updated: isolated=" + packet.isIsolated();
+                            } else {
+                                logMessage = "Failed to update group settings (permission denied)";
+                                affectedGroup = null; // Don't broadcast if permission denied
+                            }
                         }
                         break;
                 }
@@ -768,7 +817,9 @@ public class UDPSocketManager {
                     SERVER_UUID,
                     group.getGroupId(),
                     group.getName(),
-                    new ArrayList<>(group.getMembers())
+                    new ArrayList<>(group.getMembers()),
+                    group.getCreatorUuid(),
+                    group.isIsolated()
                 );
                 
                 byte[] data = packet.serialize();
@@ -790,6 +841,12 @@ public class UDPSocketManager {
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error broadcasting group state");
             }
+        }
+        
+        private void sendOwnershipTransferNotification(UUID newOwnerUUID, String groupName) {
+            // Note: Cannot send message directly to player from here
+            // Log the transfer - player will see updated group state via GroupStatePacket
+            logger.atInfo().log("Ownership transferred to " + newOwnerUUID + " for group " + groupName);
         }
         
         private void broadcastToAll(ChannelHandlerContext ctx, AudioPacket packet, InetSocketAddress sender) {

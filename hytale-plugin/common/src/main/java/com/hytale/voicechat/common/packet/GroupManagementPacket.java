@@ -15,7 +15,8 @@ public class GroupManagementPacket extends VoicePacket {
     public enum OperationType {
         CREATE((byte) 0x01),
         JOIN((byte) 0x02),
-        LEAVE((byte) 0x03);
+        LEAVE((byte) 0x03),
+        UPDATE_SETTINGS((byte) 0x04);
 
         private final byte value;
 
@@ -41,6 +42,7 @@ public class GroupManagementPacket extends VoicePacket {
     private final UUID groupId;
     private final String groupName; // Used for CREATE operation
     private final boolean isPermanent; // Used for CREATE operation (admin-only)
+    private final Boolean isIsolated; // Used for UPDATE_SETTINGS operation (null for other ops)
 
     // Constructor for JOIN/LEAVE operations
     public GroupManagementPacket(UUID playerId, OperationType operation, UUID groupId) {
@@ -49,6 +51,7 @@ public class GroupManagementPacket extends VoicePacket {
         this.groupId = groupId;
         this.groupName = null;
         this.isPermanent = false;
+        this.isIsolated = null;
     }
 
     // Constructor for CREATE operation
@@ -58,6 +61,17 @@ public class GroupManagementPacket extends VoicePacket {
         this.groupId = null;
         this.groupName = groupName;
         this.isPermanent = isPermanent;
+        this.isIsolated = null;
+    }
+
+    // Constructor for UPDATE_SETTINGS operation
+    public GroupManagementPacket(UUID playerId, UUID groupId, boolean isIsolated) {
+        super(playerId);
+        this.operation = OperationType.UPDATE_SETTINGS;
+        this.groupId = groupId;
+        this.groupName = null;
+        this.isPermanent = false;
+        this.isIsolated = isIsolated;
     }
 
     public OperationType getOperation() {
@@ -76,6 +90,10 @@ public class GroupManagementPacket extends VoicePacket {
         return isPermanent;
     }
 
+    public Boolean isIsolated() {
+        return isIsolated;
+    }
+
     @Override
     public byte[] serialize() {
         ByteBuffer buffer;
@@ -90,6 +108,15 @@ public class GroupManagementPacket extends VoicePacket {
             buffer.put(isPermanent ? (byte) 0x01 : (byte) 0x00);
             buffer.putShort((short) nameBytes.length);
             buffer.put(nameBytes);
+        } else if (operation == OperationType.UPDATE_SETTINGS) {
+            buffer = ByteBuffer.allocate(1 + 16 + 1 + 16 + 1);
+            buffer.put((byte) 0x06); // Packet type: GROUP_MANAGEMENT
+            buffer.putLong(getSenderId().getMostSignificantBits());
+            buffer.putLong(getSenderId().getLeastSignificantBits());
+            buffer.put(operation.getValue());
+            buffer.putLong(groupId.getMostSignificantBits());
+            buffer.putLong(groupId.getLeastSignificantBits());
+            buffer.put(isIsolated ? (byte) 0x01 : (byte) 0x00);
         } else {
             // JOIN or LEAVE
             buffer = ByteBuffer.allocate(1 + 16 + 1 + 16);
@@ -156,6 +183,19 @@ public class GroupManagementPacket extends VoicePacket {
             String groupName = new String(nameBytes, StandardCharsets.UTF_8);
             
             return new GroupManagementPacket(playerId, groupName, isPermanent);
+        } else if (operation == OperationType.UPDATE_SETTINGS) {
+            // UPDATE_SETTINGS requires: 16 bytes (group UUID) + 1 byte (isolation setting)
+            if (buffer.remaining() < 16 + 1) {
+                throw new IllegalArgumentException("Malformed GroupManagementPacket: insufficient data for UPDATE_SETTINGS operation");
+            }
+
+            long groupMostSig = buffer.getLong();
+            long groupLeastSig = buffer.getLong();
+            UUID groupId = new UUID(groupMostSig, groupLeastSig);
+            
+            boolean isIsolated = buffer.get() == (byte) 0x01;
+            
+            return new GroupManagementPacket(playerId, groupId, isIsolated);
         } else {
             // JOIN or LEAVE require: 16 bytes (group UUID)
             if (buffer.remaining() < 16) {

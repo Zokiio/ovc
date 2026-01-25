@@ -24,6 +24,9 @@ public class NetworkConfig {
     public static final int MAX_GROUP_NAME_LENGTH = 32;
     public static final int MAX_GROUP_MEMBER_COUNT = 200;
     public static final int MAX_GROUP_COUNT = 100;
+    
+    // Group isolation mode default
+    public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
 
     private NetworkConfig() {
         // Utility class

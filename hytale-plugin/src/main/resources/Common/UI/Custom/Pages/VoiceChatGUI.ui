@@ -121,14 +121,37 @@ $C.@PageOverlay {
                 }
               }
 
-              Group {
-                LayoutMode: Center;
+              // Group Settings Section (only visible for group creator)
+              Group #GroupSettingsSection {
+                LayoutMode: Top;
                 Padding: (Top: 10);
+                Visible: false;
 
-                $C.@TextButton #SmallLeaveButton {
-                  Anchor: (Width: 150, Height: 34);
-                  Text: "LEAVE GROUP";
-                  Visible: true;
+                Label #SettingsHeader {
+                  Style: (FontSize: 13, TextColor: #dddddd, RenderBold: true);
+                  Anchor: (Width: 300);
+                  Text: "Group Settings (Creator Only):";
+                }
+
+                Group {
+                  LayoutMode: Left;
+                  Padding: (Top: 8);
+
+                  $C.@TextButton #IsolatedToggleButton {
+                    Anchor: (Width: 140, Height: 32);
+                    Text: "ISOLATED: ON";
+                    Visible: true;
+                  }
+
+                  Group {
+                    Anchor: (Width: 8);
+                  }
+
+                  $C.@TextButton #SmallLeaveButton {
+                    Anchor: (Width: 140, Height: 32);
+                    Text: "LEAVE";
+                    Visible: true;
+                  }
                 }
               }
             }
@@ -147,7 +170,7 @@ $C.@PageOverlay {
               Label #AvailableGroupsHeader {
                 Style: (FontSize: 14, TextColor: #dddddd, RenderBold: true);
                 Anchor: (Width: 300);
-                Text: "Available Groups (click to join):";
+                Text: "Available Groups:";
               }
             }
 

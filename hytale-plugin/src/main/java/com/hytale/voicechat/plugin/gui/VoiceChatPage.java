@@ -105,6 +105,9 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
 
         events.addEventBinding(CustomUIEventBindingType.Activating, "#SmallLeaveButton",
                 EventData.of("SmallLeaveClicked", "true"), false);
+
+        events.addEventBinding(CustomUIEventBindingType.Activating, "#IsolatedToggleButton",
+                EventData.of("IsolatedToggleClicked", "true"), false);
     }
 
     @SuppressWarnings("null")
@@ -140,7 +143,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             if (groupNameInput.isEmpty()) {
                 player.sendMessage(Message.raw("Please enter a group name in the text field above").color(Color.RED));
             } else {
-                Group created = groupManager.createGroup(groupNameInput, false);
+                Group created = groupManager.createGroup(groupNameInput, false, playerRef.getUuid());
                 if (created == null) {
                     player.sendMessage(Message.raw("Could not create group (name invalid or already exists)").color(Color.RED));
                 } else {
@@ -198,19 +201,44 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         if (data.leaveGroupClicked != null || data.smallLeaveClicked != null) {
             var group = groupManager.getPlayerGroup(playerRef.getUuid());
             if (group != null) {
-                boolean left = groupManager.leaveGroup(playerRef.getUuid());
-                if (left) {
-                    player.sendMessage(Message.join(
-                            Message.raw("Left group: ").color(Color.YELLOW),
-                            Message.raw(group.getName()).color(Color.CYAN)
-                    ));
-                }
+                UUID newOwner = groupManager.leaveGroup(playerRef.getUuid());
+                player.sendMessage(Message.join(
+                        Message.raw("Left group: ").color(Color.YELLOW),
+                        Message.raw(group.getName()).color(Color.CYAN)
+                ));
             } else {
                 player.sendMessage(Message.raw("You are not in a voice group").color(Color.YELLOW));
             }
             updateGroupDisplay(commandBuilder);
             updateUIVisibility(commandBuilder);
             updateGroupsList(commandBuilder);
+        }
+
+        // Handle isolated toggle
+        if (data.isolatedToggleClicked != null) {
+            var group = groupManager.getPlayerGroup(playerRef.getUuid());
+            if (group != null) {
+                if (!group.isCreator(playerRef.getUuid())) {
+                    player.sendMessage(Message.raw("Only the group creator can change settings").color(Color.RED));
+                } else {
+                    boolean newValue = !group.isIsolated();
+                    boolean success = groupManager.updateGroupSettings(
+                        group.getGroupId(),
+                        playerRef.getUuid(),
+                        newValue
+                    );
+                    if (success) {
+                        player.sendMessage(Message.join(
+                            Message.raw("Isolation mode ").color(Color.GREEN),
+                            Message.raw(newValue ? "enabled" : "disabled").color(Color.CYAN).bold(true),
+                            Message.raw(" for group ").color(Color.GREEN),
+                            Message.raw(group.getName()).color(Color.CYAN).bold(true)
+                        ));
+                    }
+                }
+            }
+            updateGroupDisplay(commandBuilder);
+            updateUIVisibility(commandBuilder);
         }
 
         // Always refresh connection status on any interaction
@@ -296,6 +324,8 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         StringBuilder membersText = new StringBuilder();
         
         var members = group.getMembers();
+        UUID creatorUuid = group.getCreatorUuid();
+        
         if (members.isEmpty()) {
             commands.set("#MemberCount.TextSpans", Message.raw("0 members").color(Color.GRAY));
             membersText.append("No members");
@@ -306,8 +336,16 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             
             // Build member list
             for (var memberUuid : members) {
+                boolean isCreator = memberUuid.equals(creatorUuid);
+                
                 if (memberUuid.equals(playerRef.getUuid())) {
-                    membersText.append(playerRef.getUsername()).append(" (You)").append("\n");
+                    membersText.append(playerRef.getUsername());
+                    if (isCreator) {
+                        membersText.append(" (Owner)");
+                    } else {
+                        membersText.append(" (You)");
+                    }
+                    membersText.append("\n");
                 } else {
                     // Try to get player name from position tracker
                     String playerName = null;
@@ -319,12 +357,20 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                     }
                     
                     if (playerName != null && !playerName.isEmpty()) {
-                        membersText.append(playerName).append("\n");
+                        membersText.append(playerName);
+                        if (isCreator) {
+                            membersText.append(" (Owner)");
+                        }
+                        membersText.append("\n");
                     } else {
                         // Player name not found - log at fine level to avoid log spam
                         logger.atFine().log(
                             "Cannot resolve player name for UUID " + memberUuid + " in group member list");
-                        membersText.append("Unknown\n");
+                        membersText.append("Unknown");
+                        if (isCreator) {
+                            membersText.append(" (Owner)");
+                        }
+                        membersText.append("\n");
                     }
                 }
             }
@@ -338,6 +384,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         PlayerRef playerRef = this.playerRef;
         var group = groupManager.getPlayerGroup(playerRef.getUuid());
         boolean inGroup = group != null;
+        boolean isCreator = inGroup && group.isCreator(playerRef.getUuid());
         
         // Keep creation controls visible to avoid layout shifts; restrict actions in handler instead
         commands.set("#CreateGroupButton.Visible", true);
@@ -351,6 +398,15 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         
         // Show/hide Group Members Section (visible only when IN a group)
         commands.set("#GroupMembersSection.Visible", inGroup);
+        
+        // Show/hide Group Settings Section (visible only for group creator)
+        commands.set("#GroupSettingsSection.Visible", isCreator);
+        
+        // Update button labels if creator
+        if (isCreator) {
+            String isolatedLabel = "ISOLATED: " + (group.isIsolated() ? "ON" : "OFF");
+            commands.set("#IsolatedToggleButton.Text", isolatedLabel);
+        }
     }
 
     private Group findGroupByName(String name) {
@@ -494,6 +550,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         static final String KEY_JOIN_GROUP = "JoinGroupClicked";
         static final String KEY_LEAVE_GROUP = "LeaveGroupClicked";
         static final String KEY_SMALL_LEAVE = "SmallLeaveClicked";
+        static final String KEY_ISOLATED_TOGGLE = "IsolatedToggleClicked";
 
         public static final BuilderCodec<VoiceChatData> CODEC = BuilderCodec.builder(VoiceChatData.class, VoiceChatData::new)
             .addField(new KeyedCodec<>(KEY_GROUP_NAME_INPUT, Codec.STRING), (d, v) -> d.groupNameInput = v, d -> d.groupNameInput == null ? "" : d.groupNameInput)
@@ -502,6 +559,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             .addField(new KeyedCodec<>(KEY_JOIN_GROUP, Codec.STRING), (d, v) -> d.joinGroupClicked = v, d -> d.joinGroupClicked == null ? "" : d.joinGroupClicked)
             .addField(new KeyedCodec<>(KEY_LEAVE_GROUP, Codec.STRING), (d, v) -> d.leaveGroupClicked = v, d -> d.leaveGroupClicked == null ? "" : d.leaveGroupClicked)
             .addField(new KeyedCodec<>(KEY_SMALL_LEAVE, Codec.STRING), (d, v) -> d.smallLeaveClicked = v, d -> d.smallLeaveClicked == null ? "" : d.smallLeaveClicked)
+            .addField(new KeyedCodec<>(KEY_ISOLATED_TOGGLE, Codec.STRING), (d, v) -> d.isolatedToggleClicked = v, d -> d.isolatedToggleClicked == null ? "" : d.isolatedToggleClicked)
                 .build();
 
         private String groupNameInput;
@@ -510,5 +568,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         private String joinGroupClicked;
         private String leaveGroupClicked;
         private String smallLeaveClicked;
+        private String isolatedToggleClicked;
     }
 }

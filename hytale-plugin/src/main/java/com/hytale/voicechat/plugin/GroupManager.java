@@ -24,9 +24,10 @@ public class GroupManager {
      * 
      * @param groupName The name of the group
      * @param isPermanent Whether the group persists when empty
+     * @param creatorUuid The UUID of the player creating the group
      * @return The created Group, or null if validation fails
      */
-    public synchronized Group createGroup(String groupName, boolean isPermanent) {
+    public synchronized Group createGroup(String groupName, boolean isPermanent, UUID creatorUuid) {
         // Validate group name
         if (!isValidGroupName(groupName)) {
             logger.atWarning().log("Invalid group name: " + groupName);
@@ -40,10 +41,10 @@ public class GroupManager {
         }
 
         UUID groupId = UUID.randomUUID();
-        Group group = new Group(groupId, groupName, isPermanent);
+        Group group = new Group(groupId, groupName, isPermanent, creatorUuid);
         groups.put(groupId, group);
         
-        logger.atInfo().log("Created group: " + groupName + " (permanent=" + isPermanent + ")");
+        logger.atInfo().log("Created group: " + groupName + " (permanent=" + isPermanent + ", creator=" + creatorUuid + ")");
         return group;
     }
 
@@ -85,16 +86,33 @@ public class GroupManager {
      * Remove a player from their current group
      * 
      * @param playerId The player leaving
-     * @return true if successful, false if player was not in a group
+     * @return The UUID of the new owner if ownership was transferred, null otherwise
      */
-    public synchronized boolean leaveGroup(UUID playerId) {
+    public synchronized UUID leaveGroup(UUID playerId) {
         UUID groupId = playerGroupMapping.remove(playerId);
         if (groupId == null) {
-            return false; // Player wasn't in a group
+            return null; // Player wasn't in a group
         }
 
         Group group = groups.get(groupId);
         if (group != null) {
+            UUID newOwner = null;
+            
+            // Check if leaving player is the creator and transfer ownership
+            if (group.isCreator(playerId)) {
+                // Get first remaining member (if any)
+                UUID firstMember = group.getMembers().stream()
+                    .filter(uuid -> !uuid.equals(playerId))
+                    .findFirst()
+                    .orElse(null);
+                
+                if (firstMember != null) {
+                    group.setCreator(firstMember);
+                    newOwner = firstMember;
+                    logger.atInfo().log("Transferred ownership of group " + group.getName() + " to " + firstMember);
+                }
+            }
+            
             group.removeMember(playerId);
             logger.atInfo().log("Player " + playerId + " left group " + group.getName());
 
@@ -103,9 +121,11 @@ public class GroupManager {
                 groups.remove(groupId);
                 logger.atInfo().log("Group auto-disbanded: " + group.getName());
             }
+            
+            return newOwner;
         }
 
-        return true;
+        return null;
     }
 
     /**
@@ -127,6 +147,34 @@ public class GroupManager {
      */
     public Group getGroup(UUID groupId) {
         return groups.get(groupId);
+    }
+
+    /**
+     * Update group settings (isolation mode)
+     * Only the group creator can modify settings
+     * 
+     * @param groupId The group to update
+     * @param requesterId The player requesting the change
+     * @param isIsolated Whether to enable isolation mode
+     * @return true if successful, false if permission denied or group not found
+     */
+    public synchronized boolean updateGroupSettings(UUID groupId, UUID requesterId, boolean isIsolated) {
+        Group group = groups.get(groupId);
+        if (group == null) {
+            logger.atWarning().log("Group not found: " + groupId);
+            return false;
+        }
+
+        // Check if requester is the creator
+        if (!group.isCreator(requesterId)) {
+            logger.atWarning().log("Player " + requesterId + " attempted to modify group " + group.getName() + " without permission");
+            return false;
+        }
+
+        group.setIsolated(isIsolated);
+        logger.atInfo().log("Updated group " + group.getName() + " settings: isolated=" + isIsolated);
+        
+        return true;
     }
 
     /**
