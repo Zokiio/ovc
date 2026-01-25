@@ -379,6 +379,16 @@ func (gui *GUI) setupUI() {
 
 	gui.win.SetContent(content)
 
+	// Register disconnect listener to update UI when server disconnects
+	gui.voiceClient.SetDisconnectListener(func(reason string) {
+		gui.runOnUI(func() {
+			gui.statusLabel.SetText(fmt.Sprintf("Disconnected: %s", reason))
+			gui.connectBtn.SetText("Connect")
+			gui.connectBtn.Enable()
+			gui.setConnectionEditable(true)
+		})
+	})
+
 	// Key handlers for PTT (hold by default, toggle optional)
 	if desk, ok := gui.win.Canvas().(desktop.Canvas); ok {
 		desk.SetOnKeyDown(func(ev *fyne.KeyEvent) {

@@ -62,19 +62,20 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
             
-            // Register event system for player join/quit tracking
-            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker));
-            EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
-            
-            // Initialize event listener
-            eventListener = new PlayerEventListener(positionTracker);
-            
             // Initialize and start UDP voice server
             udpServer = new UDPSocketManager(voicePort);
             udpServer.setProximityDistance(proximityDistance);
             udpServer.setPositionTracker(positionTracker);
+            
+            // Initialize event listener
+            eventListener = new PlayerEventListener(positionTracker);
             udpServer.setEventListener(eventListener);
             udpServer.setGroupManager(groupManager);
+            
+            // Register event system for player join/quit tracking (with udpServer reference for disconnection)
+            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, udpServer));
+            EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
+            
             udpServer.start();
             
             // Start position tracking

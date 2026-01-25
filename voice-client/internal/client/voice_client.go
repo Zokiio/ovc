@@ -43,6 +43,7 @@ type VoiceClient struct {
 	vadActive         bool
 	vadHangover       int
 	vadStateCB        atomic.Value // func(enabled bool, active bool)
+	disconnectCB      atomic.Value // func(reason string) - called when disconnected
 	pttEnabled        atomic.Bool
 	pttActive         atomic.Bool
 	pttKey            string
@@ -189,6 +190,11 @@ func (vc *VoiceClient) newAudioManager(inputDeviceLabel string, outputDeviceLabe
 // SetVADStateListener registers a callback invoked when VAD enabled/active state changes.
 func (vc *VoiceClient) SetVADStateListener(fn func(enabled bool, active bool)) {
 	vc.vadStateCB.Store(fn)
+}
+
+// SetDisconnectListener registers a callback invoked when the client disconnects.
+func (vc *VoiceClient) SetDisconnectListener(fn func(reason string)) {
+	vc.disconnectCB.Store(fn)
 }
 
 func (vc *VoiceClient) Connect(serverAddr string, serverPort int, username string, inputDeviceLabel string, outputDeviceLabel string) error {
@@ -453,25 +459,31 @@ func (vc *VoiceClient) receiveLoop() {
 		n, _, err := vc.socket.ReadFromUDP(buffer)
 		if err != nil {
 			if vc.connected.Load() {
-				log.Printf("Receive error: %v", err)
+				log.Printf("Socket closed or receive error: %v", err)
+				// Server shutdown or socket closed - disconnect
+				vc.connected.Store(false)
+				vc.notifyDisconnect("Server connection lost")
+				_ = vc.Disconnect()
 			}
-			continue
+			return
 		}
 
 		// Handle server shutdown packet
 		if n >= 1 && buffer[0] == PacketTypeServerShutdown {
+			reason := "Server shutdown"
 			if n >= 3 {
 				msgLen := binary.BigEndian.Uint16(buffer[1:3])
 				reasonLen := int(msgLen)
 				end := 3 + reasonLen
 				if reasonLen >= 0 && end <= n && end <= len(buffer) {
-					reason := string(buffer[3:end])
+					reason = string(buffer[3:end])
 					log.Printf("Server shutdown: %s", reason)
 				} else {
 					log.Printf("Server shutdown (malformed packet)")
 				}
 			}
 			vc.connected.Store(false)
+			vc.notifyDisconnect(reason)
 			_ = vc.Disconnect()
 			return
 		}
@@ -630,6 +642,14 @@ func (vc *VoiceClient) notifyVADState() {
 		return
 	}
 	cb(vc.vadEnabled.Load(), vc.vadActive)
+}
+
+func (vc *VoiceClient) notifyDisconnect(reason string) {
+	cb, ok := vc.disconnectCB.Load().(func(string))
+	if !ok || cb == nil {
+		return
+	}
+	cb(reason)
 }
 
 func calculateRMS(samples []int16) float64 {
