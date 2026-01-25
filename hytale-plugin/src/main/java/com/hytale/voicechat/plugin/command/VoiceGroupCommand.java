@@ -14,6 +14,7 @@ import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.World;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.Group;
+import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.HytaleVoiceChatPlugin;
 import com.hytale.voicechat.plugin.gui.VoiceChatPage;
@@ -262,6 +263,9 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
             super("proximity", "Configure voice chat proximity distance");
             this.plugin = plugin;
             this.distanceArg = withRequiredArg("distance", "Distance in blocks (1.0-100.0)", ArgTypes.DOUBLE);
+            
+            // Require admin permission
+            requirePermission("voicechat.admin.proximity");
         }
 
         @Override
@@ -283,8 +287,8 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
 
             double newDistance = context.get(distanceArg);
             
-            if (newDistance < 1.0 || newDistance > 100.0) {
-                context.sendMessage(Message.raw("Distance must be between 1.0 and 100.0 blocks"));
+            if (newDistance < 1.0 || newDistance > NetworkConfig.MAX_VOICE_DISTANCE) {
+                context.sendMessage(Message.raw("Distance must be between 1.0 and " + NetworkConfig.MAX_VOICE_DISTANCE + " blocks"));
                 return;
             }
 
