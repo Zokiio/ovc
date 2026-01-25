@@ -1,15 +1,18 @@
 Website = "https://hytale.com"
+Icon = "internal/client/resources/Icon.png"
 
 [Details]
   Name = "Hytale Voice Chat"
-  ID = "com.hytale.voicechat"
+  ID = "com.zottik.hytale-voicechat"
   Version = "1.0.0"
   Build = 1
 
 [Windows]
-  CompanyName = "Hytale Voice Chat"
+  CompanyName = "Zottik"
   FileDescription = "Voice Chat Client for Hytale"
-  InternalName = "voice-client"
-  LegalCopyright = "Copyright © 2026"
-  OriginalFilename = "voice-client.exe"
+  InternalName = "HytaleVoiceChat"
+  LegalCopyright = "Copyright © 2026 Zottik"
+  OriginalFilename = "HytaleVoiceChat.exe"
   ProductName = "Hytale Voice Chat"
+
+

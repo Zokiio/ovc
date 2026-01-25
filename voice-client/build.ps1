@@ -12,6 +12,9 @@ $ErrorActionPreference = "Stop"
 $OutDir = "dist"
 $MSYS2Bin = "C:\msys64\mingw64\bin"
 $AppName = "HytaleVoiceChat.exe"
+$ResourcesDir = "internal\\client\\resources"
+$IconPng = Join-Path $ResourcesDir "Icon.png"
+$IconIco = Join-Path $ResourcesDir "icon.ico"
 
 # Clean if requested
 if ($Clean) {
@@ -24,6 +27,33 @@ if ($Clean) {
 # Create output directory
 Write-Host "Creating output directory: $OutDir"
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $OutDir "resources") | Out-Null
+
+# Prepare build resources in cmd/voice-client
+Write-Host "Preparing build resources..."
+Copy-Item "versioninfo.json" "cmd\voice-client\" -Force
+if (Test-Path $IconPng) {
+    $magick = Get-Command magick -ErrorAction SilentlyContinue
+    if ($magick) {
+        Write-Host "Regenerating icon.ico from Icon.png..."
+        magick $IconPng -background none -alpha on -define icon:auto-resize=256,128,64,48,32,16 -colors 256 $IconIco
+    }
+}
+Copy-Item $IconIco "cmd\voice-client\" -Force
+Copy-Item $IconPng "cmd\voice-client\" -Force
+
+# Generate resource file
+Write-Host "Generating Windows resource file..."
+$env:PATH = "$env:USERPROFILE\go\bin;$env:PATH"
+Push-Location "cmd\voice-client"
+Remove-Item "resource.syso" -Force -ErrorAction SilentlyContinue
+goversioninfo -64 -o resource.syso
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Failed to generate resource file"
+    Pop-Location
+    exit $LASTEXITCODE
+}
+Pop-Location
 
 # Set up build environment
 Write-Host "Setting up build environment..."
@@ -46,6 +76,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Build successful: $OutDir\$AppName"
+
+# Copy icon assets for runtime window icon
+Copy-Item $IconPng (Join-Path $OutDir "Icon.png") -Force
+Copy-Item $IconPng (Join-Path $OutDir "resources\Icon.png") -Force
 
 # Copy required DLLs
 Write-Host "Copying required DLLs from MSYS2..."
@@ -71,3 +105,5 @@ foreach ($dll in $dlls) {
 
 Write-Host "`nBuild complete! Output in: $OutDir\"
 Write-Host "Run with: .\$OutDir\$AppName"
+
+

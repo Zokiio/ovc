@@ -20,12 +20,12 @@
   },
   "StringFileInfo": {
     "Comments": "Hytale Voice Chat Client",
-    "CompanyName": "Hytale Voice Chat",
+    "CompanyName": "Zottik",
     "FileDescription": "Voice Chat Client for Hytale",
     "FileVersion": "1.0.0.0",
     "InternalName": "voice-client",
-    "LegalCopyright": "Copyright © 2026",
-    "OriginalFilename": "voice-client.exe",
+    "LegalCopyright": "Copyright © 2026 Zottik",
+    "OriginalFilename": "HytaleVoiceChat.exe",
     "ProductName": "Hytale Voice Chat",
     "ProductVersion": "1.0.0.0"
   },
@@ -34,5 +34,8 @@
       "LangID": "0409",
       "CharsetID": "04B0"
     }
-  }
+  },
+  "IconPath": "..\\..\\internal\\client\\resources\\icon.ico"
 }
+
+
