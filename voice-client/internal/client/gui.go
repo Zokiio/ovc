@@ -121,22 +121,22 @@ type GUI struct {
 	savedConfig *ClientConfig
 
 	// UI Elements
-	serverInput       *widget.Entry
-	portInput         *widget.Entry
-	usernameInput     *widget.Entry
-	micSelect         *widget.Select
-	speakerSelect     *widget.Select
-	connectBtn        *widget.Button
-	testToneBtn       *widget.Button
-	posTestBtn        *widget.Button
-	statusLabel       *TruncatedStatusLabel
-	volumeSlider      *widget.Slider
-	micGainSlider     *widget.Slider
-	vadCheck          *widget.Check
-	vadSlider         *widget.Slider
-	vadHangoverSlider *widget.Slider
-	vadBar            *canvas.Rectangle
-	vadStateLabel     *widget.Label
+	serverInput         *widget.Entry
+	portInput           *widget.Entry
+	usernameInput       *widget.Entry
+	micSelect           *widget.Select
+	speakerSelect       *widget.Select
+	connectBtn          *widget.Button
+	testToneBtn         *widget.Button
+	posTestBtn          *widget.Button
+	statusLabel         *TruncatedStatusLabel
+	volumeSlider        *widget.Slider
+	micGainSlider       *widget.Slider
+	vadCheck            *widget.Check
+	vadSlider           *widget.Slider
+	vadHangoverSlider   *widget.Slider
+	vadBar              *canvas.Rectangle
+	vadStateLabel       *widget.Label
 	modeRadio           *widget.RadioGroup
 	pttKeyEntry         *widget.Entry
 	pttHoldBtn          *HoldButton
@@ -146,6 +146,7 @@ type GUI struct {
 	playerVolumeList    *fyne.Container
 	mainContent         *fyne.Container
 	uiReady             bool
+	done                chan struct{} // Signal to stop background goroutines
 }
 
 // HoldButton triggers callbacks on mouse press/release for hold-to-talk behavior.
@@ -184,6 +185,7 @@ const defaultVADThreshold = 1200
 func NewGUI(client *VoiceClient) *GUI {
 	return &GUI{
 		voiceClient: client,
+		done:        make(chan struct{}),
 	}
 }
 
@@ -235,6 +237,12 @@ func (gui *GUI) Run() {
 	}
 
 	gui.setupUI()
+
+	// Set up cleanup when window closes
+	gui.win.SetCloseIntercept(func() {
+		close(gui.done)
+		gui.win.Close()
+	})
 
 	gui.win.Resize(fyne.NewSize(400, 300))
 	gui.win.CenterOnScreen()
@@ -687,31 +695,26 @@ func (gui *GUI) loadSavedConfig() {
 	if cfg.Username != "" {
 		gui.usernameInput.SetText(cfg.Username)
 	}
-	
-	// Load player volumes into voice client
+
+	// Load player volumes into voice client using thread-safe API
 	if cfg.PlayerVolumes != nil {
-		gui.voiceClient.volumeMu.Lock()
-		gui.voiceClient.playerVolumes = cfg.PlayerVolumes
-		gui.voiceClient.volumeMu.Unlock()
+		gui.voiceClient.SetPlayerVolumes(cfg.PlayerVolumes)
 	}
-	
-	// Load default player volume
+
+	// Load default player volume using thread-safe API
 	if cfg.DefaultPlayerVolume > 0 {
-		gui.voiceClient.volumeMu.Lock()
-		gui.voiceClient.defaultPlayerVolume = cfg.DefaultPlayerVolume
-		gui.voiceClient.volumeMu.Unlock()
+		gui.voiceClient.SetDefaultPlayerVolume(cfg.DefaultPlayerVolume)
 	}
 }
 
 func (gui *GUI) saveConfig(server string, port int, username string, micLabel string, speakerLabel string, vadEnabled bool, vadThreshold int, masterVol float64, micGain float64, ptt bool, pttKey string) {
-	// Get current player volumes and default volume from voice client
-	gui.voiceClient.volumeMu.RLock()
+	// Get current player volumes and default volume from voice client using thread-safe API
+	playerVolumesFromClient := gui.voiceClient.GetPlayerVolumes()
 	playerVolumes := make(map[string]float64)
-	for k, v := range gui.voiceClient.playerVolumes {
+	for k, v := range playerVolumesFromClient {
 		playerVolumes[k] = v
 	}
-	defaultPlayerVolume := gui.voiceClient.defaultPlayerVolume
-	gui.voiceClient.volumeMu.RUnlock()
+	defaultPlayerVolume := gui.voiceClient.GetDefaultPlayerVolume()
 
 	cfg := ClientConfig{
 		Server:              server,
@@ -789,7 +792,7 @@ func (gui *GUI) applySavedSettings() {
 		gui.modeRadio.SetSelected("Voice Activated")
 		gui.vadCheck.Enable()
 	}
-	
+
 	// Apply default player volume to slider (if sidebar is initialized)
 	if gui.savedConfig.DefaultPlayerVolume > 0 && gui.defaultVolumeSlider != nil {
 		gui.defaultVolumeSlider.SetValue(gui.savedConfig.DefaultPlayerVolume * 100)
@@ -897,20 +900,18 @@ func (gui *GUI) setupPlayerSidebar() {
 	// Use border container to make scroll fill available height
 	gui.playerSidebarBox = container.NewBorder(
 		sidebarHeader, // top
-		nil,          // bottom
-		nil,          // left
-		nil,          // right
-		playerScroll, // center (expands to fill)
+		nil,           // bottom
+		nil,           // left
+		nil,           // right
+		playerScroll,  // center (expands to fill)
 	)
 }
-
-
 
 // refreshPlayerList updates the player volume list with current players
 func (gui *GUI) refreshPlayerList() {
 	// Get all known players
 	players := gui.voiceClient.GetAllKnownPlayers()
-	
+
 	if len(players) == 0 {
 		gui.playerVolumeList.Objects = []fyne.CanvasObject{
 			widget.NewLabel("No players yet..."),
@@ -918,7 +919,7 @@ func (gui *GUI) refreshPlayerList() {
 		gui.playerVolumeList.Refresh()
 		return
 	}
-	
+
 	// Sort players alphabetically for consistent order
 	sort.Strings(players)
 
@@ -926,18 +927,18 @@ func (gui *GUI) refreshPlayerList() {
 	var items []fyne.CanvasObject
 	for _, username := range players {
 		playerVolume := gui.voiceClient.GetPlayerVolume(username)
-		
+
 		// Player label
 		label := widget.NewLabel(username)
-		
+
 		// Volume percentage label
 		volLabel := widget.NewLabel(fmt.Sprintf("%.0f%%", playerVolume*100))
-		
+
 		// Volume slider
 		slider := widget.NewSlider(0, 200)
 		slider.Value = playerVolume * 100
 		slider.Step = 5
-		
+
 		// Capture username in closure
 		currentUsername := username
 		slider.OnChanged = func(value float64) {
@@ -948,14 +949,14 @@ func (gui *GUI) refreshPlayerList() {
 			gui.voiceClient.SetPlayerVolume(currentUsername, value/100.0)
 			gui.saveConfigFromUI()
 		}
-		
+
 		// Mute button
 		muteBtn := widget.NewButton("Mute", func() {
 			gui.voiceClient.SetPlayerVolume(currentUsername, 0)
 			slider.SetValue(0)
 			gui.saveConfigFromUI()
 		})
-		
+
 		// Reset button
 		resetBtn := widget.NewButton("Reset", func() {
 			defaultVol := gui.voiceClient.defaultPlayerVolume
@@ -963,7 +964,7 @@ func (gui *GUI) refreshPlayerList() {
 			slider.SetValue(defaultVol * 100)
 			gui.saveConfigFromUI()
 		})
-		
+
 		// Player container
 		playerBox := container.NewVBox(
 			label,
@@ -971,10 +972,10 @@ func (gui *GUI) refreshPlayerList() {
 			slider,
 			widget.NewSeparator(),
 		)
-		
+
 		items = append(items, playerBox)
 	}
-	
+
 	gui.playerVolumeList.Objects = items
 	gui.playerVolumeList.Refresh()
 }
@@ -983,11 +984,16 @@ func (gui *GUI) refreshPlayerList() {
 func (gui *GUI) updatePlayerListPeriodically() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	
-	for range ticker.C {
-		gui.runOnUI(func() {
-			gui.refreshPlayerList()
-		})
+
+	for {
+		select {
+		case <-ticker.C:
+			gui.runOnUI(func() {
+				gui.refreshPlayerList()
+			})
+		case <-gui.done:
+			return
+		}
 	}
 }
 

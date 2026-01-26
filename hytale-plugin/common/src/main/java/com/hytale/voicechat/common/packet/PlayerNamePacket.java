@@ -59,6 +59,13 @@ public class PlayerNamePacket extends VoicePacket {
         int hashId = buffer.getInt();
         
         int usernameLength = buffer.getInt();
+        if (usernameLength < 0 || usernameLength > 256) {
+            throw new IllegalArgumentException("Invalid username length: " + usernameLength);
+        }
+        if (buffer.remaining() < usernameLength) {
+            throw new IllegalArgumentException("Insufficient data for username: expected " + usernameLength
+                    + " bytes, but only " + buffer.remaining() + " available");
+        }
         byte[] usernameBytes = new byte[usernameLength];
         buffer.get(usernameBytes);
         String username = new String(usernameBytes, StandardCharsets.UTF_8);
