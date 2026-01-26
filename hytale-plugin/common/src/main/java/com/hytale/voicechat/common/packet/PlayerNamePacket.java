@@ -59,7 +59,7 @@ public class PlayerNamePacket extends VoicePacket {
         int hashId = buffer.getInt();
         
         int usernameLength = buffer.getInt();
-        if (usernameLength < 0 || usernameLength > 256) {
+        if (usernameLength <= 0 || usernameLength > 256) {
             throw new IllegalArgumentException("Invalid username length: " + usernameLength);
         }
         if (buffer.remaining() < usernameLength) {
