@@ -144,6 +144,7 @@ type GUI struct {
 	playerSidebarBox    *fyne.Container
 	defaultVolumeSlider *widget.Slider
 	playerVolumeList    *fyne.Container
+	showInactiveCheck   *widget.Check
 	mainContent         *fyne.Container
 	uiReady             bool
 	done                chan struct{} // Signal to stop background goroutines
@@ -879,7 +880,7 @@ func (gui *GUI) setupPlayerSidebar() {
 	gui.playerVolumeList = container.NewVBox()
 
 	// Show inactive toggle
-	showInactiveCheck := widget.NewCheck("Show inactive players (5min+)", func(checked bool) {
+	gui.showInactiveCheck = widget.NewCheck("Show inactive players (5min+)", func(checked bool) {
 		gui.refreshPlayerList()
 	})
 
@@ -890,7 +891,7 @@ func (gui *GUI) setupPlayerSidebar() {
 		defaultVolumeLabel,
 		gui.defaultVolumeSlider,
 		widget.NewSeparator(),
-		showInactiveCheck,
+		gui.showInactiveCheck,
 		widget.NewSeparator(),
 	)
 
@@ -915,6 +916,28 @@ func (gui *GUI) refreshPlayerList() {
 	if len(players) == 0 {
 		gui.playerVolumeList.Objects = []fyne.CanvasObject{
 			widget.NewLabel("No players yet..."),
+		}
+		gui.playerVolumeList.Refresh()
+		return
+	}
+
+	// Filter by activity if checkbox is not checked
+	showInactive := gui.showInactiveCheck.Checked
+	if !showInactive {
+		var activePlayers []string
+		now := time.Now()
+		for _, username := range players {
+			lastHeard, ok := gui.voiceClient.GetPlayerLastHeard(username)
+			if ok && now.Sub(lastHeard) < 5*time.Minute {
+				activePlayers = append(activePlayers, username)
+			}
+		}
+		players = activePlayers
+	}
+
+	if len(players) == 0 {
+		gui.playerVolumeList.Objects = []fyne.CanvasObject{
+			widget.NewLabel("No active players (enable 'Show inactive' to see all)"),
 		}
 		gui.playerVolumeList.Refresh()
 		return
@@ -959,7 +982,7 @@ func (gui *GUI) refreshPlayerList() {
 
 		// Reset button
 		resetBtn := widget.NewButton("Reset", func() {
-			defaultVol := gui.voiceClient.defaultPlayerVolume
+			defaultVol := gui.voiceClient.GetDefaultPlayerVolume()
 			gui.voiceClient.SetPlayerVolume(currentUsername, defaultVol)
 			slider.SetValue(defaultVol * 100)
 			gui.saveConfigFromUI()

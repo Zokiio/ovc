@@ -277,6 +277,23 @@ func (vc *VoiceClient) GetAllKnownPlayers() []string {
 	return players
 }
 
+// GetPlayerLastHeard returns the last time a player was heard from
+func (vc *VoiceClient) GetPlayerLastHeard(username string) (time.Time, bool) {
+	vc.volumeMu.RLock()
+	defer vc.volumeMu.RUnlock()
+
+	// Find hash ID for this username
+	for hashID, name := range vc.hashToUsername {
+		if name == username {
+			// Found the hash ID, now get last heard time
+			if lastHeard, ok := vc.lastHeard[hashID]; ok {
+				return lastHeard, true
+			}
+		}
+	}
+	return time.Time{}, false
+}
+
 func (vc *VoiceClient) SetRequestedSampleRate(sampleRate int) {
 	vc.mu.Lock()
 	vc.requestedSampleRate = sanitizeSampleRate(sampleRate)
