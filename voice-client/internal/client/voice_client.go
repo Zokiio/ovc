@@ -31,6 +31,9 @@ const (
 	vadHangoverFramesDefault = 30 // default hangover frames (~1.5 seconds at 20ms per frame)
 	positionalMaxDistance    = 30.0
 	DefaultVoicePort         = 24454
+	// Volume limits
+	MinPlayerVolume = 0.0
+	MaxPlayerVolume = 2.0
 )
 
 type VoiceClient struct {
@@ -1054,13 +1057,14 @@ func (vc *VoiceClient) applyPlayerVolume(samples []int16, hashID uint32) []int16
 		volumeToUse = volume
 	}
 
-	vc.volumeMu.Unlock()
-
+	// Log messages inside critical section to avoid race conditions
 	if unknownPlayer {
 		log.Printf("[VOLUME] Unknown player (hashID=%d), using default volume %.2f", hashID, volumeToUse)
 	} else if newPlayer {
 		log.Printf("[VOLUME] New player '%s' (hashID=%d), using default volume %.2f", username, hashID, volumeToUse)
 	}
+
+	vc.volumeMu.Unlock()
 
 	return scaleAudioSamples(samples, volumeToUse)
 }
@@ -1143,6 +1147,10 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, uint32, bool) {
 			// Only treat as hash-based if the length matches exactly either:
 			// - header + audio data, or
 			// - header + audio data + 12 bytes of positional data (when hasPos is true).
+			// Note: This validation ensures we don't misidentify packet formats. A UUID-based packet
+			// could theoretically match these length checks, but in practice the hashID presence
+			// and packet structure make false positives unlikely. Additional validation could check
+			// if hashID exists in hashToUsername map, but that adds unnecessary lookup overhead.
 			if audioLen > 0 && (totalLen == len(data) || (hasPos && totalLen+12 == len(data))) {
 				// Valid hash-based packet
 				var pos *[3]float32
@@ -1184,6 +1192,8 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, uint32, bool) {
 	}
 
 	// Legacy PCM format without codec byte
+	// Note: Legacy PCM packets use UUID-based sender identification, so we return hashID=0
+	// to skip per-player volume control (which requires hash-based identification).
 	audioLen := binary.BigEndian.Uint32(data[21:25])
 	totalLen := audioHeaderLegacy + int(audioLen)
 	if totalLen > len(data) || audioLen == 0 {

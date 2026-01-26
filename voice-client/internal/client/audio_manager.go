@@ -394,6 +394,10 @@ func (am *SimpleAudioManager) GetOutputChannel() chan<- []int16 {
 func (am *SimpleAudioManager) enqueueOutput(samples []int16) {
 	am.jitterMu.Lock()
 	am.jitterBuffer = append(am.jitterBuffer, samples)
+	// Simple FIFO overflow handling: keep only the most recent frames
+	// This buffer assumes in-order delivery from the server's AudioPacer.
+	// The server-side AudioPacer already handles sequence numbering and reordering,
+	// so the client-side buffer doesn't need duplicate/out-of-order detection.
 	if len(am.jitterBuffer) > am.jitterMaxFrames {
 		am.jitterBuffer = am.jitterBuffer[len(am.jitterBuffer)-am.jitterMaxFrames:]
 	}
@@ -668,6 +672,9 @@ func (am *SimpleAudioManager) processInput(in []int16) {
 }
 
 func (am *SimpleAudioManager) processOutput(out []int16) {
+	// Dequeue from jitter buffer instead of direct channel read
+	// This introduces a 60ms initial buffering delay (3 frames at 20ms/frame) before audio starts,
+	// which improves stability by absorbing network jitter and packet timing variations.
 	samples := am.dequeueOutput()
 	if samples == nil {
 		for i := range out {
