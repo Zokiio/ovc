@@ -34,39 +34,39 @@ const (
 )
 
 type VoiceClient struct {
-	clientID          uuid.UUID
-	username          string
-	serverAddr        string
-	serverPort        int
-	serverUDPAddr     *net.UDPAddr
-	socket            *net.UDPConn
-	audioManager      *SimpleAudioManager
-	codec             byte
+	clientID            uuid.UUID
+	username            string
+	serverAddr          string
+	serverPort          int
+	serverUDPAddr       *net.UDPAddr
+	socket              *net.UDPConn
+	audioManager        *SimpleAudioManager
+	codec               byte
 	requestedSampleRate int
 	selectedSampleRate  int
-	vadEnabled        atomic.Bool
-	vadThreshold      atomic.Uint32
-	vadHangoverFrames atomic.Uint32
-	vadActive         bool
-	vadHangover       int
-	vadStateCB        atomic.Value // func(enabled bool, active bool)
-	disconnectCB      atomic.Value // func(reason string) - called when disconnected
-	pttEnabled        atomic.Bool
-	pttActive         atomic.Bool
-	pttKey            string
-	masterVolume      float64
-	micGain           float64
+	vadEnabled          atomic.Bool
+	vadThreshold        atomic.Uint32
+	vadHangoverFrames   atomic.Uint32
+	vadActive           bool
+	vadHangover         int
+	vadStateCB          atomic.Value // func(enabled bool, active bool)
+	disconnectCB        atomic.Value // func(reason string) - called when disconnected
+	pttEnabled          atomic.Bool
+	pttActive           atomic.Bool
+	pttKey              string
+	masterVolume        float64
+	micGain             float64
 	// Per-player volume control
-	hashToUsername    map[uint32]string  // hash ID -> username mapping
-	playerVolumes     map[string]float64 // username -> volume multiplier (0.0-2.0)
-	lastHeard         map[uint32]time.Time // hash ID -> last audio packet time
-	defaultPlayerVolume float64          // default volume for new players (0.75 = 75%)
-	volumeMu          sync.RWMutex       // protects volume-related maps
-	connected         atomic.Bool
-	sequenceNumber    atomic.Uint32
-	rxDone            chan struct{}
-	txDone            chan struct{}
-	mu                sync.Mutex
+	hashToUsername      map[uint32]string    // hash ID -> username mapping
+	playerVolumes       map[string]float64   // username -> volume multiplier (0.0-2.0)
+	lastHeard           map[uint32]time.Time // hash ID -> last audio packet time
+	defaultPlayerVolume float64              // default volume for new players (0.75 = 75%)
+	volumeMu            sync.RWMutex         // protects volume-related maps
+	connected           atomic.Bool
+	sequenceNumber      atomic.Uint32
+	rxDone              chan struct{}
+	txDone              chan struct{}
+	mu                  sync.Mutex
 }
 
 func NewVoiceClient() *VoiceClient {
@@ -178,7 +178,7 @@ func (vc *VoiceClient) SetPlayerVolume(username string, volume float64) {
 func (vc *VoiceClient) GetPlayerVolume(username string) float64 {
 	vc.volumeMu.RLock()
 	defer vc.volumeMu.RUnlock()
-	
+
 	volume, exists := vc.playerVolumes[username]
 	if !exists {
 		return vc.defaultPlayerVolume
@@ -200,14 +200,51 @@ func (vc *VoiceClient) SetDefaultPlayerVolume(volume float64) {
 	log.Printf("[VOLUME] Set default player volume to %.2f", volume)
 }
 
+// GetDefaultPlayerVolume gets the default volume for new players
+func (vc *VoiceClient) GetDefaultPlayerVolume() float64 {
+	vc.volumeMu.RLock()
+	defer vc.volumeMu.RUnlock()
+	return vc.defaultPlayerVolume
+}
+
+// GetPlayerVolumes returns a copy of all player volumes
+func (vc *VoiceClient) GetPlayerVolumes() map[string]float64 {
+	vc.volumeMu.RLock()
+	defer vc.volumeMu.RUnlock()
+
+	// Return a copy to prevent external modification
+	volumes := make(map[string]float64, len(vc.playerVolumes))
+	for k, v := range vc.playerVolumes {
+		volumes[k] = v
+	}
+	return volumes
+}
+
+// SetPlayerVolumes sets multiple player volumes at once
+func (vc *VoiceClient) SetPlayerVolumes(volumes map[string]float64) {
+	vc.volumeMu.Lock()
+	defer vc.volumeMu.Unlock()
+
+	for username, volume := range volumes {
+		// Clamp volume to valid range
+		if volume < 0 {
+			volume = 0
+		}
+		if volume > 2.0 {
+			volume = 2.0
+		}
+		vc.playerVolumes[username] = volume
+	}
+}
+
 // GetActivePlayers returns a list of players who have sent audio recently
 func (vc *VoiceClient) GetActivePlayers(inactiveDuration time.Duration) []string {
 	vc.volumeMu.RLock()
 	defer vc.volumeMu.RUnlock()
-	
+
 	now := time.Now()
 	var active []string
-	
+
 	for hashID, lastTime := range vc.lastHeard {
 		if now.Sub(lastTime) <= inactiveDuration {
 			if username, exists := vc.hashToUsername[hashID]; exists {
@@ -215,7 +252,7 @@ func (vc *VoiceClient) GetActivePlayers(inactiveDuration time.Duration) []string
 			}
 		}
 	}
-	
+
 	return active
 }
 
@@ -223,7 +260,7 @@ func (vc *VoiceClient) GetActivePlayers(inactiveDuration time.Duration) []string
 func (vc *VoiceClient) GetAllKnownPlayers() []string {
 	vc.volumeMu.RLock()
 	defer vc.volumeMu.RUnlock()
-	
+
 	// Use a map to track unique usernames and exclude self
 	uniqueUsers := make(map[string]bool)
 	for _, username := range vc.hashToUsername {
@@ -231,12 +268,12 @@ func (vc *VoiceClient) GetAllKnownPlayers() []string {
 			uniqueUsers[username] = true
 		}
 	}
-	
+
 	players := make([]string, 0, len(uniqueUsers))
 	for username := range uniqueUsers {
 		players = append(players, username)
 	}
-	
+
 	return players
 }
 
@@ -317,16 +354,16 @@ func parseServerAddress(serverAddr string, defaultPort int) (string, int, error)
 		if err != nil {
 			return "", 0, fmt.Errorf("invalid server address format: %w", err)
 		}
-		
+
 		port, err := strconv.Atoi(portStr)
 		if err != nil {
 			return "", 0, fmt.Errorf("invalid port number: %w", err)
 		}
-		
+
 		if port < 1 || port > 65535 {
 			return "", 0, fmt.Errorf("port must be between 1 and 65535, got %d", port)
 		}
-		
+
 		return host, port, nil
 	}
 
@@ -534,6 +571,13 @@ func (vc *VoiceClient) Disconnect() error {
 	case <-vc.txDone:
 	case <-time.After(1 * time.Second):
 	}
+
+	// Clean up volume-related maps to prevent memory leaks
+	vc.volumeMu.Lock()
+	vc.hashToUsername = make(map[uint32]string)
+	vc.lastHeard = make(map[uint32]time.Time)
+	// Keep playerVolumes as they represent user preferences
+	vc.volumeMu.Unlock()
 
 	log.Println("Disconnected from voice server")
 	return nil
@@ -901,7 +945,7 @@ func spatialize(samples []int16, pos *[3]float32, maxDistance float64) []int16 {
 		log.Printf("[SPATIALIZE] pos=(%.2f,%.2f,%.2f) dist=%.2f att=%.3f pan=%.3f elevNorm=%.3f panScale=%.3f", pos[0], pos[1], pos[2], d, att, pan, elev, panPreview)
 	}
 
-		// Equal-power panning without elevation widening to keep front/side accuracy
+	// Equal-power panning without elevation widening to keep front/side accuracy
 	if pan < -1 {
 		pan = -1
 	}
@@ -943,7 +987,7 @@ func (vc *VoiceClient) handlePlayerNamePacket(data []byte) {
 
 	hashID := binary.BigEndian.Uint32(data[17:21])
 	usernameLen := binary.BigEndian.Uint32(data[21:25])
-	
+
 	if len(data) < 25+int(usernameLen) {
 		log.Printf("Invalid PlayerNamePacket: username truncated")
 		return
@@ -966,29 +1010,42 @@ func (vc *VoiceClient) applyPlayerVolume(samples []int16, hashID uint32) []int16
 	}
 
 	vc.volumeMu.Lock()
-	defer vc.volumeMu.Unlock()
 
 	// Update last heard timestamp
 	vc.lastHeard[hashID] = time.Now()
 
-	// Get username for this hash ID
+	// Determine username for this hash ID
 	username, exists := vc.hashToUsername[hashID]
+
+	var volumeToUse float64
+	unknownPlayer := false
+	newPlayer := false
+
 	if !exists {
 		// Username not yet mapped - use default volume
-		log.Printf("[VOLUME] Unknown player (hashID=%d), using default volume %.2f", hashID, vc.defaultPlayerVolume)
-		return scaleAudioSamples(samples, vc.defaultPlayerVolume)
+		unknownPlayer = true
+		volumeToUse = vc.defaultPlayerVolume
+	} else {
+		// Get player-specific volume
+		volume, ok := vc.playerVolumes[username]
+		if !ok {
+			// Player has no custom volume set - use default
+			volume = vc.defaultPlayerVolume
+			vc.playerVolumes[username] = volume
+			newPlayer = true
+		}
+		volumeToUse = volume
 	}
 
-	// Get player-specific volume
-	volume, exists := vc.playerVolumes[username]
-	if !exists {
-		// Player has no custom volume set - use default
-		volume = vc.defaultPlayerVolume
-		vc.playerVolumes[username] = volume
-		log.Printf("[VOLUME] New player '%s' (hashID=%d), using default volume %.2f", username, hashID, volume)
+	vc.volumeMu.Unlock()
+
+	if unknownPlayer {
+		log.Printf("[VOLUME] Unknown player (hashID=%d), using default volume %.2f", hashID, volumeToUse)
+	} else if newPlayer {
+		log.Printf("[VOLUME] New player '%s' (hashID=%d), using default volume %.2f", username, hashID, volumeToUse)
 	}
 
-	return scaleAudioSamples(samples, volume)
+	return scaleAudioSamples(samples, volumeToUse)
 }
 
 // scaleAudioSamples applies volume scaling to audio samples
@@ -1057,7 +1114,7 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, uint32, bool) {
 	// Check if this is a hash-based packet (14 bytes header) or UUID-based packet (26 bytes header)
 	// Hash-based: type(1) + codec(1) + hashId(4) + seqNum(4) + audioLen(4) = 14 bytes
 	// UUID-based: type(1) + codec(1) + uuid(16) + seqNum(4) + audioLen(4) = 26 bytes
-	
+
 	// Try hash-based format first (newer, smaller header)
 	if baseCodec == AudioCodecOpus || baseCodec == AudioCodecPCM {
 		// Check if packet is long enough for hash-based header
@@ -1065,24 +1122,27 @@ func parseAudioPayload(data []byte) (byte, []byte, *[3]float32, uint32, bool) {
 			hashID := binary.BigEndian.Uint32(data[2:6])
 			audioLen := binary.BigEndian.Uint32(data[10:14])
 			totalLen := audioHeaderHashBased + int(audioLen)
-			
-			if totalLen <= len(data) && audioLen > 0 {
+
+			// Only treat as hash-based if the length matches exactly either:
+			// - header + audio data, or
+			// - header + audio data + 12 bytes of positional data (when hasPos is true).
+			if audioLen > 0 && (totalLen == len(data) || (hasPos && totalLen+12 == len(data))) {
 				// Valid hash-based packet
 				var pos *[3]float32
-				if hasPos && len(data) >= totalLen+12 {
+				if hasPos && len(data) == totalLen+12 {
 					pos = &[3]float32{
 						math.Float32frombits(binary.BigEndian.Uint32(data[totalLen : totalLen+4])),
 						math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+4 : totalLen+8])),
 						math.Float32frombits(binary.BigEndian.Uint32(data[totalLen+8 : totalLen+12])),
 					}
 					log.Printf("[AUDIO_RX] hashID=%d hasPos=true position=(%.2f,%.2f,%.2f)", hashID, pos[0], pos[1], pos[2])
-				} else if !hasPos {
+				} else if !hasPos && totalLen == len(data) {
 					log.Printf("[AUDIO_RX] hashID=%d hasPos=false (broadcast/non-positional)", hashID)
 				}
 				return baseCodec, data[14:totalLen], pos, hashID, true
 			}
 		}
-		
+
 		// Fall back to UUID-based format (legacy)
 		if len(data) < audioHeaderWithCodec {
 			return AudioCodecPCM, nil, nil, 0, false

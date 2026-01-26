@@ -909,23 +909,49 @@ public class UDPSocketManager {
         }
         
         /**
+         * Simple hash mixer to improve distribution of UUID.hashCode()
+         */
+        private int mixHash(int h) {
+            h ^= (h >>> 16);
+            h *= 0x7feb352d;
+            h ^= (h >>> 15);
+            h *= 0x846ca68b;
+            h ^= (h >>> 16);
+            return h;
+        }
+        
+        /**
          * Generate a collision-resistant hash ID from a player UUID
          */
         private int generateHashId(UUID playerUUID) {
-            int baseHash = playerUUID.hashCode();
+            // Start from a mixed version of the UUID hash to improve bit spread
+            int baseHash = mixHash(playerUUID.hashCode());
             
-            // Check for collisions and increment until we find a unique hash
             int hashId = baseHash;
             int attempts = 0;
+            
+            // Use quadratic probing to reduce clustering and overlapping probe sequences
             while (hashIdToPlayerUUID.containsKey(hashId) && attempts < 1000) {
-                hashId = baseHash + attempts;
                 attempts++;
+                hashId = baseHash + attempts * attempts;
             }
             
             if (attempts >= 1000) {
                 logger.atWarning().log("Hash collision after 1000 attempts for player " + playerUUID);
-                // Fallback: use current timestamp as hash
+                // Fallback: use current timestamp as hash, but verify uniqueness
                 hashId = (int) System.currentTimeMillis();
+                int fallbackAttempts = 0;
+                while (hashIdToPlayerUUID.containsKey(hashId) && fallbackAttempts < 100) {
+                    hashId = (int) (System.currentTimeMillis() + fallbackAttempts);
+                    fallbackAttempts++;
+                }
+                if (fallbackAttempts >= 100) {
+                    // Last resort: use random value
+                    hashId = new java.util.Random().nextInt();
+                    while (hashIdToPlayerUUID.containsKey(hashId)) {
+                        hashId = new java.util.Random().nextInt();
+                    }
+                }
             }
             
             return hashId;
