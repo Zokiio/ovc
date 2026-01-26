@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -120,27 +121,33 @@ type GUI struct {
 	savedConfig *ClientConfig
 
 	// UI Elements
-	serverInput       *widget.Entry
-	portInput         *widget.Entry
-	usernameInput     *widget.Entry
-	micSelect         *widget.Select
-	speakerSelect     *widget.Select
-	connectBtn        *widget.Button
-	testToneBtn       *widget.Button
-	posTestBtn        *widget.Button
-	statusLabel       *TruncatedStatusLabel
-	volumeSlider      *widget.Slider
-	micGainSlider     *widget.Slider
-	vadCheck          *widget.Check
-	vadSlider         *widget.Slider
-	vadHangoverSlider *widget.Slider
-	vadBar            *canvas.Rectangle
-	vadStateLabel     *widget.Label
-	modeRadio         *widget.RadioGroup
-	pttKeyEntry       *widget.Entry
-	pttHoldBtn        *HoldButton
-	pttToggleMode     *widget.Check
-	uiReady           bool
+	serverInput         *widget.Entry
+	portInput           *widget.Entry
+	usernameInput       *widget.Entry
+	micSelect           *widget.Select
+	speakerSelect       *widget.Select
+	connectBtn          *widget.Button
+	testToneBtn         *widget.Button
+	posTestBtn          *widget.Button
+	statusLabel         *TruncatedStatusLabel
+	volumeSlider        *widget.Slider
+	micGainSlider       *widget.Slider
+	vadCheck            *widget.Check
+	vadSlider           *widget.Slider
+	vadHangoverSlider   *widget.Slider
+	vadBar              *canvas.Rectangle
+	vadStateLabel       *widget.Label
+	modeRadio           *widget.RadioGroup
+	pttKeyEntry         *widget.Entry
+	pttHoldBtn          *HoldButton
+	pttToggleMode       *widget.Check
+	playerSidebarBox    *fyne.Container
+	defaultVolumeSlider *widget.Slider
+	playerVolumeList    *fyne.Container
+	showInactiveCheck   *widget.Check
+	mainContent         *fyne.Container
+	uiReady             bool
+	done                chan struct{} // Signal to stop background goroutines
 }
 
 // HoldButton triggers callbacks on mouse press/release for hold-to-talk behavior.
@@ -179,6 +186,7 @@ const defaultVADThreshold = 1200
 func NewGUI(client *VoiceClient) *GUI {
 	return &GUI{
 		voiceClient: client,
+		done:        make(chan struct{}),
 	}
 }
 
@@ -230,6 +238,12 @@ func (gui *GUI) Run() {
 	}
 
 	gui.setupUI()
+
+	// Set up cleanup when window closes
+	gui.win.SetCloseIntercept(func() {
+		close(gui.done)
+		gui.win.Close()
+	})
 
 	gui.win.Resize(fyne.NewSize(400, 300))
 	gui.win.CenterOnScreen()
@@ -495,18 +509,30 @@ func (gui *GUI) setupUI() {
 		pttBox,
 	)
 
+	// Player volume sidebar (initially hidden)
+	gui.setupPlayerSidebar()
+
 	body := container.NewHBox(
 		container.NewPadded(connectionBox),
 		container.NewPadded(settingsBox),
 	)
 
+	titleBox := container.NewBorder(
+		nil, nil, widget.NewLabel("Hytale Voice Chat"), nil,
+	)
+
+	gui.mainContent = container.NewHBox(body, container.NewPadded(gui.playerSidebarBox))
+
 	content := container.NewVBox(
-		widget.NewLabel("Hytale Voice Chat"),
+		titleBox,
 		widget.NewSeparator(),
-		body,
+		gui.mainContent,
 	)
 
 	gui.win.SetContent(content)
+
+	// Start periodic update of player list
+	go gui.updatePlayerListPeriodically()
 
 	// Register disconnect listener to update UI when server disconnects
 	gui.voiceClient.SetDisconnectListener(func(reason string) {
@@ -670,21 +696,51 @@ func (gui *GUI) loadSavedConfig() {
 	if cfg.Username != "" {
 		gui.usernameInput.SetText(cfg.Username)
 	}
+
+	// Load player volumes into voice client using thread-safe API
+	// Validate and clamp values to ensure they're within the valid range
+	if cfg.PlayerVolumes != nil {
+		validated := make(map[string]float64)
+		for username, vol := range cfg.PlayerVolumes {
+			if vol < MinPlayerVolume {
+				vol = MinPlayerVolume
+			} else if vol > MaxPlayerVolume {
+				vol = MaxPlayerVolume
+			}
+			validated[username] = vol
+		}
+		gui.voiceClient.SetPlayerVolumes(validated)
+	}
+
+	// Load default player volume using thread-safe API
+	if cfg.DefaultPlayerVolume > 0 {
+		gui.voiceClient.SetDefaultPlayerVolume(cfg.DefaultPlayerVolume)
+	}
 }
 
 func (gui *GUI) saveConfig(server string, port int, username string, micLabel string, speakerLabel string, vadEnabled bool, vadThreshold int, masterVol float64, micGain float64, ptt bool, pttKey string) {
+	// Get current player volumes and default volume from voice client using thread-safe API
+	playerVolumesFromClient := gui.voiceClient.GetPlayerVolumes()
+	playerVolumes := make(map[string]float64)
+	for k, v := range playerVolumesFromClient {
+		playerVolumes[k] = v
+	}
+	defaultPlayerVolume := gui.voiceClient.GetDefaultPlayerVolume()
+
 	cfg := ClientConfig{
-		Server:       server,
-		Port:         port,
-		Username:     username,
-		MicLabel:     micLabel,
-		SpeakerLabel: speakerLabel,
-		VADEnabled:   vadEnabled,
-		VADThreshold: vadThreshold,
-		MasterVolume: masterVol,
-		MicGain:      micGain,
-		PushToTalk:   ptt,
-		PTTKey:       pttKey,
+		Server:              server,
+		Port:                port,
+		Username:            username,
+		MicLabel:            micLabel,
+		SpeakerLabel:        speakerLabel,
+		VADEnabled:          vadEnabled,
+		VADThreshold:        vadThreshold,
+		MasterVolume:        masterVol,
+		MicGain:             micGain,
+		PushToTalk:          ptt,
+		PTTKey:              pttKey,
+		PlayerVolumes:       playerVolumes,
+		DefaultPlayerVolume: defaultPlayerVolume,
 	}
 	if err := saveClientConfig(cfg); err != nil {
 		log.Printf("Failed to save config: %v", err)
@@ -747,6 +803,11 @@ func (gui *GUI) applySavedSettings() {
 		gui.modeRadio.SetSelected("Voice Activated")
 		gui.vadCheck.Enable()
 	}
+
+	// Apply default player volume to slider (if sidebar is initialized)
+	if gui.savedConfig.DefaultPlayerVolume > 0 && gui.defaultVolumeSlider != nil {
+		gui.defaultVolumeSlider.SetValue(gui.savedConfig.DefaultPlayerVolume * 100)
+	}
 }
 
 func (gui *GUI) parsePort() int {
@@ -807,6 +868,186 @@ func (gui *GUI) setConnectionEditable(enabled bool) {
 			c.Disable()
 		}
 	}
+}
+
+// setupPlayerSidebar creates the collapsible player volume sidebar
+func (gui *GUI) setupPlayerSidebar() {
+	// Default player volume slider
+	defaultVolumeLabel := widget.NewLabel("Default Volume: 75%")
+	gui.defaultVolumeSlider = widget.NewSlider(0, 200)
+	gui.defaultVolumeSlider.Value = 75
+	gui.defaultVolumeSlider.Step = 5
+	gui.defaultVolumeSlider.OnChanged = func(value float64) {
+		if !gui.uiReady {
+			return
+		}
+		defaultVolumeLabel.SetText(fmt.Sprintf("Default Volume: %.0f%%", value))
+		gui.voiceClient.SetDefaultPlayerVolume(value / 100.0)
+		gui.saveConfigFromUI()
+	}
+
+	// Player volume list (will be populated dynamically)
+	gui.playerVolumeList = container.NewVBox()
+
+	// Show inactive toggle
+	gui.showInactiveCheck = widget.NewCheck("Show inactive players (5min+)", func(checked bool) {
+		gui.refreshPlayerList()
+	})
+
+	// Sidebar header (fixed at top)
+	sidebarHeader := container.NewVBox(
+		widget.NewLabel("Player Volumes"),
+		widget.NewSeparator(),
+		defaultVolumeLabel,
+		gui.defaultVolumeSlider,
+		widget.NewSeparator(),
+		gui.showInactiveCheck,
+		widget.NewSeparator(),
+	)
+
+	// Scrollable player list (expands to fill remaining space)
+	playerScroll := container.NewScroll(gui.playerVolumeList)
+
+	// Use border container to make scroll fill available height
+	gui.playerSidebarBox = container.NewBorder(
+		sidebarHeader, // top
+		nil,           // bottom
+		nil,           // left
+		nil,           // right
+		playerScroll,  // center (expands to fill)
+	)
+}
+
+// refreshPlayerList updates the player volume list with current players
+func (gui *GUI) refreshPlayerList() {
+	// Get all known players
+	players := gui.voiceClient.GetAllKnownPlayers()
+
+	if len(players) == 0 {
+		gui.playerVolumeList.Objects = []fyne.CanvasObject{
+			widget.NewLabel("No players yet..."),
+		}
+		gui.playerVolumeList.Refresh()
+		return
+	}
+
+	// Filter by activity if checkbox is not checked
+	showInactive := gui.showInactiveCheck.Checked
+	if !showInactive {
+		var activePlayers []string
+		now := time.Now()
+		for _, username := range players {
+			lastHeard, ok := gui.voiceClient.GetPlayerLastHeard(username)
+			if ok && now.Sub(lastHeard) < 5*time.Minute {
+				activePlayers = append(activePlayers, username)
+			}
+		}
+		players = activePlayers
+	}
+
+	if len(players) == 0 {
+		gui.playerVolumeList.Objects = []fyne.CanvasObject{
+			widget.NewLabel("No active players (enable 'Show inactive' to see all)"),
+		}
+		gui.playerVolumeList.Refresh()
+		return
+	}
+
+	// Sort players alphabetically for consistent order
+	sort.Strings(players)
+
+	// Create volume controls for each player
+	var items []fyne.CanvasObject
+	for _, username := range players {
+		playerVolume := gui.voiceClient.GetPlayerVolume(username)
+
+		// Player label
+		label := widget.NewLabel(username)
+
+		// Volume percentage label
+		volLabel := widget.NewLabel(fmt.Sprintf("%.0f%%", playerVolume*100))
+
+		// Volume slider
+		slider := widget.NewSlider(0, 200)
+		slider.Value = playerVolume * 100
+		slider.Step = 5
+
+		// Capture username in closure
+		currentUsername := username
+		slider.OnChanged = func(value float64) {
+			if !gui.uiReady {
+				return
+			}
+			volLabel.SetText(fmt.Sprintf("%.0f%%", value))
+			gui.voiceClient.SetPlayerVolume(currentUsername, value/100.0)
+			gui.saveConfigFromUI()
+		}
+
+		// Mute button
+		muteBtn := widget.NewButton("Mute", func() {
+			gui.voiceClient.SetPlayerVolume(currentUsername, 0)
+			slider.SetValue(0)
+			gui.saveConfigFromUI()
+		})
+
+		// Reset button
+		resetBtn := widget.NewButton("Reset", func() {
+			defaultVol := gui.voiceClient.GetDefaultPlayerVolume()
+			gui.voiceClient.SetPlayerVolume(currentUsername, defaultVol)
+			slider.SetValue(defaultVol * 100)
+			gui.saveConfigFromUI()
+		})
+
+		// Player container
+		playerBox := container.NewVBox(
+			label,
+			container.NewHBox(volLabel, muteBtn, resetBtn),
+			slider,
+			widget.NewSeparator(),
+		)
+
+		items = append(items, playerBox)
+	}
+
+	gui.playerVolumeList.Objects = items
+	gui.playerVolumeList.Refresh()
+}
+
+// updatePlayerListPeriodically refreshes the player list every 2 seconds
+func (gui *GUI) updatePlayerListPeriodically() {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			gui.runOnUI(func() {
+				gui.refreshPlayerList()
+			})
+		case <-gui.done:
+			return
+		}
+	}
+}
+
+// saveConfigFromUI is a helper to save config with current UI state
+func (gui *GUI) saveConfigFromUI() {
+	if !gui.uiReady {
+		return
+	}
+	gui.saveConfig(
+		gui.serverInput.Text,
+		gui.parsePort(),
+		gui.usernameInput.Text,
+		gui.micSelect.Selected,
+		gui.speakerSelect.Selected,
+		gui.vadCheck.Checked,
+		gui.currentVADThreshold(),
+		gui.volumeSlider.Value,
+		gui.micGainSlider.Value,
+		gui.modeRadio.Selected == "Push-to-Talk",
+		gui.pttKeyEntry.Text,
+	)
 }
 
 func (gui *GUI) handlePTTKey(ev *fyne.KeyEvent, down bool) {

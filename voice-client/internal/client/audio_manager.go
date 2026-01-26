@@ -24,27 +24,32 @@ const (
 )
 
 type SimpleAudioManager struct {
-	inputChan    chan []int16
-	outputChan   chan []int16
-	done         chan bool
-	frameSize    int
-	sampleRate   int
-	inputFrameSize  int
-	outputFrameSize int
-	inputSampleRate int
+	inputChan        chan []int16
+	outputChan       chan []int16
+	jitterMu         sync.Mutex
+	jitterBuffer     [][]int16
+	jitterPrimed     bool
+	jitterMinFrames  int
+	jitterMaxFrames  int
+	done             chan bool
+	frameSize        int
+	sampleRate       int
+	inputFrameSize   int
+	outputFrameSize  int
+	inputSampleRate  int
 	outputSampleRate int
-	mu           sync.Mutex
-	encodeMu     sync.Mutex
-	decodeMu     sync.Mutex
-	micGain      float64
-	outputGain   float64
-	inputStream  *portaudio.Stream
-	outputStream *portaudio.Stream
-	inputLabel   string
-	outputLabel  string
-	useOpus      bool
-	encoder      *opus.Encoder
-	decoder      *opus.Decoder
+	mu               sync.Mutex
+	encodeMu         sync.Mutex
+	decodeMu         sync.Mutex
+	micGain          float64
+	outputGain       float64
+	inputStream      *portaudio.Stream
+	outputStream     *portaudio.Stream
+	inputLabel       string
+	outputLabel      string
+	useOpus          bool
+	encoder          *opus.Encoder
+	decoder          *opus.Decoder
 }
 
 func NewSimpleAudioManager(sampleRate int) (*SimpleAudioManager, error) {
@@ -52,18 +57,24 @@ func NewSimpleAudioManager(sampleRate int) (*SimpleAudioManager, error) {
 	frameSize := frameSizeForSampleRate(sampleRate)
 
 	am := &SimpleAudioManager{
-		inputChan:  make(chan []int16, 16),
-		outputChan: make(chan []int16, 16),
-		frameSize:  frameSize,
-		sampleRate: sampleRate,
-		inputFrameSize:  frameSize,
-		outputFrameSize: frameSize,
-		inputSampleRate: sampleRate,
+		// Channel buffer size of 64 frames allows handling burst traffic and network jitter.
+		// At 20ms per frame, 64 frames = 1.28 seconds of buffering, which prevents packet
+		// loss during temporary congestion while keeping latency reasonable. This is 4x larger
+		// than the previous size of 16 to improve stability with varying network conditions.
+		inputChan:        make(chan []int16, 64),
+		outputChan:       make(chan []int16, 64),
+		frameSize:        frameSize,
+		sampleRate:       sampleRate,
+		inputFrameSize:   frameSize,
+		outputFrameSize:  frameSize,
+		inputSampleRate:  sampleRate,
 		outputSampleRate: sampleRate,
-		done:       make(chan bool),
-		useOpus:    true,
-		micGain:    1.0,
-		outputGain: 1.0,
+		jitterMinFrames:  3,
+		jitterMaxFrames:  10,
+		done:             make(chan bool),
+		useOpus:          true,
+		micGain:          1.0,
+		outputGain:       1.0,
 	}
 	return am, nil
 }
@@ -380,6 +391,36 @@ func (am *SimpleAudioManager) GetOutputChannel() chan<- []int16 {
 	return am.outputChan
 }
 
+func (am *SimpleAudioManager) enqueueOutput(samples []int16) {
+	am.jitterMu.Lock()
+	am.jitterBuffer = append(am.jitterBuffer, samples)
+	// Simple FIFO overflow handling: keep only the most recent frames
+	// This buffer assumes in-order delivery from the server's AudioPacer.
+	// The server-side AudioPacer already handles sequence numbering and reordering,
+	// so the client-side buffer doesn't need duplicate/out-of-order detection.
+	if len(am.jitterBuffer) > am.jitterMaxFrames {
+		am.jitterBuffer = am.jitterBuffer[len(am.jitterBuffer)-am.jitterMaxFrames:]
+	}
+	if len(am.jitterBuffer) >= am.jitterMinFrames {
+		am.jitterPrimed = true
+	}
+	am.jitterMu.Unlock()
+}
+
+func (am *SimpleAudioManager) dequeueOutput() []int16 {
+	am.jitterMu.Lock()
+	defer am.jitterMu.Unlock()
+	if !am.jitterPrimed || len(am.jitterBuffer) == 0 {
+		return nil
+	}
+	samples := am.jitterBuffer[0]
+	am.jitterBuffer = am.jitterBuffer[1:]
+	if len(am.jitterBuffer) == 0 {
+		am.jitterPrimed = false
+	}
+	return samples
+}
+
 func (am *SimpleAudioManager) SetInputDeviceLabel(label string) {
 	am.inputLabel = label
 }
@@ -570,7 +611,7 @@ func (am *SimpleAudioManager) openOutputStream(inputDevice *portaudio.DeviceInfo
 				if !strings.Contains(hostName, "DirectSound") && !strings.Contains(hostName, "MME") {
 					continue
 				}
-				
+
 				for _, cfg := range configs {
 					stream, err := am.tryOpenOutputStream(altDevice, outputRate, cfg.channels, cfg.latency, fmt.Sprintf("%s (%s)", cfg.desc, hostName))
 					if err == nil {
@@ -631,45 +672,49 @@ func (am *SimpleAudioManager) processInput(in []int16) {
 }
 
 func (am *SimpleAudioManager) processOutput(out []int16) {
-	select {
-	case samples := <-am.outputChan:
-		outputPacketCount++
-		if outputPacketCount%100 == 1 {
-			log.Printf("Playing audio packet #%d, samples=%d", outputPacketCount, len(samples))
-		}
-		gain := am.outputGain
-		if gain != 1.0 {
-			for i := range samples {
-				v := float64(samples[i]) * gain
-				if v > math.MaxInt16 {
-					v = math.MaxInt16
-				} else if v < math.MinInt16 {
-					v = math.MinInt16
-				}
-				samples[i] = int16(v)
-			}
-		}
-		switch {
-		case len(samples) == len(out):
-			copy(out, samples)
-		case len(samples)*2 == len(out):
-			// Expand mono to stereo if needed
-			for i := 0; i < len(samples); i++ {
-				v := samples[i]
-				out[2*i] = v
-				out[2*i+1] = v
-			}
-		default:
-			copy(out, samples)
-			if len(samples) < len(out) {
-				for i := len(samples); i < len(out); i++ {
-					out[i] = 0
-				}
-			}
-		}
-	default:
+	// Dequeue from jitter buffer instead of direct channel read
+	// This introduces a 60ms initial buffering delay (3 frames at 20ms/frame) before audio starts,
+	// which improves stability by absorbing network jitter and packet timing variations.
+	samples := am.dequeueOutput()
+	if samples == nil {
 		for i := range out {
 			out[i] = 0
+		}
+		return
+	}
+
+	outputPacketCount++
+	if outputPacketCount%100 == 1 {
+		log.Printf("Playing audio packet #%d, samples=%d", outputPacketCount, len(samples))
+	}
+	gain := am.outputGain
+	if gain != 1.0 {
+		for i := range samples {
+			v := float64(samples[i]) * gain
+			if v > math.MaxInt16 {
+				v = math.MaxInt16
+			} else if v < math.MinInt16 {
+				v = math.MinInt16
+			}
+			samples[i] = int16(v)
+		}
+	}
+	switch {
+	case len(samples) == len(out):
+		copy(out, samples)
+	case len(samples)*2 == len(out):
+		// Expand mono to stereo if needed
+		for i := 0; i < len(samples); i++ {
+			v := samples[i]
+			out[2*i] = v
+			out[2*i+1] = v
+		}
+	default:
+		copy(out, samples)
+		if len(samples) < len(out) {
+			for i := len(samples); i < len(out); i++ {
+				out[i] = 0
+			}
 		}
 	}
 }

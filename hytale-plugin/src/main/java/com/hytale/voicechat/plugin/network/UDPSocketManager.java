@@ -8,6 +8,7 @@ import com.hytale.voicechat.common.packet.AuthenticationPacket;
 import com.hytale.voicechat.common.packet.GroupManagementPacket;
 import com.hytale.voicechat.common.packet.GroupStatePacket;
 import com.hytale.voicechat.common.packet.GroupListPacket;
+import com.hytale.voicechat.common.packet.PlayerNamePacket;
 import com.hytale.voicechat.common.packet.ServerShutdownPacket;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.GroupManager;
@@ -29,8 +30,13 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Manages UDP socket connections for voice data
@@ -46,6 +52,10 @@ public class UDPSocketManager {
     private final Map<UUID, UUID> clientToPlayerUUID; // voice client UUID -> Hytale player UUID
     private final Map<UUID, UUID> playerToClientUUID; // Hytale player UUID -> voice client UUID (reverse lookup)
     private final Map<UUID, Integer> clientSampleRates; // voice client UUID -> negotiated sample rate
+    private final Map<UUID, Integer> playerUUIDToHashId; // Hytale player UUID -> hash ID (for routing)
+    private final Map<Integer, UUID> hashIdToPlayerUUID; // hash ID -> Hytale player UUID (reverse lookup)
+    private final Map<Integer, String> hashIdToUsername; // hash ID -> username (for PlayerNamePacket)
+    private final AudioPacer audioPacer;
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
     private volatile GroupManager groupManager;
@@ -59,6 +69,10 @@ public class UDPSocketManager {
         this.clientToPlayerUUID = new ConcurrentHashMap<>();
         this.playerToClientUUID = new ConcurrentHashMap<>();
         this.clientSampleRates = new ConcurrentHashMap<>();
+        this.playerUUIDToHashId = new ConcurrentHashMap<>();
+        this.hashIdToPlayerUUID = new ConcurrentHashMap<>();
+        this.hashIdToUsername = new ConcurrentHashMap<>();
+        this.audioPacer = new AudioPacer();
     }
 
     public void setProximityDistance(double proximityDistance) {
@@ -90,19 +104,24 @@ public class UDPSocketManager {
                     @Override
                     protected void initChannel(NioDatagramChannel ch) {
                         ch.pipeline().addLast(new VoicePacketHandler(
-                            clients, 
-                            usernameToClientUUID, 
+                            clients,
+                            usernameToClientUUID,
                             clientToPlayerUUID,
                             playerToClientUUID,
                             clientSampleRates,
+                            playerUUIDToHashId,
+                            hashIdToPlayerUUID,
+                            hashIdToUsername,
                             positionTracker,
                             eventListener,
-                            groupManager
+                            groupManager,
+                            audioPacer
                         ));
                     }
                 });
 
         channel = bootstrap.bind(port).sync().channel();
+        audioPacer.start(channel, clients);
         logger.atInfo().log("═══════════════════════════════════════════════════════════════");
         logger.atInfo().log("  VOICE SERVER STARTED");
         logger.atInfo().log("  UDP Port: " + port);
@@ -112,6 +131,7 @@ public class UDPSocketManager {
     }
 
     public void stop() {
+        audioPacer.stop();
         if (channel != null) {
             channel.close();
         }
@@ -174,6 +194,14 @@ public class UDPSocketManager {
         clients.remove(clientUuid);
         clientToPlayerUUID.remove(clientUuid);
         clientSampleRates.remove(clientUuid);
+        audioPacer.removeClient(clientUuid);
+        
+        // Clean up hash ID mappings
+        Integer hashId = playerUUIDToHashId.remove(playerUuid);
+        if (hashId != null) {
+            hashIdToPlayerUUID.remove(hashId);
+            hashIdToUsername.remove(hashId);
+        }
         
         // Find and remove username mapping
         String username = null;
@@ -221,26 +249,38 @@ public class UDPSocketManager {
         private final Map<UUID, UUID> clientToPlayerUUID;
         private final Map<UUID, UUID> playerToClientUUID;
         private final Map<UUID, Integer> clientSampleRates;
+        private final Map<UUID, Integer> playerUUIDToHashId;
+        private final Map<Integer, UUID> hashIdToPlayerUUID;
+        private final Map<Integer, String> hashIdToUsername;
         private final PlayerPositionTracker positionTracker;
         private final PlayerEventListener eventListener;
         private final GroupManager groupManager;
+        private final AudioPacer audioPacer;
 
         public VoicePacketHandler(Map<UUID, InetSocketAddress> clients, 
                                   Map<String, UUID> usernameToClientUUID,
                                   Map<UUID, UUID> clientToPlayerUUID,
                                   Map<UUID, UUID> playerToClientUUID,
                                   Map<UUID, Integer> clientSampleRates,
+                                  Map<UUID, Integer> playerUUIDToHashId,
+                                  Map<Integer, UUID> hashIdToPlayerUUID,
+                                  Map<Integer, String> hashIdToUsername,
                                   PlayerPositionTracker positionTracker,
                                   PlayerEventListener eventListener,
-                                  GroupManager groupManager) {
+                                  GroupManager groupManager,
+                                  AudioPacer audioPacer) {
             this.clients = clients;
             this.usernameToClientUUID = usernameToClientUUID;
             this.clientToPlayerUUID = clientToPlayerUUID;
             this.playerToClientUUID = playerToClientUUID;
             this.clientSampleRates = clientSampleRates;
+            this.playerUUIDToHashId = playerUUIDToHashId;
+            this.hashIdToPlayerUUID = hashIdToPlayerUUID;
+            this.hashIdToUsername = hashIdToUsername;
             this.positionTracker = positionTracker;
             this.eventListener = eventListener;
             this.groupManager = groupManager;
+            this.audioPacer = audioPacer;
         }
 
         @Override
@@ -309,9 +349,10 @@ public class UDPSocketManager {
                 if (existingClientId != null && !existingClientId.equals(clientId)) {
                     logger.atInfo().log("Username '" + username + "' already connected with different client ID, removing old connection");
                     // Remove old client mappings
-                    clients.remove(existingClientId);
-                    clientSampleRates.remove(existingClientId);
-                    UUID oldPlayerUUID = clientToPlayerUUID.remove(existingClientId);
+                                clients.remove(existingClientId);
+                                clientSampleRates.remove(existingClientId);
+                                audioPacer.removeClient(existingClientId);
+                                UUID oldPlayerUUID = clientToPlayerUUID.remove(existingClientId);
                     if (oldPlayerUUID != null) {
                         playerToClientUUID.remove(oldPlayerUUID);
                     }
@@ -346,11 +387,27 @@ public class UDPSocketManager {
                 playerToClientUUID.put(playerUUID, clientId);
                 clientSampleRates.put(clientId, selectedSampleRate);
                 
+                // Generate or reuse hash ID for this player
+                int hashId;
+                if (playerUUIDToHashId.containsKey(playerUUID)) {
+                    // Player already has a hash ID, reuse it
+                    hashId = playerUUIDToHashId.get(playerUUID);
+                    // Update username mapping in case username changed (e.g., different player with same UUID)
+                    hashIdToUsername.put(hashId, username);
+                } else {
+                    // Generate new hash ID for this player (collision-resistant)
+                    hashId = generateHashId(playerUUID);
+                    playerUUIDToHashId.put(playerUUID, hashId);
+                    hashIdToPlayerUUID.put(hashId, playerUUID);
+                    hashIdToUsername.put(hashId, username);
+                }
+                
                 logger.atInfo().log("╔══════════════════════════════════════════════════════════════");
                 logger.atInfo().log("║ VOICE CLIENT CONNECTED");
                 logger.atInfo().log("║ Username: " + username);
                 logger.atInfo().log("║ Client UUID: " + clientId);
                 logger.atInfo().log("║ Player UUID: " + playerUUID);
+                logger.atInfo().log("║ Hash ID: " + hashId);
                 logger.atInfo().log("║ Address: " + sender);
                 logger.atInfo().log("║ Sample Rate: " + selectedSampleRate + " Hz");
                 logger.atInfo().log("║ Total clients: " + clients.size());
@@ -358,6 +415,12 @@ public class UDPSocketManager {
                 
                 // Send acceptance packet
                 sendAuthAck(ctx, clientId, sender, AuthAckPacket.REASON_ACCEPTED, "Authentication accepted", selectedSampleRate);
+                
+                // Send PlayerNamePackets to new client for all existing players with voice clients
+                sendAllPlayerNames(ctx, sender);
+                
+                // Broadcast new player's name to all other voice clients
+                broadcastPlayerName(ctx, hashId, username, sender);
                 
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error handling authentication");
@@ -412,6 +475,7 @@ public class UDPSocketManager {
                     playerToClientUUID.remove(playerUUID);
                 }
                 clientSampleRates.remove(clientId);
+                audioPacer.removeClient(clientId);
                 if (disconnectedUsername != null) {
                     usernameToClientUUID.remove(disconnectedUsername);
                 }
@@ -509,6 +573,13 @@ public class UDPSocketManager {
                 return;
             }
             
+            // Get sender's hash ID for privacy-preserving audio routing
+            Integer senderHashId = playerUUIDToHashId.get(playerUUID);
+            if (senderHashId == null) {
+                logger.atWarning().log("No hash ID found for player " + playerUUID + " - cannot route audio");
+                return;
+            }
+            
             // Get sender's position
             PlayerPosition senderPos = positionTracker.getPlayerPosition(playerUUID);
             if (senderPos == null) {
@@ -526,19 +597,7 @@ public class UDPSocketManager {
             GroupManager localGroupManager = groupManager;
             Group senderGroup = localGroupManager != null ? localGroupManager.getPlayerGroup(playerUUID) : null;
             
-            // Pre-serialize packet for non-spatial group audio
-            // Create a non-spatial version by creating a new packet without position data
-            byte[] groupAudioData = null;
             if (senderGroup != null) {
-                // Create non-spatial version (no position data)
-                AudioPacket nonSpatialPacket = new AudioPacket(
-                    packet.getSenderId(),
-                    packet.getCodec(),
-                    packet.getAudioData(),
-                    packet.getSequenceNumber()
-                    // Note: no dx, dy, dz parameters - creates non-spatial packet
-                );
-                groupAudioData = nonSpatialPacket.serialize();
                 logger.atFine().log("Routing audio from group " + senderGroup.getName());
             }
             
@@ -588,17 +647,14 @@ public class UDPSocketManager {
 
                                     float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
 
-                                    int packetSize = AudioPacket.getSerializedSizeWithPosition(packet.getAudioData().length);
-                                    ByteBuf buf = ctx.alloc().buffer(packetSize);
-                                    packet.serializeToByteBufWithPosition(buf, rotated[0], rotated[1], rotated[2]);
-                                    ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                    enqueuePacedAudio(ctx, otherClientId, packet.getSenderId(), packet, senderHashId,
+                                            rotated[0], rotated[1], rotated[2]);
                                     routedCount++;
                                     routedPlayers.add(otherPlayerUUID);
                                 } else if (inSameGroup) {
                                     // Group audio only (not in proximity) - always non-spatial
-                                    ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
-                                    buf.writeBytes(groupAudioData);
-                                    ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                    enqueuePacedAudio(ctx, otherClientId, packet.getSenderId(), packet, senderHashId,
+                                            null, null, null);
                                     routedPlayers.add(otherPlayerUUID);
                                 }
                             }
@@ -608,7 +664,7 @@ public class UDPSocketManager {
             }
             
             // Second pass: Route to group members not in position tracker
-            if (senderGroup != null && groupAudioData != null) {
+            if (senderGroup != null) {
                 for (UUID groupMemberId : senderGroup.getMembers()) {
                     if (!groupMemberId.equals(playerUUID) && !routedPlayers.contains(groupMemberId)) {
                         // This group member wasn't in the position tracker
@@ -619,9 +675,8 @@ public class UDPSocketManager {
                             
                             if (clientAddr != null) {
                                 // Send WITHOUT position (center-channel, non-spatial)
-                                ByteBuf buf = ctx.alloc().buffer(groupAudioData.length);
-                                buf.writeBytes(groupAudioData);
-                                ctx.writeAndFlush(new DatagramPacket(buf, clientAddr));
+                                enqueuePacedAudio(ctx, otherClientId, packet.getSenderId(), packet, senderHashId,
+                                        null, null, null);
                             }
                         }
                     }
@@ -637,11 +692,11 @@ public class UDPSocketManager {
             double yaw = Math.toRadians(yawDeg);
             double pitch = Math.toRadians(pitchDeg);
 
-            // Yaw: rotate around Y so +Z is forward for listener
-            double cosY = Math.cos(-yaw);
-            double sinY = Math.sin(-yaw);
+            // Yaw: rotate world delta into listener local frame (+Z forward, +X right)
+            double cosY = Math.cos(yaw);
+            double sinY = Math.sin(yaw);
             double rx = dx * cosY - dz * sinY;
-            double rz = dx * sinY + dz * cosY;
+            double rz = -(dx * sinY + dz * cosY);
 
             // Pitch: rotate around X to account for looking up/down
             double cosP = Math.cos(-pitch);
@@ -851,18 +906,118 @@ public class UDPSocketManager {
         
         private void broadcastToAll(ChannelHandlerContext ctx, AudioPacket packet, InetSocketAddress sender) {
             byte[] data = packet.serialize();
-            ByteBuf buf = ctx.alloc().buffer(data.length);
-            buf.writeBytes(data);
             
+            // Route through audioPacer for rate-limiting
+            // Note: This adds 20-60ms latency due to jitter buffering, including for TestAudioPacket.
+            // This is acceptable for testing purposes and ensures consistent delivery.
+            clients.forEach((uuid, address) -> {
+                if (!uuid.equals(packet.getSenderId())) {
+                    audioPacer.enqueue(uuid, packet.getSenderId(), packet.getSequenceNumber(), data);
+                }
+            });
+        }
+
+        private void enqueuePacedAudio(ChannelHandlerContext ctx, UUID receiverClientId, UUID senderClientId,
+                                       AudioPacket packet, int senderHashId,
+                                       Float posX, Float posY, Float posZ) {
+            int packetSize = AudioPacket.getSerializedSizeWithHashId(packet.getAudioData().length,
+                    posX != null && posY != null && posZ != null);
+            ByteBuf buf = ctx.alloc().buffer(packetSize);
             try {
-                clients.forEach((uuid, address) -> {
-                    if (!address.equals(sender)) {
-                        ctx.writeAndFlush(new DatagramPacket(buf.copy(), address));
-                    }
-                });
+                packet.serializeToByteBufWithHashId(buf, senderHashId, posX, posY, posZ);
+                byte[] data = new byte[buf.readableBytes()];
+                buf.readBytes(data);
+                audioPacer.enqueue(receiverClientId, senderClientId, packet.getSequenceNumber(), data);
             } finally {
                 buf.release();
             }
+        }
+        
+        /**
+         * Simple hash mixer to improve distribution of UUID.hashCode()
+         */
+        private int mixHash(int h) {
+            h ^= (h >>> 16);
+            h *= 0x7feb352d;
+            h ^= (h >>> 15);
+            h *= 0x846ca68b;
+            h ^= (h >>> 16);
+            return h;
+        }
+        
+        /**
+         * Generate a collision-resistant hash ID from a player UUID
+         */
+        private int generateHashId(UUID playerUUID) {
+            // Start from a mixed version of the UUID hash to improve bit spread
+            int baseHash = mixHash(playerUUID.hashCode());
+            
+            int hashId = baseHash;
+            int attempts = 0;
+            
+            // Use quadratic probing to reduce clustering and overlapping probe sequences
+            // Protect against integer overflow by using long arithmetic and ensuring positive values
+            while (hashIdToPlayerUUID.containsKey(hashId) && attempts < 1000) {
+                attempts++;
+                long probe = (long) baseHash + (long) attempts * (long) attempts;
+                hashId = (int) (probe & 0x7FFFFFFF); // Keep result positive (mask as int)
+            }
+            
+            if (attempts >= 1000) {
+                logger.atWarning().log("Hash collision after 1000 attempts for player " + playerUUID);
+                // Fallback: use current timestamp as hash, but verify uniqueness
+                hashId = (int) System.currentTimeMillis();
+                int fallbackAttempts = 0;
+                while (hashIdToPlayerUUID.containsKey(hashId) && fallbackAttempts < 100) {
+                    hashId = (int) (System.currentTimeMillis() + fallbackAttempts);
+                    fallbackAttempts++;
+                }
+                if (fallbackAttempts >= 100) {
+                    // Last resort: use random value
+                    hashId = new java.util.Random().nextInt();
+                    while (hashIdToPlayerUUID.containsKey(hashId)) {
+                        hashId = new java.util.Random().nextInt();
+                    }
+                }
+            }
+            
+            return hashId;
+        }
+        
+        /**
+         * Send PlayerNamePackets to a newly connected client for all existing players
+         */
+        private void sendAllPlayerNames(ChannelHandlerContext ctx, InetSocketAddress newClientAddress) {
+            for (Map.Entry<Integer, String> entry : hashIdToUsername.entrySet()) {
+                int hashId = entry.getKey();
+                String username = entry.getValue();
+                
+                PlayerNamePacket packet = new PlayerNamePacket(SERVER_UUID, hashId, username);
+                byte[] data = packet.serialize();
+                ByteBuf buf = ctx.alloc().buffer(data.length);
+                buf.writeBytes(data);
+                ctx.writeAndFlush(new DatagramPacket(buf, newClientAddress));
+            }
+            
+            logger.atFine().log("Sent " + hashIdToUsername.size() + " player names to " + newClientAddress);
+        }
+        
+        /**
+         * Broadcast a PlayerNamePacket to all clients except the sender
+         */
+        private void broadcastPlayerName(ChannelHandlerContext ctx, int hashId, String username, InetSocketAddress excludeAddress) {
+            PlayerNamePacket packet = new PlayerNamePacket(SERVER_UUID, hashId, username);
+            byte[] data = packet.serialize();
+            
+            for (InetSocketAddress address : clients.values()) {
+                if (!address.equals(excludeAddress)) {
+                    ByteBuf buf = ctx.alloc().buffer(data.length);
+                    buf.writeBytes(data);
+                    ctx.writeAndFlush(new DatagramPacket(buf, address));
+                }
+            }
+            
+            logger.atFine().log("Broadcast player name (hashId=" + hashId + ", username=" + username + ") to " + (clients.size() - 1) + " clients");
         }
         
         private void sendAuthAck(ChannelHandlerContext ctx, UUID clientId, InetSocketAddress address, 
@@ -881,6 +1036,180 @@ public class UDPSocketManager {
                 logger.atFine().log("Sent authentication acknowledgment to " + address);
             } catch (Exception e) {
                 logger.atSevere().withCause(e).log("Error sending authentication acknowledgment");
+            }
+        }
+    }
+
+    /**
+     * AudioPacer manages audio packet pacing to ensure smooth delivery at 20ms intervals.
+     * 
+     * <p>Memory Management: PerClientQueue objects are cleaned up via:
+     * <ul>
+     *   <li>removeClient() - called during graceful disconnect (see handleDisconnect, handleDisconnectAck)</li>
+     *   <li>tick() - automatically removes queues when target client is no longer in clients map</li>
+     *   <li>stop() - clears all queues on shutdown</li>
+     * </ul>
+     * 
+     * <p>Performance Characteristics:
+     * Uses a single-threaded executor to process all client queues sequentially.
+     * Each tick processes all queues, which may become a bottleneck with many concurrent
+     * voice connections (50-100+ clients). Monitor tick processing time in production.
+     */
+    private static final class AudioPacer {
+        private static final long TICK_MS = 20;
+        private static final int MAX_BUFFER_FRAMES = 6;
+        private static final int PRIME_FRAMES = 3;
+
+        private final Map<UUID, PerClientQueue> queues = new ConcurrentHashMap<>();
+        private final AtomicBoolean running = new AtomicBoolean(false);
+        private ScheduledExecutorService scheduler;
+        private Channel channel;
+        private Map<UUID, InetSocketAddress> clients;
+
+        void start(Channel channel, Map<UUID, InetSocketAddress> clients) {
+            if (!running.compareAndSet(false, true)) {
+                return;
+            }
+            this.channel = channel;
+            this.clients = clients;
+            scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread thread = new Thread(r, "voice-audio-pacer");
+                thread.setDaemon(true);
+                return thread;
+            });
+            scheduler.scheduleAtFixedRate(this::tick, TICK_MS, TICK_MS, TimeUnit.MILLISECONDS);
+        }
+
+        void stop() {
+            running.set(false);
+            if (scheduler != null) {
+                scheduler.shutdownNow();
+                scheduler = null;
+            }
+            queues.clear();
+        }
+
+        void removeClient(UUID clientId) {
+            queues.remove(clientId);
+        }
+
+        void enqueue(UUID receiverClientId, UUID senderClientId, int sequenceNumber, byte[] data) {
+            queues.computeIfAbsent(receiverClientId, id -> new PerClientQueue())
+                    .enqueue(senderClientId, sequenceNumber, data);
+        }
+
+        private void tick() {
+            if (!running.get() || channel == null || !channel.isOpen()) {
+                return;
+            }
+            List<UUID> emptyClients = null;
+            for (Map.Entry<UUID, PerClientQueue> entry : queues.entrySet()) {
+                UUID receiverClientId = entry.getKey();
+                InetSocketAddress target = clients.get(receiverClientId);
+                if (target == null) {
+                    if (emptyClients == null) {
+                        emptyClients = new ArrayList<>();
+                    }
+                    emptyClients.add(receiverClientId);
+                    continue;
+                }
+                List<byte[]> payloads = entry.getValue().pollAll();
+                if (payloads.isEmpty()) {
+                    continue;
+                }
+                for (byte[] data : payloads) {
+                    ByteBuf buf = channel.alloc().buffer(data.length);
+                    buf.writeBytes(data);
+                    channel.writeAndFlush(new DatagramPacket(buf, target));
+                }
+            }
+            if (emptyClients != null) {
+                for (UUID clientId : emptyClients) {
+                    queues.remove(clientId);
+                }
+            }
+        }
+
+        private static final class PerClientQueue {
+            private final Map<UUID, SenderJitterBuffer> senders = new ConcurrentHashMap<>();
+
+            void enqueue(UUID senderClientId, int sequenceNumber, byte[] data) {
+                senders.computeIfAbsent(senderClientId, SenderJitterBuffer::new)
+                        .enqueue(sequenceNumber, data);
+            }
+
+            List<byte[]> pollAll() {
+                List<byte[]> payloads = new ArrayList<>();
+                for (Map.Entry<UUID, SenderJitterBuffer> entry : senders.entrySet()) {
+                    byte[] data = entry.getValue().poll();
+                    if (data != null) {
+                        payloads.add(data);
+                    }
+                }
+                return payloads;
+            }
+        }
+
+        private static final class SenderJitterBuffer {
+            private final UUID senderClientId;
+            private final TreeMap<Integer, byte[]> buffer = new TreeMap<>();
+            private boolean primed;
+            private int expectedSequence;
+            private int droppedFrames; // Frames dropped due to buffer overflow
+            private int missingFrames; // Frames missing from network
+
+            private SenderJitterBuffer(UUID senderClientId) {
+                this.senderClientId = senderClientId;
+            }
+
+            synchronized void enqueue(int sequenceNumber, byte[] data) {
+                buffer.put(sequenceNumber, data);
+                if (buffer.size() > MAX_BUFFER_FRAMES) {
+                    // Buffer overflow: drop oldest frame
+                    Map.Entry<Integer, byte[]> dropped = buffer.pollFirstEntry();
+                    droppedFrames++;
+                    
+                    // If we dropped the frame that poll() is waiting for, adjust expectedSequence
+                    if (primed && dropped != null && dropped.getKey() == expectedSequence) {
+                        expectedSequence++;
+                    }
+                    
+                    if (droppedFrames % 50 == 1) {
+                        logger.atFine().log("Audio jitter buffer dropped " + droppedFrames 
+                                + " frame(s) due to buffer overflow for sender " + senderClientId);
+                    }
+                }
+                if (!primed && buffer.size() >= PRIME_FRAMES) {
+                    primed = true;
+                    expectedSequence = buffer.firstKey();
+                }
+            }
+
+            synchronized byte[] poll() {
+                if (!primed || buffer.isEmpty()) {
+                    return null;
+                }
+                byte[] data = buffer.remove(expectedSequence);
+                if (data == null) {
+                    Map.Entry<Integer, byte[]> next = buffer.firstEntry();
+                    if (next == null) {
+                        primed = false;
+                        return null;
+                    }
+                    missingFrames++;
+                    if (missingFrames % 50 == 1) {
+                        logger.atFine().log("Audio jitter buffer skipped " + missingFrames 
+                                + " frame(s) missing from network for sender " + senderClientId);
+                    }
+                    expectedSequence = next.getKey() + 1;
+                    data = buffer.remove(next.getKey());
+                    return data;
+                }
+                // Note: expectedSequence increment doesn't handle wraparound explicitly.
+                // In practice, sequence numbers wrap naturally via integer overflow, and the
+                // TreeMap ordering will handle this correctly since keys are compared numerically.
+                expectedSequence++;
+                return data;
             }
         }
     }
