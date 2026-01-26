@@ -698,14 +698,14 @@ func (gui *GUI) loadSavedConfig() {
 	}
 
 	// Load player volumes into voice client using thread-safe API
-	// Validate and clamp values to ensure they're within the valid range (0.0 to 2.0)
+	// Validate and clamp values to ensure they're within the valid range
 	if cfg.PlayerVolumes != nil {
 		validated := make(map[string]float64)
 		for username, vol := range cfg.PlayerVolumes {
-			if vol < 0 {
-				vol = 0
-			} else if vol > 2.0 {
-				vol = 2.0
+			if vol < MinPlayerVolume {
+				vol = MinPlayerVolume
+			} else if vol > MaxPlayerVolume {
+				vol = MaxPlayerVolume
 			}
 			validated[username] = vol
 		}

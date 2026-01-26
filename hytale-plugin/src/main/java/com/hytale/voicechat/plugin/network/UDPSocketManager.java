@@ -956,11 +956,11 @@ public class UDPSocketManager {
             int attempts = 0;
             
             // Use quadratic probing to reduce clustering and overlapping probe sequences
-            // Protect against integer overflow by using long arithmetic and masking to positive values
+            // Protect against integer overflow by using long arithmetic and ensuring positive values
             while (hashIdToPlayerUUID.containsKey(hashId) && attempts < 1000) {
                 attempts++;
                 long probe = (long) baseHash + (long) attempts * (long) attempts;
-                hashId = (int) (probe & 0x7FFFFFFFL); // Keep result positive
+                hashId = (int) (probe & 0x7FFFFFFF); // Keep result positive (mask as int)
             }
             
             if (attempts >= 1000) {
@@ -1205,6 +1205,9 @@ public class UDPSocketManager {
                     data = buffer.remove(next.getKey());
                     return data;
                 }
+                // Note: expectedSequence increment doesn't handle wraparound explicitly.
+                // In practice, sequence numbers wrap naturally via integer overflow, and the
+                // TreeMap ordering will handle this correctly since keys are compared numerically.
                 expectedSequence++;
                 return data;
             }

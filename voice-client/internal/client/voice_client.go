@@ -31,6 +31,9 @@ const (
 	vadHangoverFramesDefault = 30 // default hangover frames (~1.5 seconds at 20ms per frame)
 	positionalMaxDistance    = 30.0
 	DefaultVoicePort         = 24454
+	// Volume limits
+	MinPlayerVolume = 0.0
+	MaxPlayerVolume = 2.0
 )
 
 type VoiceClient struct {
