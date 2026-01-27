@@ -6,7 +6,7 @@ require (
 	fyne.io/fyne/v2 v2.7.2
 	github.com/google/uuid v1.6.0
 	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
-	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
+	github.com/hraban/opus v0.0.0-20251117090126-c76ea7e21bf3
 )
 
 require (

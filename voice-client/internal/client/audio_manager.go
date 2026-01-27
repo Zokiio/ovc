@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/gordonklaus/portaudio"
-	"gopkg.in/hraban/opus.v2"
+	"github.com/hraban/opus"
 )
 
 const DefaultDeviceLabel = "Default (system)"
