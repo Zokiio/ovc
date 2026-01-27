@@ -104,6 +104,9 @@ class SignalingClient {
         }
         this.connected = false;
         this.authenticated = false;
+        this.clientId = null;
+        // Clear message handlers to prevent memory leaks
+        this.messageHandlers.clear();
     }
     
     handleMessage(message) {

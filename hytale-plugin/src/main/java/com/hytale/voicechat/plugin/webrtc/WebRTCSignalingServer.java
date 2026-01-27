@@ -1,8 +1,10 @@
 package com.hytale.voicechat.plugin.webrtc;
 
 import com.google.gson.JsonObject;
+import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.common.signaling.SignalingMessage;
+import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -27,6 +29,7 @@ public class WebRTCSignalingServer {
     
     private final int port;
     private final Map<UUID, WebRTCClient> clients;
+    private PlayerPositionTracker positionTracker;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
@@ -38,6 +41,10 @@ public class WebRTCSignalingServer {
     public WebRTCSignalingServer(int port) {
         this.port = port;
         this.clients = new ConcurrentHashMap<>();
+    }
+    
+    public void setPositionTracker(PlayerPositionTracker tracker) {
+        this.positionTracker = tracker;
     }
     
     public void start() throws InterruptedException {
@@ -70,9 +77,12 @@ public class WebRTCSignalingServer {
     public void shutdown() {
         logger.atInfo().log("Shutting down WebRTC signaling server");
         
-        // Disconnect all clients
+        // Disconnect all clients and remove from position tracker
         clients.values().forEach(client -> {
             try {
+                if (positionTracker != null) {
+                    positionTracker.removePlayer(client.getClientId());
+                }
                 client.disconnect();
             } catch (Exception e) {
                 logger.atWarning().log("Error disconnecting client: {}", e.getMessage());
@@ -182,6 +192,14 @@ public class WebRTCSignalingServer {
             clients.put(clientId, client);
             ctx.channel().attr(CLIENT_ATTR).set(client);
             
+            // Add to position tracker with default position (0, 0, 0)
+            // Position will be updated when player joins the game
+            if (positionTracker != null) {
+                PlayerPosition position = new PlayerPosition(clientId, username, 0, 0, 0, 0, 0, "overworld");
+                positionTracker.addPlayer(position);
+                logger.atInfo().log("Added WebRTC client to position tracker: {}", username);
+            }
+            
             // Send success response
             JsonObject responseData = new JsonObject();
             responseData.addProperty("clientId", clientId.toString());
@@ -234,6 +252,11 @@ public class WebRTCSignalingServer {
         private void handleDisconnect(ChannelHandlerContext ctx) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client != null) {
+                // Remove from position tracker
+                if (positionTracker != null) {
+                    positionTracker.removePlayer(client.getClientId());
+                    logger.atInfo().log("Removed WebRTC client from position tracker: {}", client.getUsername());
+                }
                 clients.remove(client.getClientId());
                 logger.atInfo().log("WebRTC client disconnected: {}", client.getUsername());
             }

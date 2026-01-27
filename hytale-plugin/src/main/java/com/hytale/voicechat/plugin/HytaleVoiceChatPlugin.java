@@ -82,6 +82,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Initialize and start WebRTC signaling server
             signalingServer = new WebRTCSignalingServer(NetworkConfig.DEFAULT_SIGNALING_PORT);
+            signalingServer.setPositionTracker(positionTracker);
             signalingServer.start();
             
             // Start position tracking

@@ -188,9 +188,6 @@ If you host the web client with CSP headers, ensure:
 - [ ] Push-to-talk option
 - [ ] Visual indicators for speaking players
 - [ ] Proximity visualization on 2D map
-- [ ] Recording and playback
-- [ ] Advanced audio processing (noise cancellation, echo cancellation)
-- [ ] Progressive Web App (PWA) support
 
 ## License
 
