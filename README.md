@@ -2,10 +2,11 @@
 
 # Hytale Voice Chat
 
-Proximity-based voice chat system for Hytale with two independent components:
+Proximity-based voice chat system for Hytale with multiple client options:
 
 - **Voice Client**: Lightweight desktop voice client written in Go
-- **Hytale Plugin**: Server-side plugin with integrated UDP voice server written in Java
+- **Web Client**: Browser-based WebRTC client (no installation required)
+- **Hytale Plugin**: Server-side plugin with integrated voice server written in Java
 
 ---
 
@@ -43,17 +44,46 @@ go build -o HytaleVoiceChat ./cmd/voice-client
 
 ---
 
+## 🌐 Web Client
+
+The web client is a **browser-based alternative** that requires no installation. Perfect for quick access or systems where native clients can't be installed.
+
+### Features
+
+- No installation required - runs directly in your browser
+- WebRTC-based with built-in encryption
+- Cross-platform (any modern browser)
+- Same proximity-based audio as native client
+- Microphone capture and audio playback via Web Audio API
+
+### Quick Start
+
+```bash
+cd web-client
+
+# Serve files with any static web server
+python3 -m http.server 8080
+
+# Then open http://localhost:8080 in your browser
+```
+
+**📖 Full documentation:** [`web-client/README.md`](web-client/README.md)
+
+---
+
 ## 🔌 Hytale Plugin
 
 The Java plugin runs **inside the Hytale server** and handles voice routing based on player proximity.
 
 ### Features
 
-- Netty-based UDP server for voice packets
+- Netty-based UDP server for native voice clients
+- WebSocket server for WebRTC signaling (web clients)
 - Proximity-based audio routing (configurable range)
 - Player position tracking via Hytale API
 - Authentication and session management
 - In-game GUI for voice settings and group management
+- Support for both native and web clients simultaneously
 
 ![Voice Chat GUI](.github/images/voicechat-gui.png)
 
@@ -80,12 +110,21 @@ hytale-voice-chat/
 │   ├── internal/          # Go client implementation
 │   └── README.md          # Go client documentation
 │
+├── web-client/            # Browser-based WebRTC client
+│   ├── js/                # JavaScript modules
+│   ├── css/               # Stylesheets
+│   ├── index.html         # Main web page
+│   └── README.md          # Web client documentation
+│
 ├── hytale-plugin/         # Java server plugin
 │   ├── src/               # Plugin source code
 │   ├── common/            # Shared Java models
 │   ├── docs/              # Plugin documentation
 │   ├── build.gradle       # Build configuration
 │   └── gradlew            # Gradle wrapper
+│
+├── docs/                  # Architecture documentation
+│   └── WEBRTC_ARCHITECTURE.md  # WebRTC design docs
 │
 ├── .gitignore
 └── README.md              # This file
@@ -97,6 +136,8 @@ hytale-voice-chat/
 
 ### For Players (Client Setup)
 
+**Option 1: Native Desktop Client**
+
 1. Download the voice client for your platform
 2. Run `HytaleVoiceChat` executable
 3. Enter your Hytale username and server address
@@ -105,6 +146,16 @@ hytale-voice-chat/
 4. Click "Connect" and start talking!
 
 See [`voice-client/README.md`](voice-client/README.md) for detailed instructions.
+
+**Option 2: Web Browser Client**
+
+1. Navigate to the hosted web client URL (provided by your server admin)
+2. Enter your Hytale username
+3. Enter the server address
+4. Click "Connect" and allow microphone access
+5. Start talking!
+
+See [`web-client/README.md`](web-client/README.md) for detailed instructions.
 
 ### For Server Admins (Plugin Setup)
 

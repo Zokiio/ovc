@@ -5,7 +5,8 @@ package com.hytale.voicechat.common.network;
  */
 public class NetworkConfig {
     public static final int DEFAULT_VOICE_PORT = 24454;
-    public static final int DEFAULT_API_PORT = 24455;
+    public static final int DEFAULT_SIGNALING_PORT = 24455; // WebSocket signaling for web clients
+    public static final int DEFAULT_API_PORT = 24456; // Future HTTP API
     public static final int DEFAULT_SAMPLE_RATE = 48000;
     /**
      * @deprecated Use {@link #DEFAULT_SAMPLE_RATE} instead.
