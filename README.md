@@ -129,6 +129,7 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 
 - **Voice Client**: See [`voice-client/README.md`](voice-client/README.md)
 - **Hytale Plugin**: See [`hytale-plugin/docs/`](hytale-plugin/docs/) directory for detailed guides:
+  - [Protocol Specification](hytale-plugin/docs/PROTOCOL.md) - **Build your own voice client!**
   - [Setup Guide](hytale-plugin/docs/SETUP.md)
   - [Testing Guide](hytale-plugin/docs/TEST.md)
   - [Audio Testing](hytale-plugin/docs/AUDIO_TESTING.md)
