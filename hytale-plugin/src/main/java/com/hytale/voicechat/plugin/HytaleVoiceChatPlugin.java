@@ -14,6 +14,7 @@ import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
+import com.hytale.voicechat.plugin.webrtc.WebRTCSignalingServer;
 
 import javax.annotation.Nonnull;
 import java.util.UUID;
@@ -29,6 +30,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private UDPSocketManager udpServer;
+    private WebRTCSignalingServer signalingServer;
     private OpusCodec opusCodec;
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
@@ -77,6 +79,10 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             EntityStore.REGISTRY.registerSystem(new UIRefreshTickingSystem());
             
             udpServer.start();
+            
+            // Initialize and start WebRTC signaling server
+            signalingServer = new WebRTCSignalingServer(NetworkConfig.DEFAULT_SIGNALING_PORT);
+            signalingServer.start();
             
             // Start position tracking
             positionTracker.start();
@@ -129,6 +135,10 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         
         if (udpServer != null) {
             udpServer.stop();
+        }
+        
+        if (signalingServer != null) {
+            signalingServer.shutdown();
         }
         
         if (opusCodec != null) {
