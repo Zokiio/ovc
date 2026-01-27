@@ -91,6 +91,8 @@ class UIManager {
         this.elements.voicePanel.classList.add('hidden');
         this.updateConnectionStatus('Disconnected', false);
         this.updateMicStatus('Inactive', false);
+        // Re-enable connect button
+        this.setConnecting(false);
     }
     
     showVoicePanel(username) {

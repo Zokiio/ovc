@@ -171,7 +171,3 @@ public static final int DEFAULT_API_PORT = 24456;        // HTTP API (future)
 
 - TURN server support for restrictive NATs
 - Video support (webcam for spatial audio visualization)
-- Screen sharing for collaboration
-- Recording and playback
-- Advanced audio processing (noise cancellation, echo cancellation)
-- Progressive Web App (PWA) support for offline usage
