@@ -17,8 +17,21 @@ class WebRTCManager {
     setupAudioMessageHandler() {
         // Listen for incoming audio messages from server
         this.signaling.on('audio', (data) => {
-            if (window.audioManager) {
-                window.audioManager.playAudio(data.audioData);
+            if (window.audioManager && data.audioData) {
+                try {
+                    // Decode base64 audio data
+                    const binaryString = atob(data.audioData);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    // Convert to Int16Array for playAudio()
+                    const audioBuffer = bytes.buffer;
+                    window.audioManager.playAudio(audioBuffer);
+                    log.debug('Playing received audio from remote client');
+                } catch (error) {
+                    log.error('Error decoding received audio:', error);
+                }
             }
         });
     }

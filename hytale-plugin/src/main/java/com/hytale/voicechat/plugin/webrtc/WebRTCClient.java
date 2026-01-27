@@ -54,7 +54,7 @@ public class WebRTCClient {
             JsonObject data = new JsonObject();
             // Encode audio data as base64 for JSON transmission
             String encodedAudio = java.util.Base64.getEncoder().encodeToString(audioData);
-            data.addProperty("audio", encodedAudio);
+            data.addProperty("audioData", encodedAudio);
             
             SignalingMessage message = new SignalingMessage("audio", data);
             channel.writeAndFlush(new TextWebSocketFrame(message.toJson()));
