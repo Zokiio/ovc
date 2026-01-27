@@ -88,6 +88,10 @@ class SignalingClient {
         return true;
     }
     
+    sendMessage(type, data = {}) {
+        return this.send(type, data);
+    }
+    
     sendOffer(sdp) {
         this.send('offer', { sdp, type: 'offer' });
     }

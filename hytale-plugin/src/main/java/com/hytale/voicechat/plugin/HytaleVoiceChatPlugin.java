@@ -83,6 +83,22 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Initialize and start WebRTC signaling server
             signalingServer = new WebRTCSignalingServer(NetworkConfig.DEFAULT_SIGNALING_PORT);
             signalingServer.setPositionTracker(positionTracker);
+            signalingServer.setClientListener(new WebRTCSignalingServer.WebRTCClientListener() {
+                @Override
+                public void onClientConnected(java.util.UUID clientId, String username) {
+                    logger.atInfo().log("WebRTC client connected: " + username + " (" + clientId + ")");
+                    // Trigger UI refresh - web clients now appear in the position tracker
+                    if (positionTracker != null) {
+                        logger.atInfo().log("Web client added to position tracker for GUI updates");
+                    }
+                }
+                
+                @Override
+                public void onClientDisconnected(java.util.UUID clientId, String username) {
+                    logger.atInfo().log("WebRTC client disconnected: " + username + " (" + clientId + ")");
+                    // Position tracker already handles removal
+                }
+            });
             signalingServer.start();
             
             // Start position tracking
@@ -215,6 +231,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     public UDPSocketManager getUdpServer() {
         return udpServer;
+    }
+
+    /**
+     * Get the WebRTC signaling server
+     */
+    public WebRTCSignalingServer getWebRTCServer() {
+        return signalingServer;
     }
 
     /**

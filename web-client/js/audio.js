@@ -61,9 +61,9 @@ class AudioManager {
     }
     
     processAudioInput(audioData) {
-        // Convert Float32Array to Int16Array for Opus encoding
+        // Convert Float32Array to Int16Array for transmission
         // In a real implementation, we would encode with Opus here
-        // For now, we'll send PCM data (which WebRTC will handle)
+        // For now, we'll send PCM data
         
         if (window.webrtcManager && window.webrtcManager.isActive()) {
             // Convert float samples to int16
@@ -73,8 +73,13 @@ class AudioManager {
                 int16Data[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
             }
             
-            // Send audio data via WebRTC
-            window.webrtcManager.sendAudioData(int16Data.buffer);
+            // Encode as base64 for transmission
+            const uint8Data = new Uint8Array(int16Data.buffer);
+            const binaryString = String.fromCharCode(...uint8Data);
+            const base64Data = btoa(binaryString);
+            
+            // Send audio data via WebSocket
+            window.webrtcManager.sendAudioData(base64Data);
         }
     }
     

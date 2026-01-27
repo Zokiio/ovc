@@ -30,9 +30,19 @@ public class WebRTCSignalingServer {
     private final int port;
     private final Map<UUID, WebRTCClient> clients;
     private PlayerPositionTracker positionTracker;
+    private WebRTCAudioBridge audioBridge;
+    private WebRTCClientListener clientListener;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
+    
+    /**
+     * Listener interface for web client connection/disconnection events
+     */
+    public interface WebRTCClientListener {
+        void onClientConnected(UUID clientId, String username);
+        void onClientDisconnected(UUID clientId, String username);
+    }
     
     public WebRTCSignalingServer() {
         this(NetworkConfig.DEFAULT_SIGNALING_PORT);
@@ -45,6 +55,16 @@ public class WebRTCSignalingServer {
     
     public void setPositionTracker(PlayerPositionTracker tracker) {
         this.positionTracker = tracker;
+    }
+    
+    public void setAudioBridge(WebRTCAudioBridge bridge) {
+        this.audioBridge = bridge;
+        logger.atInfo().log("Audio bridge set for WebRTC signaling server");
+    }
+    
+    public void setClientListener(WebRTCClientListener listener) {
+        this.clientListener = listener;
+        logger.atInfo().log("WebRTC client listener set");
     }
     
     public void start() throws InterruptedException {
@@ -67,6 +87,11 @@ public class WebRTCSignalingServer {
             
             serverChannel = bootstrap.bind(port).sync().channel();
             logger.atInfo().log("WebRTC signaling server started on port {}", port);
+            
+            // Start audio bridge if available
+            if (audioBridge != null && !audioBridge.isRunning()) {
+                audioBridge.start();
+            }
         } catch (Exception e) {
             logger.atSevere().log("Failed to start WebRTC signaling server", e);
             shutdown();
@@ -76,6 +101,11 @@ public class WebRTCSignalingServer {
     
     public void shutdown() {
         logger.atInfo().log("Shutting down WebRTC signaling server");
+        
+        // Shutdown audio bridge first
+        if (audioBridge != null && audioBridge.isRunning()) {
+            audioBridge.shutdown();
+        }
         
         // Disconnect all clients and remove from position tracker
         clients.values().forEach(client -> {
@@ -99,6 +129,21 @@ public class WebRTCSignalingServer {
         if (bossGroup != null) {
             bossGroup.shutdownGracefully();
         }
+    }
+    
+    /**
+     * Check if a web client is connected by client ID
+     */
+    public boolean isWebClientConnected(java.util.UUID clientId) {
+        WebRTCClient client = clients.get(clientId);
+        return client != null && client.isConnected();
+    }
+    
+    /**
+     * Get all connected web clients
+     */
+    public Map<java.util.UUID, WebRTCClient> getConnectedClients() {
+        return new ConcurrentHashMap<>(clients);
     }
     
     private class WebSocketServerHandler extends SimpleChannelInboundHandler<Object> {
@@ -164,14 +209,16 @@ public class WebRTCSignalingServer {
                     case SignalingMessage.TYPE_AUTHENTICATE:
                         handleAuthenticate(ctx, message);
                         break;
-                    case SignalingMessage.TYPE_OFFER:
-                        handleOffer(ctx, message);
-                        break;
-                    case SignalingMessage.TYPE_ICE_CANDIDATE:
-                        handleIceCandidate(ctx, message);
+                    case "audio":
+                        handleAudioData(ctx, message);
                         break;
                     case SignalingMessage.TYPE_DISCONNECT:
                         handleDisconnect(ctx);
+                        break;
+                    // Legacy WebRTC peer connection messages (now ignored)
+                    case SignalingMessage.TYPE_OFFER:
+                    case SignalingMessage.TYPE_ICE_CANDIDATE:
+                        logger.atFine().log("Ignoring legacy WebRTC message: {}", message.getType());
                         break;
                     default:
                         logger.atWarning().log("Unknown signaling message type: {}", message.getType());
@@ -186,8 +233,17 @@ public class WebRTCSignalingServer {
             JsonObject data = message.getData();
             String username = data.get("username").getAsString();
             
-            // Create new client
-            UUID clientId = UUID.randomUUID();
+            // Create new client. Prefer binding to existing player UUID (by username) so GUI linkage works like UDP
+            UUID clientId = null;
+            if (positionTracker != null) {
+                clientId = positionTracker.getPlayerUUIDByUsername(username);
+                if (clientId != null) {
+                    logger.atInfo().log("WebRTC auth mapped username " + username + " to existing player UUID: " + clientId);
+                }
+            }
+            if (clientId == null) {
+                clientId = UUID.randomUUID();
+            }
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
             clients.put(clientId, client);
             ctx.channel().attr(CLIENT_ATTR).set(client);
@@ -197,7 +253,12 @@ public class WebRTCSignalingServer {
             if (positionTracker != null) {
                 PlayerPosition position = new PlayerPosition(clientId, username, 0, 0, 0, 0, 0, "overworld");
                 positionTracker.addPlayer(position);
-                logger.atInfo().log("Added WebRTC client to position tracker: {}", username);
+                logger.atInfo().log("Added WebRTC client to position tracker: " + username);
+            }
+            
+            // Notify listener of client connection
+            if (clientListener != null) {
+                clientListener.onClientConnected(clientId, username);
             }
             
             // Send success response
@@ -209,56 +270,63 @@ public class WebRTCSignalingServer {
                     SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
             sendMessage(ctx, response);
             
-            logger.atInfo().log("WebRTC client authenticated: {} ({})", username, clientId);
+            logger.atInfo().log("WebRTC client authenticated: " + username + " (" + clientId + ")");
         }
         
-        private void handleOffer(ChannelHandlerContext ctx, SignalingMessage message) {
+        private void handleAudioData(ChannelHandlerContext ctx, SignalingMessage message) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client == null) {
                 sendError(ctx, "Not authenticated");
                 return;
             }
             
-            JsonObject data = message.getData();
-            String sdp = data.get("sdp").getAsString();
-            
-            // In a real implementation, we would process the SDP offer
-            // and create an SDP answer using a WebRTC library
-            // For now, we'll send a placeholder response
-            JsonObject answerData = new JsonObject();
-            answerData.addProperty("sdp", createAnswerSdp(sdp));
-            answerData.addProperty("type", "answer");
-            
-            SignalingMessage answer = new SignalingMessage(
-                    SignalingMessage.TYPE_ANSWER, answerData);
-            sendMessage(ctx, answer);
-            
-            logger.atFine().log("Sent SDP answer to client {}", client.getClientId());
+            try {
+                // Extract audio data from message
+                JsonObject data = message.getData();
+                if (data.has("audioData")) {
+                    // Audio data is sent as base64 or direct bytes
+                    String audioDataStr = data.get("audioData").getAsString();
+                    byte[] audioData = decodeAudioData(audioDataStr);
+                    
+                    // Send to audio bridge for SFU routing
+                    if (audioBridge != null) {
+                        audioBridge.receiveAudioFromWebRTC(client.getClientId(), audioData);
+                    }
+                }
+            } catch (Exception e) {
+                logger.atWarning().log("Error handling audio data from client {}: {}", client.getClientId(), e.getMessage());
+            }
         }
         
-        private void handleIceCandidate(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
+        /**
+         * Decode audio data from the message format
+         * Audio can be sent as base64 string or raw bytes
+         */
+        private byte[] decodeAudioData(String audioDataStr) {
+            // Try to decode as base64 first
+            try {
+                return java.util.Base64.getDecoder().decode(audioDataStr);
+            } catch (IllegalArgumentException e) {
+                // Not base64, treat as raw string and convert to bytes
+                return audioDataStr.getBytes(java.nio.charset.StandardCharsets.UTF_8);
             }
-            
-            logger.atFine().log("Received ICE candidate from client {}", client.getClientId());
-            
-            // In a real implementation, we would process the ICE candidate
-            // For now, we just acknowledge it
         }
         
         private void handleDisconnect(ChannelHandlerContext ctx) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client != null) {
+                // Notify listener of client disconnection
+                if (clientListener != null) {
+                    clientListener.onClientDisconnected(client.getClientId(), client.getUsername());
+                }
+                
                 // Remove from position tracker
                 if (positionTracker != null) {
                     positionTracker.removePlayer(client.getClientId());
-                    logger.atInfo().log("Removed WebRTC client from position tracker: {}", client.getUsername());
+                    logger.atInfo().log("Removed WebRTC client from position tracker: {}", client.getClientId());
                 }
                 clients.remove(client.getClientId());
-                logger.atInfo().log("WebRTC client disconnected: {}", client.getUsername());
+                logger.atInfo().log("WebRTC client disconnected: {}", client.getClientId());
             }
         }
         
@@ -297,28 +365,138 @@ public class WebRTCSignalingServer {
         }
         
         /**
-         * Create a placeholder SDP answer
-         * In a real implementation, this would use a WebRTC library to generate a proper answer
+         * Create an SDP answer that matches the m-lines and directionality from the client's offer
+         * Parses the offer to identify all media sections (audio, datachannel, etc.)
+         * and generates a corresponding answer with matching direction attributes
          */
         private String createAnswerSdp(String offerSdp) {
-            // This is a placeholder - a real implementation would need a WebRTC library
-            // like webrtc-java or jitsi-webrtc to properly process the offer and create an answer
-            return "v=0\r\n" +
-                   "o=- 0 0 IN IP4 0.0.0.0\r\n" +
-                   "s=Hytale Voice Chat\r\n" +
-                   "t=0 0\r\n" +
-                   "a=group:BUNDLE audio\r\n" +
-                   "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n" +
-                   "c=IN IP4 0.0.0.0\r\n" +
-                   "a=rtcp:9 IN IP4 0.0.0.0\r\n" +
-                   "a=ice-ufrag:placeholder\r\n" +
-                   "a=ice-pwd:placeholder\r\n" +
-                   "a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\n" +
-                   "a=setup:active\r\n" +
-                   "a=mid:audio\r\n" +
-                   "a=sendrecv\r\n" +
-                   "a=rtcp-mux\r\n" +
-                   "a=rtpmap:111 opus/48000/2\r\n";
+            StringBuilder answer = new StringBuilder();
+            answer.append("v=0\r\n");
+            answer.append("o=- 0 0 IN IP4 0.0.0.0\r\n");
+            answer.append("s=Hytale Voice Chat\r\n");
+            answer.append("t=0 0\r\n");
+            
+            // Parse offer to extract m-lines and their properties
+            String[] lines = offerSdp.split("\r\n");
+            StringBuilder bundleLineBuilder = new StringBuilder();
+            bundleLineBuilder.append("a=group:BUNDLE");
+            
+            boolean hasAudio = false;
+            boolean hasDataChannel = false;
+            String audioMid = null;
+            String datachannelMid = null;
+            String audioDirection = "sendrecv";  // default
+            String datachannelDirection = "sendrecv";  // default
+            
+            // First pass: identify media types and their mids
+            for (String line : lines) {
+                if (line.startsWith("m=audio")) {
+                    hasAudio = true;
+                } else if (line.startsWith("m=application")) {
+                    hasDataChannel = true;
+                }
+            }
+            
+            // Second pass: extract mids and directions
+            boolean inAudioSection = false;
+            boolean inDataChannelSection = false;
+            for (String line : lines) {
+                if (line.startsWith("m=audio")) {
+                    inAudioSection = true;
+                    inDataChannelSection = false;
+                } else if (line.startsWith("m=application")) {
+                    inAudioSection = false;
+                    inDataChannelSection = true;
+                } else if (line.startsWith("m=")) {
+                    inAudioSection = false;
+                    inDataChannelSection = false;
+                }
+                
+                if (line.startsWith("a=mid:")) {
+                    String mid = line.substring("a=mid:".length()).trim();
+                    if (inAudioSection && audioMid == null) {
+                        audioMid = mid;
+                    } else if (inDataChannelSection && datachannelMid == null) {
+                        datachannelMid = mid;
+                    }
+                }
+                
+                // Extract direction attributes
+                if (inAudioSection && (line.equals("a=sendrecv") || line.equals("a=sendonly") || 
+                    line.equals("a=recvonly") || line.equals("a=inactive"))) {
+                    audioDirection = line.substring("a=".length());
+                }
+                if (inDataChannelSection && (line.equals("a=sendrecv") || line.equals("a=sendonly") || 
+                    line.equals("a=recvonly") || line.equals("a=inactive"))) {
+                    datachannelDirection = line.substring("a=".length());
+                }
+            }
+            
+            // Convert offer direction to answer direction (inverse)
+            String answerAudioDirection = invertDirection(audioDirection);
+            String answerDataChannelDirection = invertDirection(datachannelDirection);
+            
+            // Build BUNDLE line with all media types
+            if (hasAudio) {
+                bundleLineBuilder.append(" ").append(audioMid != null ? audioMid : "0");
+            }
+            if (hasDataChannel) {
+                bundleLineBuilder.append(" ").append(datachannelMid != null ? datachannelMid : "1");
+            }
+            answer.append(bundleLineBuilder).append("\r\n");
+            
+            // Add audio m-line if present in offer
+            if (hasAudio) {
+                answer.append("m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n");
+                answer.append("c=IN IP4 0.0.0.0\r\n");
+                answer.append("a=rtcp:9 IN IP4 0.0.0.0\r\n");
+                answer.append("a=ice-ufrag:placeholder\r\n");
+                answer.append("a=ice-pwd:placeholder\r\n");
+                answer.append("a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\n");
+                answer.append("a=setup:active\r\n");
+                answer.append("a=mid:").append(audioMid != null ? audioMid : "0").append("\r\n");
+                answer.append("a=").append(answerAudioDirection).append("\r\n");
+                answer.append("a=rtcp-mux\r\n");
+                answer.append("a=rtpmap:111 opus/48000/2\r\n");
+            }
+            
+            // Add datachannel m-line if present in offer
+            if (hasDataChannel) {
+                answer.append("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n");
+                answer.append("c=IN IP4 0.0.0.0\r\n");
+                answer.append("a=ice-ufrag:placeholder\r\n");
+                answer.append("a=ice-pwd:placeholder\r\n");
+                answer.append("a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\n");
+                answer.append("a=setup:active\r\n");
+                answer.append("a=mid:").append(datachannelMid != null ? datachannelMid : "1").append("\r\n");
+                answer.append("a=").append(answerDataChannelDirection).append("\r\n");
+                answer.append("a=sctp-port:5000\r\n");
+                answer.append("a=max-message-size:1073741823\r\n");
+            }
+            
+            return answer.toString();
+        }
+        
+        /**
+         * Invert SDP direction attribute for answer
+         * sendrecv → sendrecv (both sides send and receive)
+         * sendonly → recvonly (if offer sends only, answer receives only)
+         * recvonly → sendonly (if offer receives only, answer sends only)
+         * inactive → inactive
+         */
+        private String invertDirection(String direction) {
+            switch (direction) {
+                case "sendonly":
+                    return "recvonly";
+                case "recvonly":
+                    return "sendonly";
+                case "sendrecv":
+                    return "sendrecv";
+                case "inactive":
+                    return "inactive";
+                default:
+                    return "sendrecv";
+            }
         }
     }
 }

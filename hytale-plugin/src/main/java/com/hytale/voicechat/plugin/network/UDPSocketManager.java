@@ -240,6 +240,14 @@ public class UDPSocketManager {
     public boolean isPlayerConnected(UUID playerUuid) {
         return playerToClientUUID.containsKey(playerUuid);
     }
+    
+    /**
+     * Get all connected player UUIDs
+     * @return Set of player UUIDs that have active voice client connections
+     */
+    public java.util.Set<UUID> getConnectedPlayers() {
+        return playerToClientUUID.keySet();
+    }
 
     private class VoicePacketHandler extends SimpleChannelInboundHandler<DatagramPacket> {
         private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();

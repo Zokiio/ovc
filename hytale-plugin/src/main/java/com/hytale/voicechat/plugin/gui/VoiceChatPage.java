@@ -286,17 +286,20 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         }
     }
 
-    @SuppressWarnings("null")
     private void updateConnectionStatus(UICommandBuilder commands, Store<EntityStore> store, Ref<EntityStore> ref) {
         // Check if player has an active voice client connection
-        @SuppressWarnings("null")
         Player player = store.getComponent(ref, Player.getComponentType());
         if (player != null) {
             boolean isConnected = false;
             
-            // Check if player has authenticated voice client
+            // Check if player has authenticated voice client (UDP)
             if (plugin.getUdpServer() != null) {
                 isConnected = plugin.getUdpServer().isPlayerConnected(playerRef.getUuid());
+            }
+            
+            // Also check for WebRTC clients (web)
+            if (!isConnected && plugin.getWebRTCServer() != null) {
+                isConnected = plugin.getWebRTCServer().isWebClientConnected(playerRef.getUuid());
             }
             
             if (isConnected) {
@@ -306,6 +309,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
                 commands.set("#ConnectionStatus.TextSpans", 
                         Message.raw("Voice Client - Disconnected").color(Color.RED).bold(true));
             }
+            
         }
     }
 
@@ -319,7 +323,6 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         }
     }
 
-    @SuppressWarnings("null")
     private void updateGroupMembers(UICommandBuilder commands, Group group) {
         StringBuilder membersText = new StringBuilder();
         
@@ -434,6 +437,11 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             boolean currentConnectedStatus = false;
             if (player != null && plugin.getUdpServer() != null) {
                 currentConnectedStatus = plugin.getUdpServer().isPlayerConnected(playerRef.getUuid());
+            }
+            
+            // Also check for WebRTC clients
+            if (!currentConnectedStatus && player != null && plugin.getWebRTCServer() != null) {
+                currentConnectedStatus = plugin.getWebRTCServer().isWebClientConnected(playerRef.getUuid());
             }
             
             // Calculate hash of all group IDs to detect changes beyond count
