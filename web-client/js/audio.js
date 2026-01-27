@@ -86,12 +86,17 @@ class AudioManager {
     playAudio(audioData) {
         // Play incoming audio from other players
         if (!this.audioContext) {
+            log.warn('Audio context not initialized, cannot play audio');
             return;
         }
         
         try {
+            log.debug('playAudio called with buffer size:', audioData.byteLength);
+            
             // Convert received data to Float32Array
             const int16Data = new Int16Array(audioData);
+            log.debug('Int16 samples:', int16Data.length);
+            
             const float32Data = new Float32Array(int16Data.length);
             
             for (let i = 0; i < int16Data.length; i++) {
@@ -112,8 +117,10 @@ class AudioManager {
             source.buffer = audioBuffer;
             source.connect(this.audioContext.destination);
             source.start();
+            
+            log.info('Audio playback started, duration:', audioBuffer.duration.toFixed(3), 'seconds');
         } catch (error) {
-            log.error('Error playing audio:', error);
+            log.error('Error playing audio:', error, 'audioData:', audioData);
         }
     }
     

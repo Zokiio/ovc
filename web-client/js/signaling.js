@@ -115,11 +115,21 @@ class SignalingClient {
     
     handleMessage(message) {
         const { type, data } = message;
-        log.debug('Received message:', type, data);
+        
+        // Log audio messages with summary info
+        if (type === 'audio') {
+            const audioSize = data && data.audioData ? data.audioData.length : 0;
+            log.debug('Received audio message, size:', audioSize);
+        } else {
+            log.debug('Received message:', type, data);
+        }
         
         const handler = this.messageHandlers.get(type);
         if (handler) {
             handler(data);
+        } else if (type !== 'audio') {
+            // Audio messages without handler are expected - server broadcasting
+            log.debug('No handler for message type:', type);
         }
     }
     

@@ -17,23 +17,40 @@ class WebRTCManager {
     setupAudioMessageHandler() {
         // Listen for incoming audio messages from server
         this.signaling.on('audio', (data) => {
-            if (window.audioManager && data.audioData) {
-                try {
-                    // Decode base64 audio data
-                    const binaryString = atob(data.audioData);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-                    // Convert to Int16Array for playAudio()
-                    const audioBuffer = bytes.buffer;
-                    window.audioManager.playAudio(audioBuffer);
-                    log.debug('Playing received audio from remote client');
-                } catch (error) {
-                    log.error('Error decoding received audio:', error);
+            log.debug('Audio message received from server', data);
+            
+            if (!window.audioManager) {
+                log.warn('Audio manager not initialized yet');
+                return;
+            }
+            
+            if (!data || !data.audioData) {
+                log.warn('Invalid audio message - missing audioData field', data);
+                return;
+            }
+            
+            try {
+                log.debug('Decoding base64 audio data, length:', data.audioData.length);
+                
+                // Decode base64 audio data
+                const binaryString = atob(data.audioData);
+                log.debug('Binary string length:', binaryString.length);
+                
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
                 }
+                
+                // Convert to Int16Array for playAudio()
+                const audioBuffer = bytes.buffer;
+                log.info('Playing received audio from remote client, buffer size:', audioBuffer.byteLength);
+                window.audioManager.playAudio(audioBuffer);
+            } catch (error) {
+                log.error('Error decoding received audio:', error, 'data:', data);
             }
         });
+        
+        log.info('Audio message handler registered');
     }
     
     /**
