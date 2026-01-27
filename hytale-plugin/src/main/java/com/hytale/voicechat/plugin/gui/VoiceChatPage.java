@@ -201,7 +201,7 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         if (data.leaveGroupClicked != null || data.smallLeaveClicked != null) {
             var group = groupManager.getPlayerGroup(playerRef.getUuid());
             if (group != null) {
-                UUID newOwner = groupManager.leaveGroup(playerRef.getUuid());
+                groupManager.leaveGroup(playerRef.getUuid());
                 player.sendMessage(Message.join(
                         Message.raw("Left group: ").color(Color.YELLOW),
                         Message.raw(group.getName()).color(Color.CYAN)
@@ -553,14 +553,14 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         static final String KEY_ISOLATED_TOGGLE = "IsolatedToggleClicked";
 
         public static final BuilderCodec<VoiceChatData> CODEC = BuilderCodec.builder(VoiceChatData.class, VoiceChatData::new)
-            .addField(new KeyedCodec<>(KEY_GROUP_NAME_INPUT, Codec.STRING), (d, v) -> d.groupNameInput = v, d -> d.groupNameInput == null ? "" : d.groupNameInput)
-            .addField(new KeyedCodec<>(KEY_CLOSE, Codec.STRING), (d, v) -> d.closeClicked = v, d -> d.closeClicked == null ? "" : d.closeClicked)
-            .addField(new KeyedCodec<>(KEY_CREATE_GROUP, Codec.STRING), (d, v) -> d.createGroupClicked = v, d -> d.createGroupClicked == null ? "" : d.createGroupClicked)
-            .addField(new KeyedCodec<>(KEY_JOIN_GROUP, Codec.STRING), (d, v) -> d.joinGroupClicked = v, d -> d.joinGroupClicked == null ? "" : d.joinGroupClicked)
-            .addField(new KeyedCodec<>(KEY_LEAVE_GROUP, Codec.STRING), (d, v) -> d.leaveGroupClicked = v, d -> d.leaveGroupClicked == null ? "" : d.leaveGroupClicked)
-            .addField(new KeyedCodec<>(KEY_SMALL_LEAVE, Codec.STRING), (d, v) -> d.smallLeaveClicked = v, d -> d.smallLeaveClicked == null ? "" : d.smallLeaveClicked)
-            .addField(new KeyedCodec<>(KEY_ISOLATED_TOGGLE, Codec.STRING), (d, v) -> d.isolatedToggleClicked = v, d -> d.isolatedToggleClicked == null ? "" : d.isolatedToggleClicked)
-                .build();
+            .append(new KeyedCodec<>(KEY_GROUP_NAME_INPUT, Codec.STRING), (d, v) -> d.groupNameInput = v, d -> d.groupNameInput == null ? "" : d.groupNameInput).add()
+            .append(new KeyedCodec<>(KEY_CLOSE, Codec.STRING), (d, v) -> d.closeClicked = v, d -> d.closeClicked == null ? "" : d.closeClicked).add()
+            .append(new KeyedCodec<>(KEY_CREATE_GROUP, Codec.STRING), (d, v) -> d.createGroupClicked = v, d -> d.createGroupClicked == null ? "" : d.createGroupClicked).add()
+            .append(new KeyedCodec<>(KEY_JOIN_GROUP, Codec.STRING), (d, v) -> d.joinGroupClicked = v, d -> d.joinGroupClicked == null ? "" : d.joinGroupClicked).add()
+            .append(new KeyedCodec<>(KEY_LEAVE_GROUP, Codec.STRING), (d, v) -> d.leaveGroupClicked = v, d -> d.leaveGroupClicked == null ? "" : d.leaveGroupClicked).add()
+            .append(new KeyedCodec<>(KEY_SMALL_LEAVE, Codec.STRING), (d, v) -> d.smallLeaveClicked = v, d -> d.smallLeaveClicked == null ? "" : d.smallLeaveClicked).add()
+            .append(new KeyedCodec<>(KEY_ISOLATED_TOGGLE, Codec.STRING), (d, v) -> d.isolatedToggleClicked = v, d -> d.isolatedToggleClicked == null ? "" : d.isolatedToggleClicked).add()
+            .build();
 
         private String groupNameInput;
         private String closeClicked;

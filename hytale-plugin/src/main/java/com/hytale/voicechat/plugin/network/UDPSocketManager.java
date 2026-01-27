@@ -15,13 +15,12 @@ import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
-import com.hypixel.hytale.server.core.Message;
-import com.hypixel.hytale.server.core.entity.entities.Player;
 // Removed direct EntityStore/PlayerRef querying for player validation; rely on tracker
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.*;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.SimpleChannelInboundHandler;
@@ -94,7 +93,7 @@ public class UDPSocketManager {
     // EntityStore not needed for current validation; using PlayerPositionTracker
 
     public void start() throws InterruptedException {
-        group = new NioEventLoopGroup();
+        group = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
         
         Bootstrap bootstrap = new Bootstrap()
                 .group(group)
@@ -253,6 +252,7 @@ public class UDPSocketManager {
         private final Map<Integer, UUID> hashIdToPlayerUUID;
         private final Map<Integer, String> hashIdToUsername;
         private final PlayerPositionTracker positionTracker;
+        @SuppressWarnings("unused")
         private final PlayerEventListener eventListener;
         private final GroupManager groupManager;
         private final AudioPacer audioPacer;
@@ -589,9 +589,7 @@ public class UDPSocketManager {
             }
             
             // Route to nearby players and group members
-            int routedCount = 0;
             Map<UUID, PlayerPosition> allPlayers = positionTracker.getPlayerPositions();
-            int tracked = allPlayers.size();
             
             // Get sender's group (if any) - use local variable for thread safety
             GroupManager localGroupManager = groupManager;
@@ -647,9 +645,8 @@ public class UDPSocketManager {
 
                                     float[] rotated = rotateToListenerFrame(dx, dy, dz, position.getYaw(), position.getPitch());
 
-                                    enqueuePacedAudio(ctx, otherClientId, packet.getSenderId(), packet, senderHashId,
+                                        enqueuePacedAudio(ctx, otherClientId, packet.getSenderId(), packet, senderHashId,
                                             rotated[0], rotated[1], rotated[2]);
-                                    routedCount++;
                                     routedPlayers.add(otherPlayerUUID);
                                 } else if (inSameGroup) {
                                     // Group audio only (not in proximity) - always non-spatial
@@ -684,10 +681,6 @@ public class UDPSocketManager {
             }
         }
         
-        private AudioPacket withRelativePosition(AudioPacket packet, float dx, float dy, float dz) {
-            return new AudioPacket(packet.getSenderId(), packet.getCodec(), packet.getAudioData(), packet.getSequenceNumber(), dx, dy, dz);
-        }
-
         private float[] rotateToListenerFrame(float dx, float dy, float dz, double yawDeg, double pitchDeg) {
             double yaw = Math.toRadians(yawDeg);
             double pitch = Math.toRadians(pitchDeg);

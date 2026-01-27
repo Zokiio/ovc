@@ -1,6 +1,8 @@
 package com.hytale.voicechat.plugin.event;
 
 import com.hypixel.hytale.component.Store;
+import com.hypixel.hytale.component.ArchetypeChunk;
+import com.hypixel.hytale.component.CommandBuffer;
 import com.hypixel.hytale.component.query.Query;
 import com.hypixel.hytale.component.system.QuerySystem;
 import com.hypixel.hytale.component.system.tick.TickingSystem;
@@ -36,7 +38,7 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
     public void tick(float deltaSeconds, int tickCount, @Nonnull Store<EntityStore> store) {
         var seen = ConcurrentHashMap.newKeySet();
 
-        store.forEachChunk(getQuery(), (chunk, commandBuffer) -> {
+        store.forEachChunk(getQuery(), (java.util.function.BiConsumer<ArchetypeChunk<EntityStore>, CommandBuffer<EntityStore>>) (chunk, commandBuffer) -> {
             int size = chunk.size();
             for (int i = 0; i < size; i++) {
                 PlayerRef playerRef = chunk.getComponent(i, PlayerRef.getComponentType());
@@ -121,7 +123,7 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             }
         }
 
-        lastSamples.put(playerUUID, new Sample(x, y, z, now, worldId));
+        lastSamples.put(playerUUID, new Sample(x, y, z, now));
         positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
     }
 
@@ -135,14 +137,12 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         final double y;
         final double z;
         final long timestamp;
-        final String worldId;
 
-        Sample(double x, double y, double z, long timestamp, String worldId) {
+        Sample(double x, double y, double z, long timestamp) {
             this.x = x;
             this.y = y;
             this.z = z;
             this.timestamp = timestamp;
-            this.worldId = worldId;
         }
     }
 

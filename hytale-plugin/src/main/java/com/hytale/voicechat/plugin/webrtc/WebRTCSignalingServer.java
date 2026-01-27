@@ -6,7 +6,8 @@ import com.hytale.voicechat.common.signaling.SignalingMessage;
 import com.hypixel.hytale.logger.HytaleLogger;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.*;
@@ -40,8 +41,8 @@ public class WebRTCSignalingServer {
     }
     
     public void start() throws InterruptedException {
-        bossGroup = new NioEventLoopGroup(1);
-        workerGroup = new NioEventLoopGroup();
+        bossGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
+        workerGroup = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
         
         try {
             ServerBootstrap bootstrap = new ServerBootstrap();
@@ -60,7 +61,7 @@ public class WebRTCSignalingServer {
             serverChannel = bootstrap.bind(port).sync().channel();
             logger.atInfo().log("WebRTC signaling server started on port {}", port);
         } catch (Exception e) {
-            logger.atError().log("Failed to start WebRTC signaling server", e);
+            logger.atSevere().log("Failed to start WebRTC signaling server", e);
             shutdown();
             throw e;
         }
@@ -74,7 +75,7 @@ public class WebRTCSignalingServer {
             try {
                 client.disconnect();
             } catch (Exception e) {
-                logger.atWarn().log("Error disconnecting client: {}", e.getMessage());
+                logger.atWarning().log("Error disconnecting client: {}", e.getMessage());
             }
         });
         clients.clear();
@@ -119,7 +120,7 @@ public class WebRTCSignalingServer {
                 WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel());
             } else {
                 handshaker.handshake(ctx.channel(), req);
-                logger.atDebug().log("WebSocket handshake completed for {}", ctx.channel().remoteAddress());
+                logger.atFine().log("WebSocket handshake completed for {}", ctx.channel().remoteAddress());
             }
         }
         
@@ -147,7 +148,7 @@ public class WebRTCSignalingServer {
         private void handleSignalingMessage(ChannelHandlerContext ctx, String json) {
             try {
                 SignalingMessage message = SignalingMessage.fromJson(json);
-                logger.atDebug().log("Received signaling message: {}", message.getType());
+                logger.atFine().log("Received signaling message: {}", message.getType());
                 
                 switch (message.getType()) {
                     case SignalingMessage.TYPE_AUTHENTICATE:
@@ -163,10 +164,10 @@ public class WebRTCSignalingServer {
                         handleDisconnect(ctx);
                         break;
                     default:
-                        logger.atWarn().log("Unknown signaling message type: {}", message.getType());
+                        logger.atWarning().log("Unknown signaling message type: {}", message.getType());
                 }
             } catch (Exception e) {
-                logger.atError().log("Error handling signaling message", e);
+                logger.atSevere().log("Error handling signaling message", e);
                 sendError(ctx, "Invalid message format");
             }
         }
@@ -214,7 +215,7 @@ public class WebRTCSignalingServer {
                     SignalingMessage.TYPE_ANSWER, answerData);
             sendMessage(ctx, answer);
             
-            logger.atDebug().log("Sent SDP answer to client {}", client.getClientId());
+            logger.atFine().log("Sent SDP answer to client {}", client.getClientId());
         }
         
         private void handleIceCandidate(ChannelHandlerContext ctx, SignalingMessage message) {
@@ -224,9 +225,7 @@ public class WebRTCSignalingServer {
                 return;
             }
             
-            // Store ICE candidate for this client
-            JsonObject data = message.getData();
-            logger.atDebug().log("Received ICE candidate from client {}", client.getClientId());
+            logger.atFine().log("Received ICE candidate from client {}", client.getClientId());
             
             // In a real implementation, we would process the ICE candidate
             // For now, we just acknowledge it
@@ -254,7 +253,7 @@ public class WebRTCSignalingServer {
         
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            logger.atError().log("WebSocket error", cause);
+            logger.atSevere().log("WebSocket error", cause);
             ctx.close();
         }
         

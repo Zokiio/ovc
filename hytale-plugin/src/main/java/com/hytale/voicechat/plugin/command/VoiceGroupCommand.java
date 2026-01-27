@@ -20,7 +20,6 @@ import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.HytaleVoiceChatPlugin;
 import com.hytale.voicechat.plugin.gui.VoiceChatPage;
 
-import javax.annotation.Nonnull;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -30,13 +29,8 @@ import java.util.concurrent.CompletableFuture;
  */
 public class VoiceGroupCommand extends AbstractCommandCollection {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
-    private final GroupManager groupManager;
-    private final HytaleVoiceChatPlugin plugin;
-
     public VoiceGroupCommand(GroupManager groupManager, HytaleVoiceChatPlugin plugin) {
         super("voicechat", "Manage voice chat");
-        this.groupManager = groupManager;
-        this.plugin = plugin;
         addAliases("vc");
 
         addSubCommand(new CreateSubCommand(groupManager));
