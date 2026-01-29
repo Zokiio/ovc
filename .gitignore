@@ -45,3 +45,10 @@ voice-client/HytaleVoiceChat
 voice-client/HytaleVoiceChat.exe
 voice-client/dist/
 voice-client/windows/*
+voice-client/.vite/
+# Web client
+web-client/node_modules/
+web-client/package-lock.json
+web-client/dist/
+web-client/server.key
+web-client/server.cert

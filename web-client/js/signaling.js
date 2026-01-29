@@ -1,6 +1,7 @@
 // WebSocket signaling client for WebRTC
+import { CONFIG, log } from './config.js';
 
-class SignalingClient {
+export class SignalingClient {
     constructor() {
         this.ws = null;
         this.connected = false;
@@ -12,7 +13,13 @@ class SignalingClient {
     
     connect(serverHost, port = CONFIG.DEFAULT_SIGNALING_PORT) {
         return new Promise((resolve, reject) => {
-            const wsUrl = `ws://${serverHost}:${port}/voice`;
+            const isSecureContext = window.location && window.location.protocol === 'https:';
+            const useProxy = isSecureContext && CONFIG.SIGNALING.USE_VITE_PROXY_ON_HTTPS;
+            const wsProtocol = isSecureContext ? 'wss' : 'ws';
+
+            const wsUrl = useProxy
+                ? `${wsProtocol}://${window.location.host}${CONFIG.SIGNALING.PROXY_PATH}`
+                : `${wsProtocol}://${serverHost}:${port}/voice`;
             log.info('Connecting to signaling server:', wsUrl);
             
             this.ws = new WebSocket(wsUrl);
@@ -122,6 +129,34 @@ class SignalingClient {
             log.debug('Received audio message, size:', audioSize);
         } else {
             log.debug('Received message:', type, data);
+        }
+        
+        // Handle unsupported WebRTC signaling messages explicitly
+        if (type === 'offer') {
+            log.warn(
+                'Received SDP offer from peer (unsupported in current architecture).\n' +
+                'This system uses a server-side proxy model: media flows through the server, not direct peer-to-peer.\n' +
+                'For direct WebRTC connection support, see docs/WEBRTC_ARCHITECTURE.md for migration details.'
+            );
+            return;
+        }
+        
+        if (type === 'answer') {
+            log.warn(
+                'Received SDP answer from peer (unsupported in current architecture).\n' +
+                'This system uses a server-side proxy model: media flows through the server, not direct peer-to-peer.\n' +
+                'For direct WebRTC connection support, see docs/WEBRTC_ARCHITECTURE.md for migration details.'
+            );
+            return;
+        }
+        
+        if (type === 'ice_candidate') {
+            log.warn(
+                'Received ICE candidate from peer (unsupported in current architecture).\n' +
+                'This system uses a server-side proxy model: media flows through the server, not direct peer-to-peer.\n' +
+                'For direct WebRTC connection support, see docs/WEBRTC_ARCHITECTURE.md for migration details.'
+            );
+            return;
         }
         
         const handler = this.messageHandlers.get(type);

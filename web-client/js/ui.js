@@ -1,6 +1,14 @@
 // UI event handlers and updates
+//
+// TRANSPORT MODEL CLARIFICATION:
+// This UI manages connections to a server-side proxy that routes audio.
+// Audio flows through the server via WebSocket, NOT direct client-to-client.
+// The server handles audio routing based on proximity/groups.
+// For details on transport architecture, see docs/WEBRTC_ARCHITECTURE.md
 
-class UIManager {
+import { CONFIG } from './config.js';
+
+export class UIManager {
     constructor() {
         this.elements = {
             connectionPanel: document.getElementById('connection-panel'),
@@ -44,8 +52,10 @@ class UIManager {
     async handleConnect() {
         const username = this.elements.usernameInput.value.trim();
         const server = this.elements.serverInput.value.trim();
+        const isSecureContext = window.location && window.location.protocol === 'https:';
+        const usingProxy = isSecureContext && CONFIG.SIGNALING.USE_VITE_PROXY_ON_HTTPS;
         
-        if (!username || !server) {
+        if (!username || (!server && !usingProxy)) {
             this.showError('Please enter both username and server address');
             return;
         }

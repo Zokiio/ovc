@@ -1,102 +1,166 @@
-# WebRTC Audio Bridge Implementation Summary
+# WebRTC Audio Bridge: Server-Side Proxy Model
 
-## Problem Statement
+## Current Status: Server-Side Audio Proxy
+
+⚠️ **IMPORTANT**: The current "WebRTC Audio Bridge" is actually a server-side proxy audio router, NOT a WebRTC peer connection bridge. This document describes the current proxy implementation.
+
+### What This System Does (Current)
+- Routes audio from web clients to native UDP clients via server
+- Routes audio from native UDP clients to web clients via server
+- Uses WebSocket for all audio transport (not WebRTC peer connections)
+- Applies proximity-based routing for all client types
+
+### What This System Does NOT Do (Yet)
+- Establish direct WebRTC peer connections between clients
+- Handle WebRTC SDP offer/answer exchange
+- Manage ICE candidates for P2P connections
+- Use WebRTC DataChannels for audio
+
+## Problem Statement (Original Design Goal)
 Web clients could connect and authenticate to the WebRTC signaling server, but audio was never actually routed between:
 1. Web clients and native UDP clients (proximity-based)
 2. Native UDP clients back to web clients
 
-## Solution: WebRTC Audio Bridge
+## Current Solution: Server-Side Audio Proxy
 
-Created a new component `WebRTCAudioBridge.java` that handles bidirectional audio routing between WebRTC and UDP clients.
+Created a server-side audio routing system that proxies audio between web and native clients.
 
-### Key Changes
+### Key Components
 
-#### 1. **New Class: WebRTCAudioBridge** (`WebRTCAudioBridge.java`)
-   - **Purpose**: Bridges audio between WebRTC and UDP voice chat systems
-   - **Features**:
-     - Queues audio from WebRTC clients with non-blocking drop on overflow
-     - Processes audio asynchronously on a dedicated thread
-     - Routes audio based on player proximity (default 30 blocks, configurable)
-     - Uses world-aware distance calculations (doesn't route across worlds)
-     - Converts WebRTC audio to UDP AudioPacket format
-     - Uses world-aware distance via `PlayerPosition.distanceTo()`
-   
-   - **Key Methods**:
-     - `receiveAudioFromWebRTC(UUID, byte[])` - Receive audio from web clients
-     - `receiveAudioFromUDP(AudioPacket)` - Receive audio from native clients
-     - `start()` / `shutdown()` - Lifecycle management
+#### 1. **Audio Flow (Current - WebSocket Proxy)**
+- Web client sends audio via WebSocket (base64-encoded PCM)
+- Server receives audio from web client
+- Server checks proximity: sender → nearby native clients
+- Server forwards audio to native clients via UDP
+- Native client sends audio via UDP
+- Server receives audio and checks proximity: sender → nearby web clients
+- Server sends audio to web client via WebSocket (base64-encoded)
 
-#### 2. **Updated: WebRTCSignalingServer**
-   - Added `WebRTCAudioBridge` field
-   - Added `setAudioBridge()` setter method
-   - Start bridge on server startup
-   - Shutdown bridge on server shutdown
+#### 2. **Signaling Message Types**
+- `authenticate`: Client → Server (username)
+- `auth_success`: Server → Client (session info)
+- `audio`: Bidirectional (base64-encoded PCM audio frames)
+- `disconnect`: Client → Server
+- `offer`: Client received (UNSUPPORTED - mapped to warning log)
+- `answer`: Client received (UNSUPPORTED - mapped to warning log)
+- `ice_candidate`: Client received (UNSUPPORTED - mapped to warning log)
 
-#### 3. **Updated: WebRTCClient**
-   - Added `sendAudio(byte[])` method to send audio via WebSocket
-   - Wraps binary audio in SignalingMessage with base64 encoding
-   - Allows audio to be transmitted back to web clients
+#### 3. **Proximity Calculation**
+- Distance calculated using player positions (X, Y, Z coordinates)
+- Default proximity threshold: 30 blocks
+- World-aware: only routes audio to players in same world
+- Implemented in `PlayerPositionTracker`
 
-### Data Flow
+### Data Flow Diagram (Current)
 
 **Web Client → Native Clients:**
 ```
-WebRTC Client 
-  → WebRTCAudioBridge.receiveAudioFromWebRTC()
-  → Convert to AudioPacket
-  → UDPSocketManager (TODO: integrate routing)
-  → Nearby UDP clients (within 30 blocks)
+WebSocket Message (audio)
+  ↓
+Server WebSocket Handler
+  ↓
+Get sender position from PlayerPositionTracker
+  ↓
+Find nearby native clients (within 30 blocks)
+  ↓
+Send UDP AudioPacket to each nearby client
 ```
 
 **Native Client → Web Clients:**
 ```
-Native UDP Client
-  → UDPSocketManager
-  → WebRTCAudioBridge.receiveAudioFromUDP()
-  → Check proximity via PlayerPosition.distanceTo()
-  → WebRTCClient.sendAudio()
-  → WebSocket frame to web client
+UDP AudioPacket
+  ↓
+UDPSocketManager receives packet
+  ↓
+Get sender position from PlayerPositionTracker
+  ↓
+Find nearby web clients (within 30 blocks)
+  ↓
+Send WebSocket audio message (base64) to each nearby client
 ```
 
-### Integration Requirements
+### Message Format
 
-To complete the audio bridge integration, you need to:
+#### Current (Audio via WebSocket)
+```json
+{
+  "type": "audio",
+  "data": {
+    "audioData": "base64_encoded_pcm_bytes"
+  }
+}
+```
 
-1. **In HytaleVoiceChatPlugin:**
-   - Create `WebRTCAudioBridge` instance
-   - Pass to `WebRTCSignalingServer` via `setAudioBridge()`
-   - Ensure position tracker is available
+#### Future (WebRTC Peer - Not Implemented)
+```json
+{
+  "type": "offer",
+  "data": {
+    "sdp": "v=0\no=...",
+    "type": "offer"
+  }
+}
+```
 
-2. **In UDPSocketManager:**
-   - Hook audio reception to call `WebRTCAudioBridge.receiveAudioFromUDP()`
-   - Modify `handleAudio()` to route to bridge when configured
+## Implementation Status
 
-3. **In Web Client JavaScript:**
-   - Listen for "audio" message type in `signaling.js`
-   - Decode base64 audio data
-   - Pass to `AudioManager.playAudio()` for playback
+### ✅ Complete
+- WebSocket signaling server (port 24455)
+- Web client audio capture and transmission
+- Server-side proximity calculation
+- Audio routing to nearby clients
+- Web client audio playback
 
-### Current Limitations
+### ⚠️ Limitations & Caveats
+- All audio passes through server (adds latency)
+- Audio not encrypted on wire (base64 transmission)
+- Single WebSocket multiplexes signaling + audio (potential bottleneck)
+- No audio compression (PCM only)
+- No peer-to-peer connection support
+- Requires server to be accessible to web clients
 
-- ✅ Audio bridge framework complete
-- ⚠️ UDP → WebRTC audio routing requires integration with UDPSocketManager
-- ⚠️ Web client needs to decode audio messages from server
-- ⚠️ SDP answer generation is still a placeholder (needs real WebRTC library)
-- ⚠️ No audio encoding/decoding (using raw PCM, not Opus)
+## Testing the Current System
 
-### Testing
-
-Build successful. To test:
-
+### Setup
 1. Build plugin: `./gradlew clean build`
-2. Start web client and native client
-3. Both authenticate successfully  
-4. Audio should flow bidirectionally within 30 blocks
+2. Start Hytale server with plugin JAR
+3. Ensure server is accessible on port 24455
 
-### Future Improvements
+### Web Client
+1. Open web client in browser
+2. Connect to `ws://server:24455/voice`
+3. Authenticate with username (requires player to exist on server)
+4. Audio should capture from microphone
 
-1. Integrate with Jitsi WebRTC library for proper SDP handling
-2. Implement Opus audio encoding/decoding
-3. Add VAD (Voice Activity Detection) support
-4. Add echo cancellation
-5. Implement 3D spatial audio
+### Native Client
+1. Start native Go client (voice-client)
+2. Connect to server (port 24454)
+3. Authenticate with username
+
+### Expected Behavior
+- Audio from web client should reach nearby native clients
+- Audio from native client should reach nearby web clients
+- All audio is routed through server (not P2P)
+- Proximity-based delivery (30 blocks default)
+
+## Future: WebRTC Peer-to-Peer (Not Currently Implemented)
+
+### What Will Change
+- SDP offer/answer exchange instead of audio proxy
+- WebRTC DataChannel for encrypted audio
+- Direct peer connection (lower latency)
+- ICE candidate exchange for NAT traversal
+
+### Migration Path
+1. Add WebRTC library to server (e.g., Jitsi)
+2. Implement SDP generation and answer creation
+3. Setup ICE candidate exchange via WebSocket
+4. Establish DataChannel for audio
+5. Remove server audio proxy forwarding
+6. Test with mixed client types
+
+### Why Not Yet?
+- Complexity: WebRTC library integration needed
+- Breaking change: Signaling protocol changes
+- Testing: More complex to verify peer connections
+- Browser compatibility: Stricter HTTPS/security requirements

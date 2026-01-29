@@ -1,4 +1,9 @@
 // Main application entry point
+import { CONFIG, log } from './config.js';
+import { SignalingClient } from './signaling.js';
+import { WebRTCManager } from './webrtc.js';
+import { AudioManager } from './audio.js';
+import { UIManager } from './ui.js';
 
 class VoiceChatApp {
     constructor() {
@@ -107,6 +112,7 @@ function checkBrowserCompatibility() {
         'WebRTC': window.RTCPeerConnection,
         'WebSocket': window.WebSocket,
         'Web Audio': window.AudioContext || window.webkitAudioContext,
+        'AudioWorklet': window.AudioWorkletNode,
         'getUserMedia': navigator.mediaDevices && navigator.mediaDevices.getUserMedia
     };
     

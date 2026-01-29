@@ -145,6 +145,13 @@ public class WebRTCSignalingServer {
     public Map<java.util.UUID, WebRTCClient> getConnectedClients() {
         return new ConcurrentHashMap<>(clients);
     }
+
+    /**
+     * Get the live WebRTC client map (for routing/bridge usage)
+     */
+    public Map<java.util.UUID, WebRTCClient> getClientMap() {
+        return clients;
+    }
     
     private class WebSocketServerHandler extends SimpleChannelInboundHandler<Object> {
         private WebSocketServerHandshaker handshaker;

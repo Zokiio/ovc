@@ -1,10 +1,13 @@
 // Audio capture and playback manager
+import { CONFIG, log } from './config.js';
 
-class AudioManager {
+export class AudioManager {
     constructor() {
         this.audioContext = null;
         this.mediaStream = null;
         this.sourceNode = null;
+        this.workletNode = null;
+        this.sinkNode = null;
         this.processorNode = null;
         this.isMuted = false;
         this.isActive = false;
@@ -35,20 +38,52 @@ class AudioManager {
             // Create source node from microphone
             this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
             
-            // Create script processor for audio capture
-            const bufferSize = 4096;
-            this.processorNode = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
-            
-            this.processorNode.onaudioprocess = (event) => {
-                if (!this.isMuted && this.isActive) {
-                    const inputData = event.inputBuffer.getChannelData(0);
-                    this.processAudioInput(inputData);
+            // Load AudioWorklet processor (http/https only). Fallback for file://
+            try {
+                if (window.location && window.location.protocol === 'file:') {
+                    throw new Error('AudioWorklet unavailable on file:// origin');
                 }
-            };
-            
-            // Connect nodes
-            this.sourceNode.connect(this.processorNode);
-            this.processorNode.connect(this.audioContext.destination);
+
+                await this.audioContext.audioWorklet.addModule('js/audio-worklet-processor.js');
+                this.workletNode = new AudioWorkletNode(this.audioContext, 'capture-processor', {
+                    processorOptions: {
+                        channelCount: CONFIG.AUDIO.channelCount,
+                        bufferSize: 1024
+                    }
+                });
+                
+                // Mute monitoring by routing to a silent gain node
+                this.sinkNode = this.audioContext.createGain();
+                this.sinkNode.gain.value = 0;
+                
+                this.workletNode.port.onmessage = (event) => {
+                    if (!this.isMuted && this.isActive) {
+                        const inputData = event.data && event.data.samples;
+                        if (inputData && inputData.length > 0) {
+
+                            this.processAudioInput(inputData);
+                        }
+                    }
+                };
+                
+                // Connect nodes
+                this.sourceNode.connect(this.workletNode);
+                this.workletNode.connect(this.sinkNode);
+                this.sinkNode.connect(this.audioContext.destination);
+            } catch (error) {
+                log.warn('AudioWorklet module failed to load. Falling back to ScriptProcessorNode. Serve the app over http(s) to enable AudioWorklet. Error:', error.message);
+                // Fallback to deprecated ScriptProcessorNode for file:// usage
+                const bufferSize = 4096;
+                this.processorNode = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
+                this.processorNode.onaudioprocess = (event) => {
+                    if (!this.isMuted && this.isActive) {
+                        const inputData = event.inputBuffer.getChannelData(0);
+                        this.processAudioInput(inputData);
+                    }
+                };
+                this.sourceNode.connect(this.processorNode);
+                this.processorNode.connect(this.audioContext.destination);
+            }
             
             this.isActive = true;
             log.info('Audio system initialized successfully');
@@ -65,7 +100,17 @@ class AudioManager {
         // In a real implementation, we would encode with Opus here
         // For now, we'll send PCM data
         
-        if (window.webrtcManager && window.webrtcManager.isActive()) {
+        if (!window.webrtcManager) {
+            log.warn('WebRTC manager not available, cannot send audio');
+            return;
+        }
+        
+        if (!window.webrtcManager.isActive()) {
+            log.warn('WebRTC manager not active, cannot send audio');
+            return;
+        }
+        
+        try {
             // Convert float samples to int16
             const int16Data = new Int16Array(audioData.length);
             for (let i = 0; i < audioData.length; i++) {
@@ -80,6 +125,8 @@ class AudioManager {
             
             // Send audio data via WebSocket
             window.webrtcManager.sendAudioData(base64Data);
+        } catch (error) {
+            log.error('Error processing audio input:', error.message);
         }
     }
     
@@ -146,6 +193,17 @@ class AudioManager {
     stop() {
         this.isActive = false;
         
+        if (this.workletNode) {
+            this.workletNode.port.onmessage = null;
+            this.workletNode.disconnect();
+            this.workletNode = null;
+        }
+        
+        if (this.sinkNode) {
+            this.sinkNode.disconnect();
+            this.sinkNode = null;
+        }
+
         if (this.processorNode) {
             this.processorNode.disconnect();
             this.processorNode = null;

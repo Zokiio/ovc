@@ -1,8 +1,8 @@
 // Configuration constants for the web client
 
-const CONFIG = {
+export const CONFIG = {
     // Default server settings
-    DEFAULT_SERVER_HOST: 'localhost',
+    DEFAULT_SERVER_HOST: '192.168.1.180',
     DEFAULT_SIGNALING_PORT: 24455,
     
     // WebRTC configuration
@@ -25,13 +25,19 @@ const CONFIG = {
     // Connection settings
     RECONNECT_DELAY: 3000, // ms
     MAX_RECONNECT_ATTEMPTS: 3,
+
+    // Signaling connection
+    SIGNALING: {
+        USE_VITE_PROXY_ON_HTTPS: true,
+        PROXY_PATH: '/voice'
+    },
     
     // Debug mode
     DEBUG: true
 };
 
 // Helper function for logging
-const log = {
+export const log = {
     info: (...args) => CONFIG.DEBUG && console.log('[INFO]', ...args),
     warn: (...args) => CONFIG.DEBUG && console.warn('[WARN]', ...args),
     error: (...args) => console.error('[ERROR]', ...args),

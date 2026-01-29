@@ -14,6 +14,7 @@ import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.network.UDPSocketManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
+import com.hytale.voicechat.plugin.webrtc.WebRTCAudioBridge;
 import com.hytale.voicechat.plugin.webrtc.WebRTCSignalingServer;
 
 import javax.annotation.Nonnull;
@@ -31,6 +32,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     
     private UDPSocketManager udpServer;
     private WebRTCSignalingServer signalingServer;
+    private WebRTCAudioBridge webRtcAudioBridge;
     private OpusCodec opusCodec;
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
@@ -83,6 +85,9 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Initialize and start WebRTC signaling server
             signalingServer = new WebRTCSignalingServer(NetworkConfig.DEFAULT_SIGNALING_PORT);
             signalingServer.setPositionTracker(positionTracker);
+            webRtcAudioBridge = new WebRTCAudioBridge(udpServer, positionTracker, signalingServer.getClientMap());
+            webRtcAudioBridge.setProximityDistance(proximityDistance);
+            signalingServer.setAudioBridge(webRtcAudioBridge);
             signalingServer.setClientListener(new WebRTCSignalingServer.WebRTCClientListener() {
                 @Override
                 public void onClientConnected(java.util.UUID clientId, String username) {
@@ -216,6 +221,9 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         this.proximityDistance = Math.max(1.0, Math.min(proximityDistance, NetworkConfig.MAX_VOICE_DISTANCE));
         if (udpServer != null) {
             udpServer.setProximityDistance(this.proximityDistance);
+        }
+        if (webRtcAudioBridge != null) {
+            webRtcAudioBridge.setProximityDistance(this.proximityDistance);
         }
     }
 
