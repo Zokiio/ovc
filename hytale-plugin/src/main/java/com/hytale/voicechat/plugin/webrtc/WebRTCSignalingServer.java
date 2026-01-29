@@ -86,7 +86,7 @@ public class WebRTCSignalingServer {
                     });
             
             serverChannel = bootstrap.bind(port).sync().channel();
-            logger.atInfo().log("WebRTC signaling server started on port {}", port);
+            logger.atInfo().log("WebRTC signaling server started on port " + port);
             
             // Start audio bridge if available
             if (audioBridge != null && !audioBridge.isRunning()) {
@@ -297,13 +297,14 @@ public class WebRTCSignalingServer {
                     // Audio data is sent as base64 or direct bytes
                     String audioDataStr = data.get("audioData").getAsString();
                     byte[] audioData = decodeAudioData(audioDataStr);
-                    logger.atInfo().log("Received audio data from WebRTC client {} ({} bytes)", client.getClientId(), audioData.length);
+                    logger.atInfo().log("Received audio data from WebRTC client " + client.getClientId() + " (" + audioData.length + " bytes)");
                     
                     // Send to audio bridge for SFU routing
                     if (audioBridge != null) {
+                        logger.atInfo().log("Forwarding audio to WebRTC audio bridge (running=" + audioBridge.isRunning() + ")");
                         audioBridge.receiveAudioFromWebRTC(client.getClientId(), audioData);
                     } else {
-                        logger.atWarning().log("Audio bridge not set; dropping WebRTC audio from {}", client.getClientId());
+                        logger.atWarning().log("Audio bridge not set; dropping WebRTC audio from " + client.getClientId());
                     }
                 }
             } catch (Exception e) {

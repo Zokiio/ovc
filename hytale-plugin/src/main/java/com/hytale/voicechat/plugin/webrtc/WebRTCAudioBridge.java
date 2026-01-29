@@ -275,7 +275,7 @@ public class WebRTCAudioBridge {
      */
     public void setProximityDistance(double distance) {
         this.proximityDistance = distance;
-        logger.atInfo().log("Proximity distance set to: {} blocks", distance);
+        logger.atInfo().log("Proximity distance set to: " + distance + " blocks");
     }
     
     /**
