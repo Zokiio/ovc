@@ -88,6 +88,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             webRtcAudioBridge = new WebRTCAudioBridge(udpServer, positionTracker, signalingServer.getClientMap());
             webRtcAudioBridge.setProximityDistance(proximityDistance);
             signalingServer.setAudioBridge(webRtcAudioBridge);
+            logger.atInfo().log("WebRTC audio bridge wired into signaling server (proximity=" + proximityDistance + ")");
             signalingServer.setClientListener(new WebRTCSignalingServer.WebRTCClientListener() {
                 @Override
                 public void onClientConnected(java.util.UUID clientId, String username) {
