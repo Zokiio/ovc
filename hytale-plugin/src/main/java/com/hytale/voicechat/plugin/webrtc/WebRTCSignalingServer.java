@@ -31,6 +31,7 @@ public class WebRTCSignalingServer {
     private final Map<UUID, WebRTCClient> clients;
     private PlayerPositionTracker positionTracker;
     private WebRTCAudioBridge audioBridge;
+    private WebRTCPeerManager peerManager;
     private WebRTCClientListener clientListener;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
@@ -60,6 +61,11 @@ public class WebRTCSignalingServer {
     public void setAudioBridge(WebRTCAudioBridge bridge) {
         this.audioBridge = bridge;
         logger.atInfo().log("Audio bridge set for WebRTC signaling server");
+    }
+
+    public void setPeerManager(WebRTCPeerManager peerManager) {
+        this.peerManager = peerManager;
+        logger.atInfo().log("WebRTC peer manager set");
     }
     
     public void setClientListener(WebRTCClientListener listener) {
@@ -225,10 +231,11 @@ public class WebRTCSignalingServer {
                     case SignalingMessage.TYPE_DISCONNECT:
                         handleDisconnect(ctx);
                         break;
-                    // Legacy WebRTC peer connection messages (now ignored)
                     case SignalingMessage.TYPE_OFFER:
+                        handleOffer(ctx, message);
+                        break;
                     case SignalingMessage.TYPE_ICE_CANDIDATE:
-                        logger.atFine().log("Ignoring legacy WebRTC message: {}", message.getType());
+                        handleIceCandidate(ctx, message);
                         break;
                     default:
                         logger.atWarning().log("Unknown signaling message type: {}", message.getType());
@@ -311,6 +318,56 @@ public class WebRTCSignalingServer {
                 logger.atWarning().log("Error handling audio data from client {}: {}", client.getClientId(), e.getMessage());
             }
         }
+
+        private void handleOffer(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (peerManager == null) {
+                sendError(ctx, "WebRTC peer manager not available");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            if (!data.has("sdp")) {
+                sendError(ctx, "Missing SDP offer");
+                return;
+            }
+
+            String offerSdp = data.get("sdp").getAsString();
+            String answerSdp = peerManager.createPeerConnection(client.getClientId(), offerSdp);
+
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("sdp", answerSdp);
+            SignalingMessage response = new SignalingMessage(SignalingMessage.TYPE_ANSWER, responseData);
+            sendMessage(ctx, response);
+        }
+
+        private void handleIceCandidate(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (peerManager == null) {
+                sendError(ctx, "WebRTC peer manager not available");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            if (!data.has("candidate")) {
+                sendError(ctx, "Missing ICE candidate");
+                return;
+            }
+
+            String candidate = data.get("candidate").getAsString();
+            String sdpMid = data.has("sdpMid") ? data.get("sdpMid").getAsString() : null;
+            int sdpMLineIndex = data.has("sdpMLineIndex") ? data.get("sdpMLineIndex").getAsInt() : -1;
+
+            peerManager.handleIceCandidate(client.getClientId(), candidate, sdpMid, sdpMLineIndex);
+        }
         
         /**
          * Decode audio data from the message format
@@ -378,139 +435,5 @@ public class WebRTCSignalingServer {
             }
         }
         
-        /**
-         * Create an SDP answer that matches the m-lines and directionality from the client's offer
-         * Parses the offer to identify all media sections (audio, datachannel, etc.)
-         * and generates a corresponding answer with matching direction attributes
-         */
-        private String createAnswerSdp(String offerSdp) {
-            StringBuilder answer = new StringBuilder();
-            answer.append("v=0\r\n");
-            answer.append("o=- 0 0 IN IP4 0.0.0.0\r\n");
-            answer.append("s=Hytale Voice Chat\r\n");
-            answer.append("t=0 0\r\n");
-            
-            // Parse offer to extract m-lines and their properties
-            String[] lines = offerSdp.split("\r\n");
-            StringBuilder bundleLineBuilder = new StringBuilder();
-            bundleLineBuilder.append("a=group:BUNDLE");
-            
-            boolean hasAudio = false;
-            boolean hasDataChannel = false;
-            String audioMid = null;
-            String datachannelMid = null;
-            String audioDirection = "sendrecv";  // default
-            String datachannelDirection = "sendrecv";  // default
-            
-            // First pass: identify media types and their mids
-            for (String line : lines) {
-                if (line.startsWith("m=audio")) {
-                    hasAudio = true;
-                } else if (line.startsWith("m=application")) {
-                    hasDataChannel = true;
-                }
-            }
-            
-            // Second pass: extract mids and directions
-            boolean inAudioSection = false;
-            boolean inDataChannelSection = false;
-            for (String line : lines) {
-                if (line.startsWith("m=audio")) {
-                    inAudioSection = true;
-                    inDataChannelSection = false;
-                } else if (line.startsWith("m=application")) {
-                    inAudioSection = false;
-                    inDataChannelSection = true;
-                } else if (line.startsWith("m=")) {
-                    inAudioSection = false;
-                    inDataChannelSection = false;
-                }
-                
-                if (line.startsWith("a=mid:")) {
-                    String mid = line.substring("a=mid:".length()).trim();
-                    if (inAudioSection && audioMid == null) {
-                        audioMid = mid;
-                    } else if (inDataChannelSection && datachannelMid == null) {
-                        datachannelMid = mid;
-                    }
-                }
-                
-                // Extract direction attributes
-                if (inAudioSection && (line.equals("a=sendrecv") || line.equals("a=sendonly") || 
-                    line.equals("a=recvonly") || line.equals("a=inactive"))) {
-                    audioDirection = line.substring("a=".length());
-                }
-                if (inDataChannelSection && (line.equals("a=sendrecv") || line.equals("a=sendonly") || 
-                    line.equals("a=recvonly") || line.equals("a=inactive"))) {
-                    datachannelDirection = line.substring("a=".length());
-                }
-            }
-            
-            // Convert offer direction to answer direction (inverse)
-            String answerAudioDirection = invertDirection(audioDirection);
-            String answerDataChannelDirection = invertDirection(datachannelDirection);
-            
-            // Build BUNDLE line with all media types
-            if (hasAudio) {
-                bundleLineBuilder.append(" ").append(audioMid != null ? audioMid : "0");
-            }
-            if (hasDataChannel) {
-                bundleLineBuilder.append(" ").append(datachannelMid != null ? datachannelMid : "1");
-            }
-            answer.append(bundleLineBuilder).append("\r\n");
-            
-            // Add audio m-line if present in offer
-            if (hasAudio) {
-                answer.append("m=audio 9 UDP/TLS/RTP/SAVPF 111\r\n");
-                answer.append("c=IN IP4 0.0.0.0\r\n");
-                answer.append("a=rtcp:9 IN IP4 0.0.0.0\r\n");
-                answer.append("a=ice-ufrag:placeholder\r\n");
-                answer.append("a=ice-pwd:placeholder\r\n");
-                answer.append("a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\n");
-                answer.append("a=setup:active\r\n");
-                answer.append("a=mid:").append(audioMid != null ? audioMid : "0").append("\r\n");
-                answer.append("a=").append(answerAudioDirection).append("\r\n");
-                answer.append("a=rtcp-mux\r\n");
-                answer.append("a=rtpmap:111 opus/48000/2\r\n");
-            }
-            
-            // Add datachannel m-line if present in offer
-            if (hasDataChannel) {
-                answer.append("m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n");
-                answer.append("c=IN IP4 0.0.0.0\r\n");
-                answer.append("a=ice-ufrag:placeholder\r\n");
-                answer.append("a=ice-pwd:placeholder\r\n");
-                answer.append("a=fingerprint:sha-256 00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00\r\n");
-                answer.append("a=setup:active\r\n");
-                answer.append("a=mid:").append(datachannelMid != null ? datachannelMid : "1").append("\r\n");
-                answer.append("a=").append(answerDataChannelDirection).append("\r\n");
-                answer.append("a=sctp-port:5000\r\n");
-                answer.append("a=max-message-size:1073741823\r\n");
-            }
-            
-            return answer.toString();
-        }
-        
-        /**
-         * Invert SDP direction attribute for answer
-         * sendrecv → sendrecv (both sides send and receive)
-         * sendonly → recvonly (if offer sends only, answer receives only)
-         * recvonly → sendonly (if offer receives only, answer sends only)
-         * inactive → inactive
-         */
-        private String invertDirection(String direction) {
-            switch (direction) {
-                case "sendonly":
-                    return "recvonly";
-                case "recvonly":
-                    return "sendonly";
-                case "sendrecv":
-                    return "sendrecv";
-                case "inactive":
-                    return "inactive";
-                default:
-                    return "sendrecv";
-            }
-        }
     }
 }

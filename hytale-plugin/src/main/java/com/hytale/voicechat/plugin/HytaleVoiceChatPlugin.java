@@ -7,15 +7,19 @@ import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
+import com.hytale.voicechat.plugin.config.IceServerConfig;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
+import com.hytale.voicechat.plugin.webrtc.DataChannelAudioHandler;
 import com.hytale.voicechat.plugin.webrtc.WebRTCAudioBridge;
+import com.hytale.voicechat.plugin.webrtc.WebRTCPeerManager;
 import com.hytale.voicechat.plugin.webrtc.WebRTCSignalingServer;
 
 import javax.annotation.Nonnull;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -68,6 +72,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             webRtcAudioBridge = new WebRTCAudioBridge(null, positionTracker, signalingServer.getClientMap());
             webRtcAudioBridge.setProximityDistance(proximityDistance);
             signalingServer.setAudioBridge(webRtcAudioBridge);
+            DataChannelAudioHandler dataChannelAudioHandler = new DataChannelAudioHandler(webRtcAudioBridge);
+            IceServerConfig iceServerConfig = IceServerConfig.defaults();
+            WebRTCPeerManager peerManager = new WebRTCPeerManager(
+                iceServerConfig.getStunServers(),
+                dataChannelAudioHandler
+            );
+            signalingServer.setPeerManager(peerManager);
             logger.atInfo().log("WebRTC audio bridge initialized (proximity=" + proximityDistance + ")");
             signalingServer.setClientListener(new WebRTCSignalingServer.WebRTCClientListener() {
                 @Override

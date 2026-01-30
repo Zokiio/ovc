@@ -1,165 +1,3 @@
-![Hytale Voice Chat Logo](.github/images/logo.png)
-
-# Hytale Voice Chat
-
-Proximity-based voice chat system for Hytale with WebRTC technology:
-
-- **Web Client**: Browser-based WebRTC client (no installation required)
-- **Hytale Plugin**: Server-side SFU (Selective Forwarding Unit) for media routing written in Java
-
----
-
-## 🌐 Web Client
-
-The web client is a **browser-based voice chat interface** that requires no installation. Uses WebRTC for peer connections with server-side selective forwarding.
-
-### Features
-
-- No installation required - runs directly in your browser
-- WebRTC DataChannels with Opus codec for high-quality audio
-- Built-in DTLS-SRTP encryption
-- Cross-platform (any modern browser: Chrome, Firefox, Safari)
-- Proximity-based spatial audio
-- Microphone capture and audio playback via Web Audio API
-
-### Quick Start
-
-```bash
-cd web-client
-
-# Serve files with any static web server
-python3 -m http.server 8080
-
-# Then open http://localhost:8080 in your browser
-```
-
-**📖 Full documentation:** [`web-client/README.md`](web-client/README.md)
-
----
-
-## 🔌 Hytale Plugin
-
-The Java plugin runs **inside the Hytale server** and acts as a WebRTC SFU (Selective Forwarding Unit) for media routing based on player proximity.
-
-### Features
-
-- Ice4j-based WebRTC peer connection handling
-- DataChannel media routing for web clients
-- Proximity-based audio routing (configurable range, default 30 blocks)
-- Player position tracking via Hytale API
-- Authentication and session management
-- STUN/TURN server support for NAT traversal
-- In-game GUI for voice settings and group management
-
-![Voice Chat GUI](.github/images/voicechat-gui.png)
-
-### Quick Start
-
-```bash
-cd hytale-plugin
-./gradlew build
-
-# Plugin JAR will be in: build/libs/
-# Copy to your Hytale server's mods/ folder
-```
-
-**📖 Full documentation:** [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md)
-
----
-
-## 📂 Project Structure
-
-```text
-hytale-voice-chat/
-├── web-client/            # Browser-based WebRTC client
-│   ├── js/                # JavaScript modules
-│   ├── css/               # Stylesheets
-│   ├── index.html         # Main web page
-│   └── README.md          # Web client documentation
-│
-├── hytale-plugin/         # Java server plugin (WebRTC SFU)
-│   ├── src/               # Plugin source code
-│   ├── common/            # Shared Java models
-│   ├── docs/              # Plugin documentation
-│   ├── build.gradle       # Build configuration
-│   └── gradlew            # Gradle wrapper
-│
-├── docs/                  # Architecture documentation
-│   └── WEBRTC_ARCHITECTURE.md  # WebRTC design docs
-│
-├── .gitignore
-└── README.md              # This file
-```
-
----
-
-## 🚀 Getting Started
-
-### For Players (Client Setup)
-
-**Web Browser Client**
-
-1. Navigate to the hosted web client URL (provided by your server admin)
-2. Enter your Hytale username
-3. Enter the server address (e.g., `hytale.techynoodle.com`)
-4. Click "Connect" and allow microphone access when prompted
-5. Start talking - players within proximity will hear you!
-
-See [`web-client/README.md`](web-client/README.md) for detailed instructions.
-
-### For Server Admins (Plugin Setup)
-
-1. Build the plugin:
-
-   ```bash
-   cd hytale-plugin
-   ./gradlew build
-   ```
-  
-2. Copy JAR from `hytale-plugin/build/libs/` to your Hytale server's `mods/` folder
-3. Start/restart the Hytale server
-4. Configure settings in `config/voicechat.yml` (if needed)
-
-**Keeping Updated:** The plugin uses the Hytale Server API from Maven. To check for and update to new API versions, run `hytale-plugin/check-hytale-version.ps1` or edit `hytale_server_version` in `hytale-plugin/gradle.properties`. See [`hytale-plugin/docs/HYTALE_VERSION_MANAGEMENT.md`](hytale-plugin/docs/HYTALE_VERSION_MANAGEMENT.md) for details.
-
-See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed instructions.
-
----
-
-## 📚 Documentation
-
-- **Web Client**: See [`web-client/README.md`](web-client/README.md)
-- **Hytale Plugin**: See [`hytale-plugin/docs/`](hytale-plugin/docs/) directory for detailed guides:
-  - [Setup Guide](hytale-plugin/docs/SETUP.md)
-  - [Testing Guide](hytale-plugin/docs/TEST.md)
-  - [WebRTC Architecture](docs/WEBRTC_ARCHITECTURE.md)
-
----
-
-## 🛠️ Development
-
-### Prerequisites
-
-- **Web Client**: Node.js 18+, npm (for development server and build tools)
-- **Hytale Plugin**: Java 25, Gradle (no local Hytale API files needed - uses Maven)
-
-### Building
-
-```bash
-# Build Java plugin
-cd hytale-plugin && ./gradlew build
-
-# Develop web client (with hot reload)
-cd web-client && npm install && npm run dev
-```
-
----
-
-## 📝 License
-
-This project is for educational/personal use with Hytale.
-
-
 # WebRTC SFU Migration: Progress Summary
 
 ## ✅ COMPLETED: Phase 1 - Clean House (Native Client Removal)
@@ -174,20 +12,20 @@ This project is for educational/personal use with Hytale.
 
 **2. UDP Networking System Removal**
 - ✅ Deleted `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/network/`
-  - UDPSocketManager.java - Core UDP server with packet routing
-  - SimpleVoiceServer.java - UDP abstractions
+  - `UDPSocketManager.java` - Core UDP server with packet routing
+  - `SimpleVoiceServer.java` - UDP abstractions
 - ✅ Deleted `hytale-plugin/common/src/main/java/com/hytale/voicechat/common/packet/`
   - All 11 packet types: AudioPacket, AuthenticationPacket, AuthAckPacket, DisconnectPacket, GroupManagementPacket, GroupStatePacket, GroupListPacket, PlayerNamePacket, ServerShutdownPacket, DisconnectAckPacket, VoicePacket, AudioCodec enum
-- ✅ Deleted OpusCodec.java
+- ✅ Deleted `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/audio/OpusCodec.java`
   - Removed opus4j (opus-java) based encoder/decoder
 
 **3. Configuration & Plugin Updates**
-- ✅ Updated NetworkConfig.java
+- ✅ Updated `hytale-plugin/common/src/main/java/com/hytale/voicechat/common/network/NetworkConfig.java`
   - Removed `DEFAULT_VOICE_PORT` (24454)
   - Removed `DEFAULT_API_PORT` (24456)
   - Removed deprecated `SAMPLE_RATE` constant
   - Kept `DEFAULT_SIGNALING_PORT` (24455) for WebSocket
-- ✅ Updated HytaleVoiceChatPlugin.java
+- ✅ Updated `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/HytaleVoiceChatPlugin.java`
   - Removed `udpServer` field
   - Removed `opusCodec` field
   - Removed `voicePort` configuration
@@ -195,30 +33,30 @@ This project is for educational/personal use with Hytale.
   - Removed `getUdpServer()` method
   - Removed `configure(int voicePort)` method
   - Updated class docs to "WebRTC SFU"
-- ✅ Updated WebRTCAudioBridge.java
+- ✅ Updated `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/webrtc/WebRTCAudioBridge.java`
   - Removed `udpManager` field
   - Removed `sequenceNumber` tracking
   - Removed `receiveAudioFromUDP()` method
   - Removed `routeAudioToUDP()` method
   - Simplified to WebRTC-to-WebRTC routing only
   - Cleaned up verbose debug logging
-- ✅ Updated PlayerJoinEventSystem.java
+- ✅ Updated `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/event/PlayerJoinEventSystem.java`
   - Removed `udpServer` field and import
   - Removed UDP disconnection logic in `onEntityRemoved()`
   - Changed constructor to accept `Object ignored` instead of `UDPSocketManager`
-- ✅ Updated VoiceChatPage.java
+- ✅ Updated `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/gui/VoiceChatPage.java`
   - Removed all `plugin.getUdpServer()` calls
   - Updated connection status check to WebRTC-only
 
 **4. Documentation Updates**
-- ✅ Updated README.md
+- ✅ Updated `README.md`
   - Removed all native Go client sections
   - Updated project description to WebRTC-only
   - Removed native client installation instructions
   - Updated project structure diagram
   - Updated features list (Ice4j, DataChannels, STUN/TURN)
   - Updated prerequisites (removed Go, PortAudio)
-- ✅ Updated manifest.json
+- ✅ Updated `hytale-plugin/src/main/resources/manifest.json`
   - Bumped version: `1.0.0` → `2.0.0-webrtc-alpha`
   - Updated description: "with WebRTC SFU"
 
@@ -226,13 +64,14 @@ This project is for educational/personal use with Hytale.
 - ✅ Build verification: `./gradlew clean build` passes
 - ✅ No compilation errors
 - ✅ All changes committed to branch `copilot/setup-webclient-webrtc`
+- ✅ Commit hash: `355c5f007dc3068a601b97da02f966af9d91a388`
 
 ---
 
 ## 🔜 TODO: Phase 2 - Integrate Ice4j + WebRTC Peer Connections (Java Plugin)
 
 ### Step 5: Add Ice4j Dependencies
-- [ ] Update build.gradle
+- [ ] Update `hytale-plugin/build.gradle`
   - Add `implementation 'org.ice4j:ice4j:3.0-24-g34c2ce5'`
   - Add `implementation 'org.bouncycastle:bcprov-jdk15on:1.70'` for DTLS-SRTP
 
@@ -254,7 +93,7 @@ This project is for educational/personal use with Hytale.
   - Handle backpressure (drop oldest frames if buffer full)
 
 ### Step 8: Update Signaling Server
-- [ ] Modify WebRTCSignalingServer.java
+- [ ] Modify `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/webrtc/WebRTCSignalingServer.java`
   - Add message handlers for `offer`, `answer`, `ice_candidate` (currently logged but ignored)
   - On `offer` message:
     1. Extract SDP from JSON
@@ -267,7 +106,7 @@ This project is for educational/personal use with Hytale.
   - Keep authentication flow unchanged
 
 ### Step 9: Integrate with Audio Bridge
-- [ ] Modify WebRTCAudioBridge.java
+- [ ] Modify `hytale-plugin/src/main/java/com/hytale/voicechat/plugin/webrtc/WebRTCAudioBridge.java`
   - Replace WebSocket base64 PCM handling with binary Opus frames
   - Wire up `DataChannelAudioHandler` as audio source/sink
   - Keep existing proximity routing logic
@@ -289,12 +128,12 @@ This project is for educational/personal use with Hytale.
 ## 🔜 TODO: Phase 3 - Update Web Client (Browser)
 
 ### Step 11: Add Opus Encoding Library
-- [ ] Update package.json
+- [ ] Update `web-client/package.json`
   - Add `opus-js` or `opus-recorder` library
   - Run `npm install`
 
 ### Step 12: Implement RTCPeerConnection
-- [ ] Modify webrtc.js
+- [ ] Modify `web-client/js/webrtc.js`
   - Create actual `RTCPeerConnection` (currently just named that, not implemented)
   - Add ICE servers configuration
   - Create DataChannel with `ordered: false, maxRetransmits: 0` for low latency
@@ -304,7 +143,7 @@ This project is for educational/personal use with Hytale.
   - Handle ICE candidates from server
 
 ### Step 13: Add Opus Encoding to Audio Pipeline
-- [ ] Modify audio.js
+- [ ] Modify `web-client/js/audio.js`
   - Initialize Opus encoder (48kHz mono)
   - In AudioWorklet: encode PCM samples → Opus frames
   - Send Opus frames over DataChannel (not WebSocket)
@@ -312,21 +151,21 @@ This project is for educational/personal use with Hytale.
   - Decode Opus → PCM for playback
 
 ### Step 14: Update Signaling Handlers
-- [ ] Modify signaling.js
+- [ ] Modify `web-client/js/signaling.js`
   - Add handlers for `answer` message → call `webrtcManager.setRemoteAnswer()`
   - Add handlers for `ice_candidate` message → call `webrtcManager.addIceCandidate()`
   - Remove base64 audio message handling (replaced by DataChannel)
   - Keep authentication flow unchanged
 
 ### Step 15: Wire Up UI
-- [ ] Modify main.js
+- [ ] Modify `web-client/js/main.js`
   - Create `WebRTCManager` instance
   - On connect: authenticate → create WebRTC offer → start audio capture
   - Handle DataChannel `onmessage` for received audio
   - Update connection status based on `RTCPeerConnection.connectionState`
 
 ### Step 16: Update HTML for Dependencies
-- [ ] Modify index.html
+- [ ] Modify `web-client/index.html`
   - Add Opus library script tag (or bundle via Vite)
   - Update instructions (remove native client references)
 
@@ -380,31 +219,170 @@ This project is for educational/personal use with Hytale.
 ## 📊 Current State
 
 ### Working Components
-- ✅ `PlayerPositionTracker` - Player position tracking
-- ✅ `WebRTCSignalingServer` - WebSocket server on port 24455 (basic authentication)
+- ✅ `PlayerPositionTracker` - Player position tracking with distance calculations
+- ✅ `WebRTCSignalingServer` - WebSocket server on port 24455 (basic authentication working)
 - ✅ `WebRTCAudioBridge` - Proximity routing framework (needs WebRTC integration)
-- ✅ `GroupManager` - Voice group management
-- ✅ Web client - Basic UI, WebSocket connection, audio capture (needs WebRTC)
+- ✅ `GroupManager` - Voice group management (isolated/non-isolated groups)
+- ✅ Web client - Basic UI, WebSocket connection, audio capture (needs WebRTC peer connections)
+- ✅ `VoiceGroupCommand` - In-game commands for group management
 
 ### Needs Implementation
 - ❌ Ice4j peer connection management
 - ❌ DataChannel audio handling
 - ❌ SDP offer/answer exchange (server-side)
-- ❌ ICE candidate exchange
-- ❌ Opus codec in browser
-- ❌ RTCPeerConnection in browser
-- ❌ DataChannel audio streaming
+- ❌ ICE candidate exchange (bidirectional)
+- ❌ Opus codec in browser (encoding/decoding)
+- ❌ RTCPeerConnection in browser (currently just a placeholder)
+- ❌ DataChannel audio streaming (currently uses WebSocket base64 PCM)
 
 ### Technical Decisions Made
-1. **Architecture**: Centralized SFU (not P2P mesh)
-2. **Transport**: WebRTC DataChannels (not Media Tracks) - simpler for audio-only
-3. **Codec**: Opus 48kHz mono (20ms frames, 960 samples)
-4. **Library**: Ice4j (not full Jitsi Videobridge, not webrtc-java wrapper)
-5. **Scale target**: 2-200 concurrent users
-6. **Proximity**: 30 blocks default (configurable)
+1. **Architecture**: Centralized SFU (not P2P mesh) - server routes all audio
+2. **Transport**: WebRTC DataChannels (not Media Tracks) - simpler for audio-only use case
+3. **Codec**: Opus 48kHz mono (20ms frames, 960 samples per frame)
+4. **Library**: Ice4j + BouncyCastle (not full Jitsi Videobridge, not webrtc-java wrapper)
+5. **Scale target**: 2-200 concurrent users per server
+6. **Proximity**: 30 blocks default (configurable via `/proximity` command)
+7. **NAT Traversal**: STUN initially, TURN as fallback if needed
 
 ### Repository Status
-- Branch: `copilot/setup-webclient-webrtc`
-- Last commit: Phase 1 complete (355c5f0)
-- Active PR: #44 "Add WebRTC web client with WebSocket signaling server"
-- Build status: ✅ PASSING
+- **Branch**: `copilot/setup-webclient-webrtc`
+- **Last commit**: Phase 1 complete (`355c5f007dc3068a601b97da02f966af9d91a388`)
+- **Active PR**: #44 "Add WebRTC web client with WebSocket signaling server"
+- **Build status**: ✅ PASSING (`./gradlew clean build`)
+
+---
+
+## 🎯 Next Immediate Step
+
+**Phase 2, Step 5**: Add Ice4j and BouncyCastle dependencies to `hytale-plugin/build.gradle`
+
+When ready to continue, we'll start by adding the required dependencies, then implement the `WebRTCPeerManager` class to handle ICE/DTLS peer connections with DataChannel support.
+
+---
+
+## 📝 Implementation Notes
+
+### Key Architectural Changes
+- **Before**: Native Go client (UDP port 24454) + Web client proxy (WebSocket port 24455)
+- **After**: Web client only (WebRTC SFU) with WebSocket signaling (port 24455) + DataChannels for media
+
+### Why DataChannels over Media Tracks?
+1. **Simpler implementation** - No RTP/RTCP codec negotiation complexity
+2. **Sufficient for audio** - SCTP overhead (~20 bytes/frame) acceptable for 2-200 users
+3. **Easier debugging** - Binary message inspection simpler than RTP packet streams
+4. **Future flexibility** - Can send metadata alongside audio in same channel
+5. **Trade-off accepted** - Slightly higher latency (~5-10ms) vs Media Tracks, but implementation time saved
+
+### Proximity Routing Architecture
+```
+Web Client A (speaking)
+    ↓ [Opus frame via DataChannel]
+Ice4j Agent (DTLS-SRTP)
+    ↓ [decrypt, forward to bridge]
+WebRTCAudioBridge
+    ↓ [query PlayerPositionTracker]
+    ↓ [calculate distances]
+    ↓ [filter by proximity (30 blocks)]
+    ↓ [forward to nearby clients]
+Ice4j Agents (for clients B, C)
+    ↓ [encrypt, send via DataChannel]
+Web Clients B, C (listening)
+```
+
+### Sample Rate Enforcement
+- Server enforces **48kHz** for all clients
+- Reason: Avoid codec mismatches and resampling overhead
+- Browser Opus encoder must match this rate
+
+### Frame Format (DataChannel Binary Messages)
+```
+[0-15]  : Sender UUID (16 bytes, as two longs: MSB, LSB)
+[16-n]  : Opus-encoded audio data (variable length, typically ~20-60 bytes for 20ms frame)
+```
+
+---
+
+## 🚨 Known Issues & Limitations
+
+### Current WebSocket Proxy Limitations (to be replaced)
+- ❌ Uses base64-encoded PCM (~150+ kbps per client) - inefficient
+- ❌ No encryption beyond TLS (no DTLS-SRTP)
+- ❌ No proper codec negotiation
+- ❌ Server-side audio bridging adds latency (~50-100ms)
+
+### Post-Migration Expected Improvements
+- ✅ Opus compression (~8-12 kbps per client) - 15x bandwidth reduction
+- ✅ DTLS-SRTP encryption (end-to-end security)
+- ✅ Lower latency (~20-40ms with jitter buffer)
+- ✅ NAT traversal via STUN/TURN
+- ✅ Browser-native audio handling (no custom serialization)
+
+---
+
+## 📚 Reference Documentation
+
+### Ice4j Resources
+- GitHub: https://github.com/jitsi/ice4j
+- Used by: Jitsi Videobridge, Jitsi Meet
+- Handles: ICE (RFC 5245), STUN (RFC 5389), TURN (RFC 5766)
+
+### WebRTC Browser APIs
+- MDN RTCPeerConnection: https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection
+- MDN RTCDataChannel: https://developer.mozilla.org/en-US/docs/Web/API/RTCDataChannel
+- DTLS-SRTP: Automatic in WebRTC (no manual configuration needed)
+
+### Opus Codec
+- Official: https://opus-codec.org/
+- opus-js (browser): https://github.com/chris-rudmin/opus-recorder
+- opus4j (Java, if needed): https://github.com/RWTH-i5-IDSG/opus4j
+
+### STUN/TURN Servers
+- Google STUN: `stun:stun.l.google.com:19302` (free, public)
+- Cloudflare TURN: https://www.cloudflare.com/products/calls/ (paid)
+- Self-hosted: coturn (https://github.com/coturn/coturn)
+
+---
+
+## 🔄 Migration Rollback Plan
+
+If Ice4j integration proves too complex or unstable:
+
+### Fallback Option 1: Enhanced WebSocket Proxy
+- Keep current WebSocket proxy model
+- Add Opus encoding in browser (`opus-recorder`)
+- Send Opus as binary WebSocket messages (not base64 PCM)
+- Server decodes/re-encodes if needed for mixing
+- **Pros**: Simpler, no WebRTC complexity
+- **Cons**: Still centralized, higher server CPU, no DTLS-SRTP, worse NAT traversal
+
+### Fallback Option 2: Sidecar SFU (LiveKit/Mediasoup)
+- Deploy LiveKit or Mediasoup as separate service
+- Java plugin communicates via REST/gRPC
+- Offloads all WebRTC complexity to dedicated SFU
+- **Pros**: Production-grade, well-tested, handles 500+ users
+- **Cons**: Operational overhead, another service to deploy, inter-process latency
+
+### Rollback to Native Client
+- Git tag `native-client-final` preserves last working version
+- Can restore `voice-client/` directory if needed
+- Would need to also restore UDP packet system from git history
+
+---
+
+## ⏱️ Estimated Timeline
+
+### Conservative Estimate (Single Developer)
+- **Phase 2**: 3-5 days (Ice4j integration, peer manager, DataChannel handler)
+- **Phase 3**: 2-3 days (Browser WebRTC implementation, Opus integration)
+- **Phase 4**: 2-4 days (Testing, debugging, NAT traversal, load testing)
+- **Total**: 7-12 days (1.5-2.5 weeks)
+
+### Optimistic Estimate (Experienced with Ice4j/WebRTC)
+- **Phase 2**: 2-3 days
+- **Phase 3**: 1-2 days
+- **Phase 4**: 1-2 days
+- **Total**: 4-7 days (1 week)
+
+### Realistic with Unknowns
+- Add 30-50% buffer for debugging NAT issues, DTLS handshake problems, codec quirks
+- **Total**: 10-18 days (2-3.5 weeks)

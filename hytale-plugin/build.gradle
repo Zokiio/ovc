@@ -82,8 +82,15 @@ dependencies {
     compileOnly "com.hypixel.hytale:Server:${hytale_server_version}"
     
     // Voice server dependencies
-    implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
     implementation "io.netty:netty-all:${netty_version}"
+
+    // WebRTC SFU dependencies
+    implementation 'org.jitsi:ice4j:3.2-12-gc2cbf61'
+    implementation 'org.bouncycastle:bcprov-lts8on:2.73.10'
+    implementation 'org.jitsi:jitsi-utils:1.0-96-g34a49d5'
+    
+    // Note: libjitsi provides DTLS/SCTP transport but requires careful integration
+    // Current placeholder here - full DTLS transport integration postponed to Phase 2.5
     
     // JSON processing
     implementation "com.google.code.gson:gson:${gson_version}"
