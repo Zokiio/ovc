@@ -19,6 +19,7 @@ export class AudioManager {
         this.playbackReadPos = 0;
         this.playbackProcessor = null;
         this.isPlaybackInitialized = false;
+        this.lastOverflowWarning = 0; // Throttle overflow warnings
     }
     
     async initialize() {
@@ -166,7 +167,7 @@ export class AudioManager {
             // Write audio data to ring buffer
             this.writeToPlaybackBuffer(int16Data);
             
-            log.info('Audio buffered, duration:', (int16Data.length / this.audioContext.sampleRate).toFixed(3), 'seconds');
+            log.debug('Audio buffered, duration:', (int16Data.length / this.audioContext.sampleRate).toFixed(3), 'seconds');
         } catch (error) {
             log.error('Error playing audio:', error, 'audioData:', audioData);
         }
@@ -217,17 +218,31 @@ export class AudioManager {
             return;
         }
         
+        const bufferFillBefore = this.playbackWritePos - this.playbackReadPos;
+        
         // Convert int16 to float32 and write to ring buffer
         for (let i = 0; i < int16Data.length; i++) {
             const floatSample = int16Data[i] / (int16Data[i] < 0 ? 0x8000 : 0x7FFF);
             this.playbackBuffer[this.playbackWritePos % this.playbackBufferSize] = floatSample;
             this.playbackWritePos++;
-            
-            // Detect buffer overflow (incoming audio faster than playback)
-            if (this.playbackWritePos - this.playbackReadPos > this.playbackBufferSize * 0.9) {
-                log.warn('Playback buffer overflow, dropping oldest audio');
-                this.playbackReadPos += int16Data.length; // Skip ahead
+        }
+        
+        // Check buffer fill level after writing
+        const bufferFill = this.playbackWritePos - this.playbackReadPos;
+        
+        // Detect buffer overflow (incoming audio faster than playback)
+        // Use 95% threshold to allow some headroom
+        if (bufferFill > this.playbackBufferSize * 0.95) {
+            // Throttle warnings to once per second
+            const now = Date.now();
+            if (now - this.lastOverflowWarning > 1000) {
+                log.warn('Playback buffer near full, adjusting playback position');
+                this.lastOverflowWarning = now;
             }
+            
+            // Gradually adjust read position to maintain smooth playback
+            // Skip to 50% buffer fill to provide headroom
+            this.playbackReadPos = this.playbackWritePos - Math.floor(this.playbackBufferSize * 0.5);
         }
     }
     
