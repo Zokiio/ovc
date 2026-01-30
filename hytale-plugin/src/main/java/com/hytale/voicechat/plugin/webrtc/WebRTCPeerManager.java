@@ -1,6 +1,8 @@
 package com.hytale.voicechat.plugin.webrtc;
 
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.typesafe.config.Config;
+import com.typesafe.config.ConfigFactory;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -24,6 +26,7 @@ import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -43,19 +46,124 @@ public class WebRTCPeerManager {
     static {
         java.security.Security.addProvider(new BouncyCastleProvider());
         
-        // Configure Ice4j with default values to suppress config warnings
-        // These properties prevent ConfigException when Ice4j tries to initialize
+        // Load our reference.conf explicitly using our classloader before Ice4j initializes
+        // Invalidate any cached config and force reload with our classloader
         try {
+            ConfigFactory.invalidateCaches();
+            // Set the thread context classloader to ensure Ice4j finds our config
+            Thread currentThread = Thread.currentThread();
+            ClassLoader originalClassLoader = currentThread.getContextClassLoader();
+            currentThread.setContextClassLoader(WebRTCPeerManager.class.getClassLoader());
+            
+            Config config = ConfigFactory.load(WebRTCPeerManager.class.getClassLoader());
+            logger.atInfo().log("Loaded Typesafe Config with ice4j settings from reference.conf");
+            
+            // Restore original classloader
+            currentThread.setContextClassLoader(originalClassLoader);
+        } catch (Exception e) {
+            logger.atWarning().log("Failed to load Typesafe Config: " + e.getMessage());
+        }
+        
+        // Configure Ice4j before any Agent creation
+        // These properties support multiple naming conventions used by Jitsi MetaConfig
+        // Source: https://github.com/jitsi/ice4j/blob/master/src/main/resources/reference.conf
+        try {
+            // ===== CONSENT FRESHNESS (RFC7675) =====
             System.setProperty("org.ice4j.ice.CONSENT_FRESHNESS_INTERVAL", "30000");
+            System.setProperty("ice4j.consent-freshness.interval", "30000");
+            
             System.setProperty("org.ice4j.ice.CONSENT_FRESHNESS_ORIGINAL_INTERVAL", "5000");
-            System.setProperty("org.ice4j.stack.TERMINATION_TIMEOUT", "1000");
-            logger.atInfo().log("Ice4j system properties configured");
+            System.setProperty("org.ice4j.ice.CONSENT_FRESHNESS_WAIT_INTERVAL", "5000");
+            System.setProperty("ice4j.consent-freshness.original-wait-interval", "5000");
+            
+            System.setProperty("org.ice4j.ice.CONSENT_FRESHNESS_MAX_WAIT_INTERVAL", "10000");
+            System.setProperty("ice4j.consent-freshness.max-wait-interval", "10000");
+            
+            System.setProperty("org.ice4j.ice.CONSENT_FRESHNESS_MAX_RETRANSMISSIONS", "3");
+            System.setProperty("ice4j.consent-freshness.max-retransmissions", "3");
+            
+            System.setProperty("ice4j.consent-freshness.randomize-interval", "true");
+            
+            // ===== TERMINATION AND CHECK LIST =====
+            System.setProperty("org.ice4j.TERMINATION_DELAY", "3000");
+            System.setProperty("ice4j.ice.termination-delay", "3000");
+            
+            System.setProperty("org.ice4j.MAX_CHECK_LIST_SIZE", "100");
+            System.setProperty("ice4j.ice.max-check-list-size", "100");
+            
+            // ===== AGENT CONFIGURATION =====
+            System.setProperty("org.ice4j.ice.USE_COMPONENT_SOCKET", "true");
+            System.setProperty("ice4j.use-component-socket", "true");
+            
+            System.setProperty("org.ice4j.REDACT_REMOTE_ADDRESSES", "false");
+            System.setProperty("ice4j.redact-remote-addresses", "false");
+            
+            System.setProperty("org.ice4j.SOFTWARE", "ice4j.org");
+            System.setProperty("ice4j.software", "ice4j.org");
+            
+            System.setProperty("ice4j.send-to-last-received-from-address", "false");
+            
+            // ===== HARVEST: LINK-LOCAL AND IPv6 =====
+            System.setProperty("org.ice4j.ice.harvest.DISABLE_LINK_LOCAL_ADDRESSES", "false");
+            System.setProperty("ice4j.harvest.use-link-local-addresses", "true");
+            
+            System.setProperty("org.ice4j.ipv6.DISABLED", "false");
+            System.setProperty("ice4j.harvest.use-ipv6", "true");
+            
+            // ===== HARVEST: TIMEOUTS =====
+            System.setProperty("org.ice4j.ice.harvest.HARVESTING_TIMEOUT", "15000");
+            System.setProperty("ice4j.harvest.timeout", "15000");
+            
+            // ===== HARVEST: UDP CONFIGURATION =====
+            System.setProperty("org.ice4j.ice.harvest.USE_DYNAMIC_HOST_HARVESTER", "false");
+            System.setProperty("ice4j.harvest.udp.use-dynamic-ports", "true");
+            
+            System.setProperty("org.ice4j.ice.harvest.AbstractUdpListener.SO_RCVBUF", "0");
+            System.setProperty("ice4j.harvest.udp.receive-buffer-size", "0");
+            
+            System.setProperty("ice4j.harvest.udp.socket-pool-size", "0");
+            
+            // ===== HARVEST: INTERFACE MANAGEMENT =====
+            System.setProperty("org.ice4j.ice.harvest.ALLOWED_INTERFACES", "");
+            System.setProperty("ice4j.harvest.allowed-interfaces", "");
+            
+            System.setProperty("org.ice4j.ice.harvest.BLOCKED_INTERFACES", "");
+            System.setProperty("ice4j.harvest.blocked-interfaces", "");
+            
+            // ===== HARVEST: IP ADDRESS MANAGEMENT =====
+            System.setProperty("org.ice4j.ice.harvest.ALLOWED_ADDRESSES", "");
+            System.setProperty("ice4j.harvest.allowed-addresses", "");
+            
+            System.setProperty("org.ice4j.ice.harvest.BLOCKED_ADDRESSES", "");
+            System.setProperty("ice4j.harvest.blocked-addresses", "");
+            
+            // ===== HARVEST: NAT MAPPING HARVESTERS (Static) =====
+            System.setProperty("org.ice4j.ice.harvest.NAT_HARVESTER_LOCAL_ADDRESS", "");
+            System.setProperty("org.ice4j.ice.harvest.NAT_HARVESTER_PUBLIC_ADDRESS", "");
+            
+            // ===== HARVEST: STUN MAPPING HARVESTERS (Dynamic) =====
+            System.setProperty("org.ice4j.ice.harvest.STUN_MAPPING_HARVESTER_ADDRESSES", "");
+            System.setProperty("ice4j.harvest.mapping.stun.addresses", "");
+            
+            // ===== HARVEST: AWS HARVESTER =====
+            System.setProperty("org.ice4j.ice.harvest.DISABLE_AWS_HARVESTER", "true");
+            System.setProperty("ice4j.harvest.mapping.aws.enabled", "false");
+            
+            System.setProperty("org.ice4j.ice.harvest.FORCE_AWS_HARVESTER", "false");
+            System.setProperty("ice4j.harvest.mapping.aws.force", "false");
+            
+            // ===== HARVEST: STUN AND UPnP SERVERS =====
+            System.setProperty("ice4j.harvest.stun.enabled", "true");
+            System.setProperty("ice4j.harvest.upnp.enabled", "false");
+            
+            logger.atInfo().log("Ice4j system properties fully configured (all required keys set)");
         } catch (Exception e) {
             logger.atWarning().log("Failed to configure Ice4j properties: " + e.getMessage());
         }
     }
 
     private final Map<UUID, WebRTCPeerSession> sessions = new ConcurrentHashMap<>();
+    private final Map<UUID, List<PendingIceCandidate>> pendingIceCandidates = new ConcurrentHashMap<>();
     private final List<String> stunServers;
     private final DataChannelAudioHandler audioHandler;
 
@@ -75,6 +183,7 @@ public class WebRTCPeerManager {
         WebRTCPeerSession session = new WebRTCPeerSession(clientId, offerSdp);
         sessions.put(clientId, session);
         logger.atWarning().log("Created WebRTC peer session with provisional SDP answer (Ice4j wiring pending): " + clientId);
+        flushPendingIceCandidates(clientId, session);
         return session.getAnswerSdp();
     }
 
@@ -84,7 +193,10 @@ public class WebRTCPeerManager {
     public void handleIceCandidate(UUID clientId, String candidate, String sdpMid, int sdpMLineIndex) {
         WebRTCPeerSession session = sessions.get(clientId);
         if (session == null) {
-            logger.atWarning().log("Received ICE candidate for unknown client: " + clientId);
+            pendingIceCandidates
+                .computeIfAbsent(clientId, key -> new ArrayList<>())
+                .add(new PendingIceCandidate(candidate, sdpMid, sdpMLineIndex));
+            logger.atInfo().log("Buffered ICE candidate for client " + clientId + " (pending session)");
             return;
         }
         session.addRemoteCandidate(candidate, sdpMid, sdpMLineIndex);
@@ -99,6 +211,22 @@ public class WebRTCPeerManager {
             session.close();
             logger.atInfo().log("Closed WebRTC peer session: " + clientId);
         }
+        pendingIceCandidates.remove(clientId);
+    }
+
+    private void flushPendingIceCandidates(UUID clientId, WebRTCPeerSession session) {
+        List<PendingIceCandidate> pending = pendingIceCandidates.remove(clientId);
+        if (pending == null || pending.isEmpty()) {
+            return;
+        }
+
+        logger.atInfo().log("Flushing " + pending.size() + " buffered ICE candidates for client " + clientId);
+        for (PendingIceCandidate candidate : pending) {
+            session.addRemoteCandidate(candidate.candidate(), candidate.sdpMid(), candidate.sdpMLineIndex());
+        }
+    }
+
+    private record PendingIceCandidate(String candidate, String sdpMid, int sdpMLineIndex) {
     }
 
     public boolean hasSession(UUID clientId) {
@@ -131,9 +259,21 @@ public class WebRTCPeerManager {
             this.offerSdp = offerSdp;
             
             try {
+                // Set context classloader to ensure Ice4j finds our config files
+                Thread currentThread = Thread.currentThread();
+                ClassLoader originalClassLoader = currentThread.getContextClassLoader();
+                currentThread.setContextClassLoader(WebRTCPeerManager.class.getClassLoader());
+                
+                // Invalidate caches to ensure fresh config load with our classloader
+                ConfigFactory.invalidateCaches();
+                ConfigFactory.load(WebRTCPeerManager.class.getClassLoader());
+                
                 // Create Ice4j Agent with controlling role (server controls candidate nomination)
                 this.iceAgent = new Agent();
                 this.iceAgent.setControlling(true);
+                
+                // Restore original classloader
+                currentThread.setContextClassLoader(originalClassLoader);
                 
                 logger.atInfo().log("Created Ice4j Agent with controlling role for client " + clientId);
                 

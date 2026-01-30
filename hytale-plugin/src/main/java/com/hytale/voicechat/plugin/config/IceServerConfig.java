@@ -26,7 +26,10 @@ public class IceServerConfig {
 
     public static IceServerConfig defaults() {
         return new IceServerConfig(
-            List.of("stun:stun.l.google.com:19302"),
+            List.of(
+                "stun:stun.cloudflare.com:3478",
+                "stun:stun.cloudflare.com:53"
+            ),
             List.of()
         );
     }

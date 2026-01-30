@@ -16,6 +16,8 @@ import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.websocketx.*;
 import io.netty.util.AttributeKey;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -124,7 +126,7 @@ public class WebRTCSignalingServer {
                 }
                 client.disconnect();
             } catch (Exception e) {
-                logger.atWarning().log("Error disconnecting client: {}", e.getMessage());
+                logger.atWarning().log("Error disconnecting client: " + e.getMessage());
             }
         });
         clients.clear();
@@ -191,7 +193,7 @@ public class WebRTCSignalingServer {
                 WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel());
             } else {
                 handshaker.handshake(ctx.channel(), req);
-                logger.atFine().log("WebSocket handshake completed for {}", ctx.channel().remoteAddress());
+                logger.atFine().log("WebSocket handshake completed for " + ctx.channel().remoteAddress());
             }
         }
         
@@ -219,7 +221,7 @@ public class WebRTCSignalingServer {
         private void handleSignalingMessage(ChannelHandlerContext ctx, String json) {
             try {
                 SignalingMessage message = SignalingMessage.fromJson(json);
-                logger.atFine().log("Received signaling message: {}", message.getType());
+                logger.atFine().log("Received signaling message: " + message.getType());
                 
                 switch (message.getType()) {
                     case SignalingMessage.TYPE_AUTHENTICATE:
@@ -238,7 +240,7 @@ public class WebRTCSignalingServer {
                         handleIceCandidate(ctx, message);
                         break;
                     default:
-                        logger.atWarning().log("Unknown signaling message type: {}", message.getType());
+                        logger.atWarning().log("Unknown signaling message type: " + message.getType());
                 }
             } catch (Exception e) {
                 logger.atSevere().log("Error handling signaling message", e);
@@ -315,7 +317,7 @@ public class WebRTCSignalingServer {
                     }
                 }
             } catch (Exception e) {
-                logger.atWarning().log("Error handling audio data from client {}: {}", client.getClientId(), e.getMessage());
+                logger.atWarning().log("Error handling audio data from client " + client.getClientId() + ": " + e.getMessage());
             }
         }
 
@@ -394,10 +396,10 @@ public class WebRTCSignalingServer {
                 // Remove from position tracker
                 if (positionTracker != null) {
                     positionTracker.removePlayer(client.getClientId());
-                    logger.atInfo().log("Removed WebRTC client from position tracker: {}", client.getClientId());
+                    logger.atInfo().log("Removed WebRTC client from position tracker: " + client.getClientId());
                 }
                 clients.remove(client.getClientId());
-                logger.atInfo().log("WebRTC client disconnected: {}", client.getClientId());
+                logger.atInfo().log("WebRTC client disconnected: " + client.getClientId());
             }
         }
         
@@ -415,7 +417,10 @@ public class WebRTCSignalingServer {
         
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
-            logger.atSevere().log("WebSocket error", cause);
+            StringWriter stackTrace = new StringWriter();
+            cause.printStackTrace(new PrintWriter(stackTrace));
+            logger.atSevere().log("WebSocket error: " + cause.toString());
+            logger.atSevere().log("WebSocket stack trace:\n" + stackTrace);
             ctx.close();
         }
         
