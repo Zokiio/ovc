@@ -42,6 +42,10 @@ allprojects {
         mavenCentral()
         maven { url = 'https://maven.maxhenkel.de/repository/public' }
         maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+        maven { 
+            name = "Jitsi"
+            url = 'https://github.com/jitsi/jitsi-maven-repository/raw/master/releases/' 
+        }
     }
     
     java {
@@ -87,10 +91,12 @@ dependencies {
     // WebRTC SFU dependencies
     implementation 'org.jitsi:ice4j:3.2-12-gc2cbf61'
     implementation 'org.bouncycastle:bcprov-lts8on:2.73.10'
+    implementation 'org.bouncycastle:bctls-lts8on:2.73.10'
     implementation 'org.jitsi:jitsi-utils:1.0-96-g34a49d5'
     
-    // Note: libjitsi provides DTLS/SCTP transport but requires careful integration
-    // Current placeholder here - full DTLS transport integration postponed to Phase 2.5
+    // SCTP/DataChannel transport (Phase 2.5)
+    // jitsi-dcsctp wraps Google's dcSCTP (same implementation used in Chrome WebRTC)
+    implementation 'org.jitsi:jitsi-dcsctp:1.0-7-gb548df2'
     
     // JSON processing
     implementation "com.google.code.gson:gson:${gson_version}"
@@ -102,7 +108,9 @@ dependencies {
     // Test dependencies for WebRTC classes
     testImplementation 'org.jitsi:ice4j:3.2-12-gc2cbf61'
     testImplementation 'org.bouncycastle:bcprov-lts8on:2.73.10'
+    testImplementation 'org.bouncycastle:bctls-lts8on:2.73.10'
     testImplementation 'org.jitsi:jitsi-utils:1.0-96-g34a49d5'
+    testImplementation 'org.jitsi:jitsi-dcsctp:1.0-7-gb548df2'
     testImplementation "io.netty:netty-all:${netty_version}"
     testImplementation 'com.google.code.gson:gson:${gson_version}'
 }
