@@ -104,7 +104,14 @@ export class SignalingClient {
     }
     
     sendIceCandidate(candidate) {
-        this.send('ice_candidate', { candidate });
+        if (!candidate) {
+            return;
+        }
+        this.send('ice_candidate', {
+            candidate: candidate.candidate || candidate,
+            sdpMid: candidate.sdpMid ?? null,
+            sdpMLineIndex: typeof candidate.sdpMLineIndex === 'number' ? candidate.sdpMLineIndex : null
+        });
     }
     
     disconnect() {
@@ -129,34 +136,6 @@ export class SignalingClient {
             log.debug('Received audio message, size:', audioSize);
         } else {
             log.debug('Received message:', type, data);
-        }
-        
-        // Handle unsupported WebRTC signaling messages explicitly
-        if (type === 'offer') {
-            log.warn(
-                'Received SDP offer from peer (unsupported in current architecture).\n' +
-                'This system uses a server-side proxy model: media flows through the server, not direct peer-to-peer.\n' +
-                'For direct WebRTC connection support, see docs/WEBRTC_ARCHITECTURE.md for migration details.'
-            );
-            return;
-        }
-        
-        if (type === 'answer') {
-            log.warn(
-                'Received SDP answer from peer (unsupported in current architecture).\n' +
-                'This system uses a server-side proxy model: media flows through the server, not direct peer-to-peer.\n' +
-                'For direct WebRTC connection support, see docs/WEBRTC_ARCHITECTURE.md for migration details.'
-            );
-            return;
-        }
-        
-        if (type === 'ice_candidate') {
-            log.warn(
-                'Received ICE candidate from peer (unsupported in current architecture).\n' +
-                'This system uses a server-side proxy model: media flows through the server, not direct peer-to-peer.\n' +
-                'For direct WebRTC connection support, see docs/WEBRTC_ARCHITECTURE.md for migration details.'
-            );
-            return;
         }
         
         const handler = this.messageHandlers.get(type);

@@ -40,7 +40,7 @@ class VoiceChatApp {
             
             // Step 4: Setup WebRTC connection
             log.info('Step 4: Setting up WebRTC...');
-            await this.webrtcManager.initialize();
+            await this.webrtcManager.initialize(this.audioManager.getMediaStream());
             
             this.connected = true;
             log.info('Successfully connected to voice chat!');

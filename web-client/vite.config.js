@@ -12,7 +12,7 @@ export default defineConfig({
     open: true,
     proxy: {
       '/voice': {
-        target: process.env.VITE_SIGNALING_TARGET || 'ws://192.168.1.180:24455',
+        target: process.env.VITE_SIGNALING_TARGET || 'ws://localhost:24455',
         ws: true,
         changeOrigin: true,
         secure: false

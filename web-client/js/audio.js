@@ -95,6 +95,10 @@ export class AudioManager {
         }
     }
     
+        getMediaStream() {
+            return this.mediaStream;
+        }
+    
     processAudioInput(audioData) {
         // Convert Float32Array to Int16Array for transmission
         // In a real implementation, we would encode with Opus here

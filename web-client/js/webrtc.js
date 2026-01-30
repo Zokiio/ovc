@@ -1,32 +1,88 @@
-// Audio transport manager via WebSocket
-// 
-// TRANSPORT MODEL (Proxy-based):
-// - Audio capture uses Web Audio API (local browser processing)
-// - Audio is NOT sent directly to peers via WebRTC peer connections
-// - Instead, all audio flows through a central server via WebSocket
-// - Server receives audio from all clients and routes it based on proximity/groups
-// - This is a server-side proxy model, NOT direct peer-to-peer
+// WebRTC connection manager (RTCPeerConnection + signaling)
 //
-// WHY NOT WebRTC PEER CONNECTIONS:
-// - Simplifies server-side logic (no need for expensive P2P coordination)
-// - Ensures consistent audio routing and quality control
-// - Works reliably behind NAT/firewalls (no NAT traversal needed)
-// - Lower client complexity for browser-based voice chat
+// MODE:
+// - Uses RTCPeerConnection for ICE/DTLS negotiation
+// - Sends SDP offer/answer and ICE candidates via WebSocket signaling
+// - Audio transport prefers RTCDataChannel when available
+// - Falls back to WebSocket proxy audio if DataChannel is not open
 //
-// SEE ALSO: docs/WEBRTC_ARCHITECTURE.md for architecture details
-// and migration path to full RTCPeerConnection if needed in the future
-import { log } from './config.js';
+// NOTE:
+// Server-side SCTP/DataChannel handling may be incomplete. This client will
+// still stream audio via WebSocket as a fallback to keep audio functional.
+import { CONFIG, log } from './config.js';
 
 export class WebRTCManager {
     constructor(signalingClient) {
         this.signaling = signalingClient;
+        this.peerConnection = null;
+        this.dataChannel = null;
+        this.audioStream = null;
         this.isConnected = false;
     }
     
-    async initialize() {
-        log.info('Audio transport initialized (WebSocket proxy model - audio routed via server)');
-        // WebSocket connection already established by SignalingClient
-        this.isConnected = true;
+    async initialize(mediaStream = null) {
+        log.info('Initializing WebRTC peer connection');
+
+        this.audioStream = mediaStream;
+        this.peerConnection = new RTCPeerConnection(CONFIG.RTC_CONFIGURATION);
+
+        // Register signaling handlers
+        this.registerSignalingHandlers();
+
+        // Create DataChannel for audio (preferred transport)
+        this.dataChannel = this.peerConnection.createDataChannel('audio');
+        this.setupDataChannelHandlers(this.dataChannel);
+
+        // If server creates a data channel, handle it
+        this.peerConnection.ondatachannel = (event) => {
+            log.info('Received DataChannel from server:', event.channel.label);
+            this.setupDataChannelHandlers(event.channel);
+        };
+
+        // Add audio tracks to peer connection if available
+        if (this.audioStream) {
+            this.audioStream.getTracks().forEach((track) => {
+                this.peerConnection.addTrack(track, this.audioStream);
+            });
+            log.info('Added audio tracks to RTCPeerConnection');
+        } else {
+            log.warn('No media stream provided; proceeding without audio tracks');
+        }
+
+        // ICE candidate handling
+        this.peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                this.signaling.sendIceCandidate({
+                    candidate: event.candidate.candidate,
+                    sdpMid: event.candidate.sdpMid,
+                    sdpMLineIndex: event.candidate.sdpMLineIndex
+                });
+            }
+        };
+
+        // Connection state monitoring
+        this.peerConnection.onconnectionstatechange = () => {
+            const state = this.peerConnection.connectionState;
+            log.info('Peer connection state:', state);
+            this.isConnected = state === 'connected';
+            if (window.ui) {
+                window.ui.updateConnectionStatus(state, this.isConnected);
+            }
+        };
+
+        this.peerConnection.oniceconnectionstatechange = () => {
+            log.info('ICE connection state:', this.peerConnection.iceConnectionState);
+        };
+
+        // Create and send SDP offer
+        const offer = await this.peerConnection.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: false
+        });
+        await this.peerConnection.setLocalDescription(offer);
+        this.signaling.sendOffer(offer.sdp);
+        log.info('SDP offer sent');
+
         // Setup audio handler BEFORE marking as ready to avoid race conditions
         this.setupAudioMessageHandler();
         log.info('Audio reception pipeline initialized and ready');
@@ -95,36 +151,110 @@ export class WebRTCManager {
         
         log.info('Audio message handler registered with signaling client');
     }
+
+    registerSignalingHandlers() {
+        this.signaling.on('answer', async (data) => {
+            if (!data || !data.sdp) {
+                log.warn('Received answer without SDP');
+                return;
+            }
+            try {
+                await this.peerConnection.setRemoteDescription({
+                    type: 'answer',
+                    sdp: data.sdp
+                });
+                log.info('Remote SDP answer applied');
+            } catch (error) {
+                log.error('Failed to apply SDP answer:', error);
+            }
+        });
+
+        this.signaling.on('ice_candidate', async (data) => {
+            if (!data || !data.candidate) {
+                log.warn('Received ICE candidate without candidate data');
+                return;
+            }
+            try {
+                const candidateInit = {
+                    candidate: data.candidate,
+                    sdpMid: data.sdpMid || null,
+                    sdpMLineIndex: typeof data.sdpMLineIndex === 'number' ? data.sdpMLineIndex : null
+                };
+                await this.peerConnection.addIceCandidate(candidateInit);
+                log.debug('Remote ICE candidate added');
+            } catch (error) {
+                log.error('Failed to add ICE candidate:', error);
+            }
+        });
+    }
+
+    setupDataChannelHandlers(channel) {
+        this.dataChannel = channel;
+        this.dataChannel.binaryType = 'arraybuffer';
+        this.dataChannel.onopen = () => {
+            log.info('DataChannel open:', channel.label);
+        };
+        this.dataChannel.onclose = () => {
+            log.warn('DataChannel closed:', channel.label);
+        };
+        this.dataChannel.onerror = (error) => {
+            log.error('DataChannel error:', error);
+        };
+        this.dataChannel.onmessage = async (event) => {
+            if (!window.audioManager) {
+                return;
+            }
+
+            try {
+                let buffer = event.data;
+                if (buffer instanceof Blob) {
+                    buffer = await buffer.arrayBuffer();
+                }
+                if (buffer instanceof ArrayBuffer) {
+                    window.audioManager.playAudio(buffer);
+                }
+            } catch (error) {
+                log.error('Error processing DataChannel audio:', error);
+            }
+        };
+    }
     
     sendAudioData(audioData) {
-        if (!this.isConnected) {
-            log.warn('Cannot send audio: WebRTC manager not connected');
-            return;
-        }
-        
-        if (!this.signaling) {
-            log.error('Cannot send audio: Signaling client is null');
-            return;
-        }
-        
-        if (!this.signaling.isConnected()) {
-            log.warn('Cannot send audio: WebSocket not connected');
-            return;
-        }
-        
         if (!audioData) {
             log.warn('Cannot send audio: Audio data is null or undefined');
             return;
         }
-        
+
+        // Prefer DataChannel if available
+        if (this.dataChannel && this.dataChannel.readyState === 'open') {
+            try {
+                // Convert base64 to bytes for binary DataChannel
+                const binaryString = atob(audioData);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                this.dataChannel.send(bytes.buffer);
+                log.debug('Audio packet sent via DataChannel, size:', bytes.length);
+                return;
+            } catch (error) {
+                log.error('Error sending audio via DataChannel:', error.message);
+            }
+        }
+
+        // Fallback to WebSocket proxy audio if DataChannel not ready
+        if (!this.signaling || !this.signaling.isConnected()) {
+            log.warn('Cannot send audio: WebSocket not connected and DataChannel not available');
+            return;
+        }
+
         try {
-            // Send to server via WebSocket; server proxies to other clients
             this.signaling.sendMessage('audio', {
                 audioData: audioData
             });
-            log.debug('Audio packet sent to server, size:', audioData.length);
+            log.debug('Audio packet sent via WebSocket fallback, size:', audioData.length);
         } catch (error) {
-            log.error('Error sending audio:', error.message);
+            log.error('Error sending audio via WebSocket:', error.message);
         }
     }
     
@@ -144,10 +274,20 @@ export class WebRTCManager {
     
     disconnect() {
         this.isConnected = false;
+        if (this.dataChannel) {
+            this.dataChannel.close();
+            this.dataChannel = null;
+        }
+        if (this.peerConnection) {
+            this.peerConnection.close();
+            this.peerConnection = null;
+        }
         log.info('WebRTC manager disconnected');
     }
     
     isActive() {
-        return this.isConnected && this.signaling && this.signaling.isConnected();
+        const dataChannelReady = this.dataChannel && this.dataChannel.readyState === 'open';
+        const signalingReady = this.signaling && this.signaling.isConnected();
+        return dataChannelReady || signalingReady;
     }
 }
