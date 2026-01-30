@@ -329,21 +329,32 @@ public class WebRTCPeerManager {
                 this.datachannelStream = iceAgent.createMediaStream("application");
                 
                 logger.atInfo().log("Created Ice4j media streams for audio and datachannel: " + clientId);
+                logger.atInfo().log("Audio stream components: " + audioStream.getComponentCount());
+                logger.atInfo().log("Application stream components: " + datachannelStream.getComponentCount());
                 
-                // Explicitly trigger component creation by accessing them
-                // This ensures components exist immediately rather than being created lazily
-                Component audioComp = audioStream.getComponent(1);
-                Component datachannelComp = datachannelStream.getComponent(1);
-                if (audioComp == null) {
-                    logger.atWarning().log("Audio component not created immediately; will be created during candidate gathering");
-                }
-                if (datachannelComp == null) {
-                    logger.atWarning().log("Datachannel component not created immediately; will be created during candidate gathering");
+                // Components may be created immediately or lazily
+                // Try to access them to ensure they're created
+                try {
+                    Component audioComp = audioStream.getComponent(1);
+                    if (audioComp != null) {
+                        logger.atInfo().log("Audio RTP component created and available immediately");
+                    } else {
+                        logger.atInfo().log("Audio RTP component not available immediately (will be created by harvesters)");
+                    }
+                } catch (Exception e) {
+                    logger.atWarning().log("Error accessing audio component: " + e.getMessage());
                 }
                 
-                // Candidate gathering starts automatically when harvesters are added
-                // Components are created during this async process
-                logger.atInfo().log("ICE candidate gathering initialized for client " + clientId);
+                try {
+                    Component datachannelComp = datachannelStream.getComponent(1);
+                    if (datachannelComp != null) {
+                        logger.atInfo().log("Application RTP component created and available immediately");
+                    } else {
+                        logger.atInfo().log("Application RTP component not available immediately (will be created by harvesters)");
+                    }
+                } catch (Exception e) {
+                    logger.atWarning().log("Error accessing datachannel component: " + e.getMessage());
+                }
                 
                 // Generate DTLS certificate and fingerprint for this session
                 try {
@@ -587,25 +598,36 @@ public class WebRTCPeerManager {
         private Component waitForComponent(IceMediaStream stream, int componentId, long maxWaitMs) {
             long startTime = System.currentTimeMillis();
             long checkInterval = 50; // Check every 50ms
+            int checkCount = 0;
             
             while (System.currentTimeMillis() - startTime < maxWaitMs) {
                 Component component = stream.getComponent(componentId);
                 if (component != null) {
-                    logger.atInfo().log("Component " + componentId + " available after " + 
-                        (System.currentTimeMillis() - startTime) + "ms for " + stream.getName());
+                    checkCount++;
+                    logger.atInfo().log("Component " + componentId + " available (after " + checkCount + " polls, " + 
+                        (System.currentTimeMillis() - startTime) + "ms) for stream " + stream.getName());
                     return component;
                 }
                 
                 try {
                     Thread.sleep(checkInterval);
+                    checkCount++;
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 }
             }
             
+            // Final check with detailed diagnostics
+            int finalCount = 0;
+            for (int i = 1; i <= 5; i++) {
+                if (stream.getComponent(i) != null) {
+                    finalCount++;
+                }
+            }
+            
             logger.atWarning().log("Component " + componentId + " not available after " + maxWaitMs + 
-                "ms for stream " + stream.getName());
+                "ms (checked " + checkCount + " times, found " + finalCount + " total components in stream " + stream.getName() + ")");
             return null;
         }
         

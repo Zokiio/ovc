@@ -11,6 +11,16 @@ export class AudioManager {
         this.processorNode = null;
         this.isMuted = false;
         this.isActive = false;
+        
+        // Playback buffering for smooth audio rendering
+        this.playbackBuffer = null;
+        this.playbackBufferSize = 48000 * 2; // 2 seconds at 48kHz
+        this.playbackWritePos = 0;
+        this.playbackReadPos = 0;
+        this.playbackSource = null;
+        this.playbackGain = null;
+        this.playbackStartTime = null;
+        this.isPlaybackInitialized = false;
     }
     
     async initialize() {
@@ -137,7 +147,7 @@ export class AudioManager {
     }
     
     playAudio(audioData) {
-        // Play incoming audio from other players
+        // Play incoming audio from other players using a continuous buffer
         if (!this.audioContext) {
             log.warn('Audio context not initialized, cannot play audio');
             return;
@@ -146,40 +156,97 @@ export class AudioManager {
         try {
             log.debug('playAudio called with buffer size:', audioData.byteLength);
             
+            // Initialize playback buffer on first audio
+            if (!this.isPlaybackInitialized) {
+                this.initializePlaybackBuffer();
+            }
+            
             // Convert received data to Float32Array
             const int16Data = new Int16Array(audioData);
             log.debug('Int16 samples:', int16Data.length);
             
-            const float32Data = new Float32Array(int16Data.length);
+            // Write audio data to ring buffer
+            this.writeToPlaybackBuffer(int16Data);
             
-            for (let i = 0; i < int16Data.length; i++) {
-                float32Data[i] = int16Data[i] / (int16Data[i] < 0 ? 0x8000 : 0x7FFF);
-            }
-            
-            // Create audio buffer
-            const audioBuffer = this.audioContext.createBuffer(
-                1, // mono
-                float32Data.length,
-                this.audioContext.sampleRate
-            );
-            
-            audioBuffer.getChannelData(0).set(float32Data);
-            
-            // Create and play buffer source
-            const source = this.audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(this.audioContext.destination);
-            source.start();
-            
-            log.info('Audio playback started, duration:', audioBuffer.duration.toFixed(3), 'seconds');
+            log.info('Audio buffered, duration:', (int16Data.length / this.audioContext.sampleRate).toFixed(3), 'seconds');
         } catch (error) {
             log.error('Error playing audio:', error, 'audioData:', audioData);
         }
     }
     
-    mute() {
-        this.isMuted = true;
-        log.info('Microphone muted');
+    initializePlaybackBuffer() {
+        if (this.isPlaybackInitialized) {
+            return;
+        }
+        
+        log.info('Initializing continuous playback buffer');
+        
+        // Create ring buffer for audio samples
+        this.playbackBuffer = new Float32Array(this.playbackBufferSize);
+        this.playbackWritePos = 0;
+        this.playbackReadPos = 0;
+        
+        // Create a continuous audio source
+        // Use a ScriptProcessorNode or AudioWorklet to pull from buffer
+        try {
+            // Try to use AudioWorklet first (preferred)
+            // For now, we'll use ScriptProcessorNode as fallback for Web Audio simplicity
+            const bufferSize = 4096; // ~85ms at 48kHz
+            this.playbackProcessor = this.audioContext.createScriptProcessor(bufferSize, 0, 1);
+            
+            this.playbackProcessor.onaudioprocess = (event) => {
+                const output = event.outputBuffer.getChannelData(0);
+                
+                // Fill output buffer from ring buffer
+                for (let i = 0; i < output.length; i++) {
+                    if (this.playbackReadPos < this.playbackWritePos) {
+                        output[i] = this.playbackBuffer[this.playbackReadPos % this.playbackBufferSize];
+                        this.playbackReadPos++;
+                    } else {
+                        // No more audio available, output silence
+                        output[i] = 0;
+                    }
+                }
+            };
+        this.isPlaybackInitialized = false;
+        
+        if (this.playbackProcessor) {
+            this.playbackProcessor.disconnect();
+            this.playbackProcessor = null;
+        }
+        
+        if (this.workletNode) {
+            this.workletNode.port.onmessage = null;
+            this.workletNode.disconnect();
+            this.workletNode = null;
+        }
+        
+        if (this.sinkNode) {
+            this.sinkNode.disconnect();
+            this.sinkNode = null;
+        }
+
+        if (this.processorNode) {
+            this.processorNode.disconnect();
+            this.processorNode = null;
+        }
+        
+        if (this.sourceNode) {
+            this.sourceNode.disconnect();
+            this.sourceNode = null;
+        }
+        
+        if (this.mediaStream) {
+            this.mediaStream.getTracks().forEach(track => track.stop());
+            this.mediaStream = null;
+        }
+        
+        if (this.audioContext) {
+            this.audioContext.close();
+            this.audioContext = null;
+        }
+        
+        this.playbackBuffer = null;og.info('Microphone muted');
     }
     
     unmute() {
