@@ -292,13 +292,8 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
         if (player != null) {
             boolean isConnected = false;
             
-            // Check if player has authenticated voice client (UDP)
-            if (plugin.getUdpServer() != null) {
-                isConnected = plugin.getUdpServer().isPlayerConnected(playerRef.getUuid());
-            }
-            
-            // Also check for WebRTC clients (web)
-            if (!isConnected && plugin.getWebRTCServer() != null) {
+            // Check for WebRTC clients (web)
+            if (plugin.getWebRTCServer() != null) {
                 isConnected = plugin.getWebRTCServer().isWebClientConnected(playerRef.getUuid());
             }
             
@@ -435,12 +430,9 @@ public class VoiceChatPage extends InteractiveCustomUIPage<VoiceChatPage.VoiceCh
             
             Player player = store.getComponent(ref, Player.getComponentType());
             boolean currentConnectedStatus = false;
-            if (player != null && plugin.getUdpServer() != null) {
-                currentConnectedStatus = plugin.getUdpServer().isPlayerConnected(playerRef.getUuid());
-            }
             
-            // Also check for WebRTC clients
-            if (!currentConnectedStatus && player != null && plugin.getWebRTCServer() != null) {
+            // Check for WebRTC clients
+            if (player != null && plugin.getWebRTCServer() != null) {
                 currentConnectedStatus = plugin.getWebRTCServer().isWebClientConnected(playerRef.getUuid());
             }
             

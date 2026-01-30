@@ -2,58 +2,24 @@
 
 # Hytale Voice Chat
 
-Proximity-based voice chat system for Hytale with multiple client options:
+Proximity-based voice chat system for Hytale with WebRTC technology:
 
-- **Voice Client**: Lightweight desktop voice client written in Go
 - **Web Client**: Browser-based WebRTC client (no installation required)
-- **Hytale Plugin**: Server-side plugin with integrated voice server written in Java
-
----
-
-## 🎮 Voice Client
-
-The voice client is a **standalone desktop application** that players install on their computers to enable voice chat.
-
-### Features
-
-- Cross-platform GUI (Windows, macOS, Linux)
-- Built with Go + Fyne UI framework
-- Microphone capture and audio playback using PortAudio
-- UDP-based communication with the server
-- No Java installation required
-
-![Voice Client Screenshot](.github/images/voice-client-screenshot.png)
-
-### Quick Start
-
-```bash
-cd voice-client
-
-# Windows (PowerShell) - requires MSYS2 MinGW
-$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
-$env:CGO_ENABLED = "1"
-go build -o HytaleVoiceChat.exe ./cmd/voice-client
-./HytaleVoiceChat.exe
-
-# macOS/Linux
-go build -o HytaleVoiceChat ./cmd/voice-client
-./HytaleVoiceChat
-```
-
-**📖 Full documentation:** [`voice-client/README.md`](voice-client/README.md)
+- **Hytale Plugin**: Server-side SFU (Selective Forwarding Unit) for media routing written in Java
 
 ---
 
 ## 🌐 Web Client
 
-The web client is a **browser-based alternative** that requires no installation. Perfect for quick access or systems where native clients can't be installed.
+The web client is a **browser-based voice chat interface** that requires no installation. Uses WebRTC for peer connections with server-side selective forwarding.
 
 ### Features
 
 - No installation required - runs directly in your browser
-- WebRTC-based with built-in encryption
-- Cross-platform (any modern browser)
-- Same proximity-based audio as native client
+- WebRTC DataChannels with Opus codec for high-quality audio
+- Built-in DTLS-SRTP encryption
+- Cross-platform (any modern browser: Chrome, Firefox, Safari)
+- Proximity-based spatial audio
 - Microphone capture and audio playback via Web Audio API
 
 ### Quick Start
@@ -73,17 +39,17 @@ python3 -m http.server 8080
 
 ## 🔌 Hytale Plugin
 
-The Java plugin runs **inside the Hytale server** and handles voice routing based on player proximity.
+The Java plugin runs **inside the Hytale server** and acts as a WebRTC SFU (Selective Forwarding Unit) for media routing based on player proximity.
 
 ### Features
 
-- Netty-based UDP server for native voice clients
-- WebSocket server for WebRTC signaling (web clients)
-- Proximity-based audio routing (configurable range)
+- Ice4j-based WebRTC peer connection handling
+- DataChannel media routing for web clients
+- Proximity-based audio routing (configurable range, default 30 blocks)
 - Player position tracking via Hytale API
 - Authentication and session management
+- STUN/TURN server support for NAT traversal
 - In-game GUI for voice settings and group management
-- Support for both native and web clients simultaneously
 
 ![Voice Chat GUI](.github/images/voicechat-gui.png)
 
@@ -105,18 +71,13 @@ cd hytale-plugin
 
 ```text
 hytale-voice-chat/
-├── voice-client/          # Go desktop client (standalone app)
-│   ├── cmd/               # CLI entry points
-│   ├── internal/          # Go client implementation
-│   └── README.md          # Go client documentation
-│
 ├── web-client/            # Browser-based WebRTC client
 │   ├── js/                # JavaScript modules
 │   ├── css/               # Stylesheets
 │   ├── index.html         # Main web page
 │   └── README.md          # Web client documentation
 │
-├── hytale-plugin/         # Java server plugin
+├── hytale-plugin/         # Java server plugin (WebRTC SFU)
 │   ├── src/               # Plugin source code
 │   ├── common/            # Shared Java models
 │   ├── docs/              # Plugin documentation
@@ -136,24 +97,13 @@ hytale-voice-chat/
 
 ### For Players (Client Setup)
 
-**Option 1: Native Desktop Client**
-
-1. Download the voice client for your platform
-2. Run `HytaleVoiceChat` executable
-3. Enter your Hytale username and server address
-   - Supports URLs: `hytale.techynoodle.com` (auto-uses port 24454)
-   - Or with custom port: `hytale.techynoodle.com:25000`
-4. Click "Connect" and start talking!
-
-See [`voice-client/README.md`](voice-client/README.md) for detailed instructions.
-
-**Option 2: Web Browser Client**
+**Web Browser Client**
 
 1. Navigate to the hosted web client URL (provided by your server admin)
 2. Enter your Hytale username
-3. Enter the server address
-4. Click "Connect" and allow microphone access
-5. Start talking!
+3. Enter the server address (e.g., `hytale.techynoodle.com`)
+4. Click "Connect" and allow microphone access when prompted
+5. Start talking - players within proximity will hear you!
 
 See [`web-client/README.md`](web-client/README.md) for detailed instructions.
 
@@ -178,13 +128,11 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 
 ## 📚 Documentation
 
-- **Voice Client**: See [`voice-client/README.md`](voice-client/README.md)
+- **Web Client**: See [`web-client/README.md`](web-client/README.md)
 - **Hytale Plugin**: See [`hytale-plugin/docs/`](hytale-plugin/docs/) directory for detailed guides:
   - [Setup Guide](hytale-plugin/docs/SETUP.md)
   - [Testing Guide](hytale-plugin/docs/TEST.md)
-  - [Audio Testing](hytale-plugin/docs/AUDIO_TESTING.md)
-  - [Authentication Flow](hytale-plugin/docs/AUTHENTICATION.md)
-  - [Test Scenarios](hytale-plugin/docs/TEST_SCENARIOS.md)
+  - [WebRTC Architecture](docs/WEBRTC_ARCHITECTURE.md)
 
 ---
 
@@ -192,17 +140,17 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 
 ### Prerequisites
 
-- **Voice Client**: Go 1.25+, PortAudio
+- **Web Client**: Node.js 18+, npm (for development server and build tools)
 - **Hytale Plugin**: Java 25, Gradle (no local Hytale API files needed - uses Maven)
 
-### Building Both Components
+### Building
 
 ```bash
 # Build Java plugin
 cd hytale-plugin && ./gradlew build
 
-# Build Go client
-cd voice-client && go build -o HytaleVoiceChat ./cmd/voice-client
+# Develop web client (with hot reload)
+cd web-client && npm install && npm run dev
 ```
 
 ---
