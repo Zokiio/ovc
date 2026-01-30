@@ -12,9 +12,11 @@ import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.ice4j.TransportAddress;
 import org.ice4j.ice.Agent;
+import org.ice4j.ice.Component;
 import org.ice4j.ice.IceMediaStream;
 import org.ice4j.ice.harvest.StunCandidateHarvester;
 
+import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -22,6 +24,7 @@ import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.security.PrivateKey;
 import java.security.cert.CertificateEncodingException;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
@@ -32,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Manages WebRTC peer connections (Ice4j-based, DataChannel-first).
@@ -214,6 +218,19 @@ public class WebRTCPeerManager {
         pendingIceCandidates.remove(clientId);
     }
 
+    /**
+     * Attempt to start DTLS/SCTP/DataChannel transport for a client.
+     * Requires ICE to have a selected pair on the datachannel component.
+     */
+    public void startDataChannelTransport(UUID clientId) {
+        WebRTCPeerSession session = sessions.get(clientId);
+        if (session == null) {
+            logger.atWarning().log("Cannot start DataChannel transport; session not found for client " + clientId);
+            return;
+        }
+        session.startDataChannelTransport();
+    }
+
     private void flushPendingIceCandidates(UUID clientId, WebRTCPeerSession session) {
         List<PendingIceCandidate> pending = pendingIceCandidates.remove(clientId);
         if (pending == null || pending.isEmpty()) {
@@ -253,6 +270,11 @@ public class WebRTCPeerManager {
         private final IceMediaStream datachannelStream;
         private final X509Certificate dtlsCertificate;
         private final String dtlsFingerprint;
+        private PrivateKey dtlsPrivateKey;
+        private final AtomicReference<Short> audioStreamId = new AtomicReference<>(null);
+        private DtlsTransport dtlsTransport;
+        private SctpTransport sctpTransport;
+        private DataChannelManager dataChannelManager;
 
         WebRTCPeerSession(UUID clientId, String offerSdp) {
             this.clientId = clientId;
@@ -316,6 +338,9 @@ public class WebRTCPeerManager {
                 // Candidate gathering happens asynchronously when components are created
                 // For SFU scenario, we rely on STUN harvesters to discover local candidates
                 logger.atInfo().log("ICE candidate gathering initialized for client " + clientId);
+
+                // Apply remote ICE credentials from offer
+                applyRemoteIceCredentials(offerSdp);
                 
                 // Generate SDP answer with real ICE credentials
                 this.answerSdp = this.createAnswerSdp(offerSdp);
@@ -361,14 +386,58 @@ public class WebRTCPeerManager {
                 if (candidate.startsWith("candidate:")) {
                     String candidateLine = candidate.substring("candidate:".length());
                     logger.atInfo().log("Received remote ICE candidate for " + sdpMid + " (component=" + sdpMLineIndex + "): " + candidateLine);
-                    
-                    // TODO: Parse candidate parts and add to Agent via agent.addRemoteCandidate()
-                    // This requires:
-                    // 1. Split the candidate line by spaces
-                    // 2. Extract foundation, component, transport, priority, ip, port, type
-                    // 3. Create ice4j.ice.Candidate object
-                    // 4. Call agent.addRemoteCandidate(stream, component, candidate)
-                    // Deferred to next phase when full ICE connectivity is needed
+
+                    String[] parts = candidateLine.split(" ");
+                    if (parts.length < 8) {
+                        logger.atWarning().log("Invalid ICE candidate format (too few parts): " + candidateLine);
+                        return;
+                    }
+
+                    String foundation = parts[0];
+                    int componentId = Integer.parseInt(parts[1]);
+                    String transport = parts[2].toLowerCase();
+                    long priority = Long.parseLong(parts[3]);
+                    String ip = parts[4];
+                    int port = Integer.parseInt(parts[5]);
+
+                    String type = null;
+                    String raddr = null;
+                    Integer rport = null;
+                    for (int i = 6; i < parts.length - 1; i++) {
+                        if ("typ".equals(parts[i])) {
+                            type = parts[i + 1];
+                        } else if ("raddr".equals(parts[i])) {
+                            raddr = parts[i + 1];
+                        } else if ("rport".equals(parts[i])) {
+                            rport = Integer.parseInt(parts[i + 1]);
+                        }
+                    }
+
+                    if (!"udp".equals(transport)) {
+                        logger.atWarning().log("Unsupported ICE transport: " + transport);
+                        return;
+                    }
+
+                    org.ice4j.TransportAddress address = new org.ice4j.TransportAddress(ip, port, org.ice4j.Transport.UDP);
+                    Component component = stream.getComponent(componentId);
+                    if (component == null) {
+                        logger.atWarning().log("Component not found for ICE candidate (componentId=" + componentId + ")");
+                        return;
+                    }
+
+                    org.ice4j.ice.CandidateType candidateType = mapCandidateType(type);
+                    org.ice4j.ice.RemoteCandidate relatedCandidate = null;
+                    if (raddr != null && rport != null) {
+                        org.ice4j.TransportAddress relatedAddress = new org.ice4j.TransportAddress(raddr, rport, org.ice4j.Transport.UDP);
+                        relatedCandidate = component.findRemoteCandidate(relatedAddress);
+                    }
+
+                    org.ice4j.ice.RemoteCandidate remoteCandidate = new org.ice4j.ice.RemoteCandidate(
+                        address, component, candidateType, foundation, priority, relatedCandidate
+                    );
+
+                    component.addRemoteCandidate(remoteCandidate);
+                    component.updateRemoteCandidates();
                 } else {
                     logger.atWarning().log("Invalid ICE candidate format: " + candidate);
                 }
@@ -380,6 +449,15 @@ public class WebRTCPeerManager {
 
         void close() {
             try {
+                if (dataChannelManager != null && audioHandler != null) {
+                    audioHandler.unregisterClient(clientId);
+                }
+                if (sctpTransport != null) {
+                    sctpTransport.close();
+                }
+                if (dtlsTransport != null) {
+                    dtlsTransport.close();
+                }
                 if (iceAgent != null) {
                     iceAgent.free();
                     logger.atInfo().log("Freed Ice4j Agent resources for client " + clientId);
@@ -387,6 +465,114 @@ public class WebRTCPeerManager {
             } catch (Exception e) {
                 logger.atWarning().log("Error closing Ice4j Agent: " + e.getMessage());
             }
+        }
+
+        /**
+         * Start DTLS + SCTP transport for the datachannel stream and wire audio handlers.
+         * NOTE: Requires ICE selected pair to be established on the datachannel component.
+         */
+        void startDataChannelTransport() {
+            if (dtlsTransport != null || sctpTransport != null) {
+                return;
+            }
+
+            Component dataComponent = datachannelStream.getComponent(1);
+            if (dataComponent == null) {
+                logger.atWarning().log("DataChannel component not available for client " + clientId);
+                return;
+            }
+
+            Ice4jDatagramTransport datagramTransport = new Ice4jDatagramTransport(dataComponent);
+            dtlsTransport = new DtlsTransport(clientId.toString(), dtlsCertificate, dtlsPrivateKey, true);
+
+            dtlsTransport.setHandshakeListener(new DtlsTransport.DtlsHandshakeListener() {
+                @Override
+                public void onHandshakeComplete() {
+                    sctpTransport = new SctpTransport(clientId.toString(), dtlsTransport);
+                    dataChannelManager = new DataChannelManager(clientId.toString(), sctpTransport);
+
+                    dataChannelManager.setListener(new DataChannelManager.DataChannelListener() {
+                        @Override
+                        public void onChannelOpen(DataChannelManager.DataChannel channel) {
+                            if (!"audio".equalsIgnoreCase(channel.label)) {
+                                return;
+                            }
+
+                            audioStreamId.set(channel.streamId);
+                            channel.open = true;
+
+                            if (audioHandler != null) {
+                                audioHandler.registerClient(clientId, new DataChannelAudioHandler.DataChannelSender() {
+                                    @Override
+                                    public boolean isOpen() {
+                                        return channel.open;
+                                    }
+
+                                    @Override
+                                    public void send(byte[] audioData) {
+                                        Short streamId = audioStreamId.get();
+                                        if (streamId != null) {
+                                            dataChannelManager.sendBinary(streamId, audioData);
+                                        }
+                                    }
+                                });
+                            }
+                        }
+
+                        @Override
+                        public void onBinaryMessage(short streamId, byte[] payload) {
+                            Short audioId = audioStreamId.get();
+                            if (audioId != null && audioId == streamId && audioHandler != null) {
+                                audioHandler.receiveFromClient(clientId, payload);
+                            }
+                        }
+
+                        @Override
+                        public void onStringMessage(short streamId, String payload) {
+                            // No-op for audio channel
+                        }
+                    });
+
+                    sctpTransport.setListener(new SctpTransport.SctpTransportListener() {
+                        @Override
+                        public void onConnected() {
+                            logger.atInfo().log("SCTP connected for client " + clientId);
+                        }
+
+                        @Override
+                        public void onClosed() {
+                            logger.atInfo().log("SCTP closed for client " + clientId);
+                        }
+
+                        @Override
+                        public void onMessageReceived(short streamId, int ppid, byte[] payload) {
+                            if (dataChannelManager != null) {
+                                dataChannelManager.handleSctpMessage(streamId, ppid, payload);
+                            }
+                        }
+
+                        @Override
+                        public void onError(Exception error) {
+                            logger.atWarning().log("SCTP transport error for client " + clientId + ": " + error.getMessage());
+                        }
+                    });
+
+                    sctpTransport.start(5000, 5000);
+                }
+
+                @Override
+                public void onHandshakeFailed(Exception error) {
+                    logger.atWarning().log("DTLS handshake failed for client " + clientId + ": " + error.getMessage());
+                }
+            });
+
+            new Thread(() -> {
+                try {
+                    dtlsTransport.startHandshake(datagramTransport);
+                } catch (IOException e) {
+                    logger.atWarning().log("DTLS handshake error for client " + clientId + ": " + e.getMessage());
+                }
+            }, "dtls-handshake-" + clientId).start();
         }
         
         /**
@@ -506,6 +692,80 @@ public class WebRTCPeerManager {
 
             return answer.toString();
         }
+
+        private void applyRemoteIceCredentials(String offerSdp) {
+            String[] lines = offerSdp.split("\r\n");
+            boolean inAudioSection = false;
+            boolean inDataChannelSection = false;
+
+            String audioUfrag = null;
+            String audioPwd = null;
+            String dataUfrag = null;
+            String dataPwd = null;
+
+            for (String line : lines) {
+                if (line.startsWith("m=audio")) {
+                    inAudioSection = true;
+                    inDataChannelSection = false;
+                } else if (line.startsWith("m=application")) {
+                    inAudioSection = false;
+                    inDataChannelSection = true;
+                } else if (line.startsWith("m=")) {
+                    inAudioSection = false;
+                    inDataChannelSection = false;
+                }
+
+                if (line.startsWith("a=ice-ufrag:")) {
+                    String ufrag = line.substring("a=ice-ufrag:".length()).trim();
+                    if (inAudioSection) {
+                        audioUfrag = ufrag;
+                    } else if (inDataChannelSection) {
+                        dataUfrag = ufrag;
+                    }
+                }
+
+                if (line.startsWith("a=ice-pwd:")) {
+                    String pwd = line.substring("a=ice-pwd:".length()).trim();
+                    if (inAudioSection) {
+                        audioPwd = pwd;
+                    } else if (inDataChannelSection) {
+                        dataPwd = pwd;
+                    }
+                }
+            }
+
+            if (audioUfrag != null) {
+                audioStream.setRemoteUfrag(audioUfrag);
+            }
+            if (audioPwd != null) {
+                audioStream.setRemotePassword(audioPwd);
+            }
+
+            if (dataUfrag != null) {
+                datachannelStream.setRemoteUfrag(dataUfrag);
+            }
+            if (dataPwd != null) {
+                datachannelStream.setRemotePassword(dataPwd);
+            }
+        }
+
+        private org.ice4j.ice.CandidateType mapCandidateType(String type) {
+            if (type == null) {
+                return org.ice4j.ice.CandidateType.HOST_CANDIDATE;
+            }
+            switch (type) {
+                case "host":
+                    return org.ice4j.ice.CandidateType.HOST_CANDIDATE;
+                case "srflx":
+                    return org.ice4j.ice.CandidateType.SERVER_REFLEXIVE_CANDIDATE;
+                case "relay":
+                    return org.ice4j.ice.CandidateType.RELAYED_CANDIDATE;
+                case "prflx":
+                    return org.ice4j.ice.CandidateType.PEER_REFLEXIVE_CANDIDATE;
+                default:
+                    return org.ice4j.ice.CandidateType.HOST_CANDIDATE;
+            }
+        }
         
         /**
          * Invert SDP media direction for answer (offer direction → answer direction).
@@ -535,6 +795,7 @@ public class WebRTCPeerManager {
             KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA", "BC");
             keyGen.initialize(2048);
             KeyPair keyPair = keyGen.generateKeyPair();
+            this.dtlsPrivateKey = keyPair.getPrivate();
             
             // Generate self-signed certificate
             X500Name issuer = new X500Name("CN=hytale-voice-server");

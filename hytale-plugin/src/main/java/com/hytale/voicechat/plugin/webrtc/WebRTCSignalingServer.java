@@ -230,6 +230,9 @@ public class WebRTCSignalingServer {
                     case "audio":
                         handleAudioData(ctx, message);
                         break;
+                    case "start_datachannel":
+                        handleStartDataChannel(ctx);
+                        break;
                     case SignalingMessage.TYPE_DISCONNECT:
                         handleDisconnect(ctx);
                         break;
@@ -369,6 +372,20 @@ public class WebRTCSignalingServer {
             int sdpMLineIndex = data.has("sdpMLineIndex") ? data.get("sdpMLineIndex").getAsInt() : -1;
 
             peerManager.handleIceCandidate(client.getClientId(), candidate, sdpMid, sdpMLineIndex);
+        }
+
+        private void handleStartDataChannel(ChannelHandlerContext ctx) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (peerManager == null) {
+                sendError(ctx, "WebRTC peer manager not available");
+                return;
+            }
+
+            peerManager.startDataChannelTransport(client.getClientId());
         }
         
         /**

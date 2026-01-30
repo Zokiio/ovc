@@ -18,6 +18,7 @@ export class WebRTCManager {
         this.dataChannel = null;
         this.audioStream = null;
         this.isConnected = false;
+        this.dataChannelStartRequested = false;
     }
     
     async initialize(mediaStream = null) {
@@ -67,6 +68,14 @@ export class WebRTCManager {
             this.isConnected = state === 'connected';
             if (window.ui) {
                 window.ui.updateConnectionStatus(state, this.isConnected);
+            }
+
+            if (state === 'connected' && !this.dataChannelStartRequested) {
+                this.dataChannelStartRequested = true;
+                if (this.signaling && this.signaling.isConnected()) {
+                    this.signaling.sendMessage('start_datachannel', {});
+                    log.info('Requested DataChannel transport start');
+                }
             }
         };
 
