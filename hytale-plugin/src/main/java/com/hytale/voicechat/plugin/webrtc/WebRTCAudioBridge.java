@@ -92,13 +92,15 @@ public class WebRTCAudioBridge {
             return;
         }
         
-        logger.atInfo().log("Received " + audioData.length + " bytes from WebRTC client: " + clientId);
+        // Per-packet logging disabled for performance (was causing audio stutters)
+        // Uncomment for debugging audio flow:
+        // logger.atFine().log("Received " + audioData.length + " bytes from client: " + clientId);
         
         AudioFrame frame = new AudioFrame(clientId, audioData, System.currentTimeMillis());
         
         // Try to add to queue, drop if full (prefer real-time over buffering)
         if (!audioQueue.offer(frame)) {
-            logger.atFine().log("Audio queue full, dropping frame from client: " + clientId);
+            logger.atWarning().log("Audio queue full, dropping frame from client: " + clientId);
         }
     }
     

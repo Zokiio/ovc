@@ -21,11 +21,14 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Samples player movement and updates the position tracker with a small throttle
  * to keep positional audio accurate without spamming updates.
+ * 
+ * Performance: Updates throttled to max 10Hz per player (100ms minimum interval)
+ * or when player moves >0.5 blocks to balance accuracy vs CPU usage.
  */
 public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements QuerySystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
-    private static final double MIN_DISTANCE_DELTA = 0.5; // blocks
-    private static final long MIN_INTERVAL_MS = 100; // throttle per player
+    private static final double MIN_DISTANCE_DELTA = 0.5; // blocks - update if moved this far
+    private static final long MIN_INTERVAL_MS = 100; // 10Hz max update rate per player
 
     private final PlayerPositionTracker positionTracker;
     private final Map<UUID, Sample> lastSamples = new ConcurrentHashMap<>();
@@ -93,16 +96,9 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             yaw = chooseDegrees(yawRaw, altY, altZ);
             pitch = chooseDegrees(pitchRaw, altX, null);
 
-            logger.atInfo().log("[ROT_CAPTURE] player=" + username
-                    + " yawRaw=" + safeD(yawRaw)
-                    + " pitchRaw=" + safeD(pitchRaw)
-                    + " altX=" + safeD(altX)
-                    + " altY=" + safeD(altY)
-                    + " altZ=" + safeD(altZ)
-                    + " yawDeg=" + String.format("%.2f", yaw)
-                    + " pitchDeg=" + String.format("%.2f", pitch)
-                    + " rotClass=" + rot.getClass().getSimpleName()
-                    + " rot=" + rot.toString());
+            // Rotation capture logging disabled for performance (was causing audio stutters)
+            // Uncomment for debugging rotation issues:
+            // logger.atFine().log("[ROT_CAPTURE] player=" + username + " yaw=" + String.format("%.2f", yaw) + " pitch=" + String.format("%.2f", pitch));
         } else {
             logger.atWarning().log("TransformComponent.getRotation() is NULL for player " + username);
         }

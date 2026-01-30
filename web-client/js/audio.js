@@ -17,22 +17,24 @@ export class AudioManager {
         log.info('Initializing audio system');
         
         try {
-            // Request microphone access
+            // Request microphone access with optimized constraints
             this.mediaStream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: CONFIG.AUDIO.sampleRate,
                     channelCount: CONFIG.AUDIO.channelCount,
                     echoCancellation: CONFIG.AUDIO.echoCancellation,
                     noiseSuppression: CONFIG.AUDIO.noiseSuppression,
-                    autoGainControl: CONFIG.AUDIO.autoGainControl
+                    autoGainControl: CONFIG.AUDIO.autoGainControl,
+                    latency: CONFIG.AUDIO.latency || 'interactive'  // Prioritize low latency
                 }
             });
             
             log.info('Microphone access granted');
             
-            // Create audio context
+            // Create audio context with low-latency settings
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                sampleRate: CONFIG.AUDIO.sampleRate
+                sampleRate: CONFIG.AUDIO.sampleRate,
+                latencyHint: 'interactive'  // Minimum latency for real-time audio
             });
             
             // Create source node from microphone
@@ -48,7 +50,7 @@ export class AudioManager {
                 this.workletNode = new AudioWorkletNode(this.audioContext, 'capture-processor', {
                     processorOptions: {
                         channelCount: CONFIG.AUDIO.channelCount,
-                        bufferSize: 1024
+                        bufferSize: CONFIG.AUDIO.bufferSize || 512  // Use config value (lower = less latency)
                     }
                 });
                 

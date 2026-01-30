@@ -13,13 +13,22 @@ export const CONFIG = {
         ]
     },
     
-    // Audio configuration
+    // Audio configuration (optimized for low-latency voice chat)
     AUDIO: {
-        sampleRate: 48000,
-        channelCount: 1, // Mono
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
+        sampleRate: 48000,          // Opus native rate (best quality)
+        channelCount: 1,            // Mono (voice chat standard)
+        echoCancellation: true,     // Prevent feedback loops
+        noiseSuppression: true,     // Remove background noise
+        autoGainControl: true,      // Normalize volume levels
+        latency: 'interactive',     // Prioritize low latency over quality
+        bufferSize: 512             // Lower buffer = lower latency (10.7ms @ 48kHz)
+    },
+    
+    // Proximity voice chat settings
+    PROXIMITY: {
+        maxDistance: 30.0,          // Maximum hearing distance (blocks)
+        fadeStart: 20.0,            // Distance where volume starts fading (blocks)
+        rolloffFactor: 1.5          // How quickly volume decreases with distance
     },
     
     // Connection settings
