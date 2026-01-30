@@ -24,8 +24,8 @@ export class AudioManager {
                     channelCount: CONFIG.AUDIO.channelCount,
                     echoCancellation: CONFIG.AUDIO.echoCancellation,
                     noiseSuppression: CONFIG.AUDIO.noiseSuppression,
-                    autoGainControl: CONFIG.AUDIO.autoGainControl,
-                    latency: CONFIG.AUDIO.latency || 'interactive'  // Prioritize low latency
+                    autoGainControl: CONFIG.AUDIO.autoGainControl
+                    // Note: latencyHint is for AudioContext, not getUserMedia constraints
                 }
             });
             

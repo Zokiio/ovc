@@ -20,7 +20,6 @@ export const CONFIG = {
         echoCancellation: true,     // Prevent feedback loops
         noiseSuppression: true,     // Remove background noise
         autoGainControl: true,      // Normalize volume levels
-        latency: 'interactive',     // Prioritize low latency over quality
         bufferSize: 512             // Lower buffer = lower latency (10.7ms @ 48kHz)
     },
     
