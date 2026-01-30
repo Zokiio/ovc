@@ -28,15 +28,18 @@ public class SimpleDatagramTransport implements DatagramTransport {
     
     /**
      * Create a simple UDP transport for DTLS (SFU/localhost mode).
-     * Server listens on 0.0.0.0:0 (any available port).
+     * Server listens on 0.0.0.0:0 (any available port on any interface).
      */
     public SimpleDatagramTransport() throws IOException {
-        // Create socket on localhost, any available port
-        this.socket = new DatagramSocket(0, InetAddress.getByName("127.0.0.1"));
+        // Create socket on all interfaces, any available port
+        // This allows clients to connect from any address (localhost, remote, etc.)
+        this.socket = new DatagramSocket(0, InetAddress.getByName("0.0.0.0"));
         this.localAddress = socket.getLocalAddress();
         this.localPort = socket.getLocalPort();
-        this.remoteAddress = InetAddress.getByName("127.0.0.1");
-        this.remotePort = 0; // Will be set when first packet received
+        
+        // Remote address will be set when first packet arrives from client
+        this.remoteAddress = null;
+        this.remotePort = 0;
         
         // Receive timeout for async operations
         this.socket.setSoTimeout(500);
@@ -45,7 +48,7 @@ public class SimpleDatagramTransport implements DatagramTransport {
         this.receiveLimit = 2048;
         this.sendLimit = 1200;
         
-        logger.atInfo().log("Created simple UDP transport for DTLS on " + localAddress.getHostAddress() + ":" + localPort);
+        logger.atInfo().log("Created simple UDP transport for DTLS on 0.0.0.0:" + localPort + " (listening on all interfaces)");
     }
     
     @Override
@@ -66,8 +69,8 @@ public class SimpleDatagramTransport implements DatagramTransport {
             DatagramPacket packet = new DatagramPacket(buf, off, len);
             socket.receive(packet);
             
-            // Update remote address on first packet
-            if (remotePort == 0) {
+            // Capture remote address from first packet
+            if (remoteAddress == null) {
                 remoteAddress = packet.getAddress();
                 remotePort = packet.getPort();
                 logger.atInfo().log("DTLS client identified: " + remoteAddress.getHostAddress() + ":" + remotePort);
@@ -81,8 +84,8 @@ public class SimpleDatagramTransport implements DatagramTransport {
     
     @Override
     public void send(byte[] buf, int off, int len) throws IOException {
-        if (remotePort == 0) {
-            logger.atWarning().log("Cannot send DTLS packet; remote address not yet known");
+        if (remoteAddress == null || remotePort == 0) {
+            logger.atWarning().log("Cannot send DTLS packet; remote address not yet known. Waiting for first packet from client.");
             return;
         }
         

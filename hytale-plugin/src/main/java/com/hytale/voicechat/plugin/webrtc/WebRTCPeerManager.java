@@ -228,7 +228,11 @@ public class WebRTCPeerManager {
             logger.atWarning().log("Cannot start DataChannel transport; session not found for client " + clientId);
             return;
         }
+        long startTime = System.currentTimeMillis();
+        logger.atInfo().log("Initiating DataChannel transport for client " + clientId);
         session.startDataChannelTransport();
+        long duration = System.currentTimeMillis() - startTime;
+        logger.atInfo().log("DataChannel transport initialization completed in " + duration + "ms for client " + clientId);
     }
 
     private void flushPendingIceCandidates(UUID clientId, WebRTCPeerSession session) {
@@ -441,25 +445,36 @@ public class WebRTCPeerManager {
          */
         void startDataChannelTransport() {
             if (dtlsTransport != null || sctpTransport != null) {
+                logger.atWarning().log("DataChannel transport already started for client " + clientId);
                 return;
             }
 
+            logger.atInfo().log("Waiting for Ice4j datachannel component to be created...");
             // Wait for datachannel component to be created by harvesters
             // Components are created during candidate gathering (async process)
-            Component dataComponent = waitForComponent(datachannelStream, 1, 5000);
+            // Increase timeout to 10 seconds for slow network environments
+            Component dataComponent = waitForComponent(datachannelStream, 1, 10000);
             
             org.bouncycastle.tls.DatagramTransport transport = null;
             
             if (dataComponent != null) {
-                logger.atInfo().log("Using Ice4j component for datachannel transport: " + clientId);
+                logger.atInfo().log("Using Ice4j component for datachannel transport with client " + clientId);
                 transport = new Ice4jDatagramTransport(dataComponent);
             } else {
-                // Fallback: use simple UDP transport for localhost testing only
-                logger.atWarning().log("DataChannel: Ice4j component unavailable after 5s; using fallback UDP transport for testing");
+                // Log all available components for debugging
+                int componentCount = 0;
+                for (int i = 1; i <= 5; i++) {
+                    if (datachannelStream.getComponent(i) != null) {
+                        componentCount++;
+                    }
+                }
+                
+                logger.atWarning().log("DataChannel: Ice4j component unavailable after 10s (found " + componentCount + 
+                    " components); using fallback UDP transport for testing");
                 try {
                     transport = new SimpleDatagramTransport();
                 } catch (Exception e) {
-                    logger.atWarning().log("Failed to create fallback transport: " + e.getMessage());
+                    logger.atSevere().log("Failed to create fallback transport: " + e.getMessage());
                     return;
                 }
             }
@@ -471,6 +486,7 @@ public class WebRTCPeerManager {
             dtlsTransport.setHandshakeListener(new DtlsTransport.DtlsHandshakeListener() {
                 @Override
                 public void onHandshakeComplete() {
+                    logger.atInfo().log("DTLS handshake completed successfully for client " + clientId);
                     sctpTransport = new SctpTransport(clientId.toString(), dtlsTransport);
                     dataChannelManager = new DataChannelManager(clientId.toString(), sctpTransport);
 
@@ -481,6 +497,7 @@ public class WebRTCPeerManager {
                                 return;
                             }
 
+                            logger.atInfo().log("Audio DataChannel opened for client " + clientId + " (stream " + channel.streamId + ")");
                             audioStreamId.set(channel.streamId);
                             channel.open = true;
 
@@ -536,7 +553,7 @@ public class WebRTCPeerManager {
 
                         @Override
                         public void onError(Exception error) {
-                            logger.atWarning().log("SCTP transport error for client " + clientId + ": " + error.getMessage());
+                            logger.atSevere().log("SCTP transport error for client " + clientId + ": " + error.getMessage());
                         }
                     });
 
@@ -545,15 +562,19 @@ public class WebRTCPeerManager {
 
                 @Override
                 public void onHandshakeFailed(Exception error) {
-                    logger.atWarning().log("DTLS handshake failed for client " + clientId + ": " + error.getMessage());
+                    logger.atSevere().log("DTLS handshake failed for client " + clientId + ": " + error.getMessage());
                 }
             });
 
             new Thread(() -> {
+                long dtlsStartTime = System.currentTimeMillis();
                 try {
+                    logger.atInfo().log("Starting DTLS handshake for client " + clientId);
                     dtlsTransport.startHandshake(finalTransport);
+                    long dtlsDuration = System.currentTimeMillis() - dtlsStartTime;
+                    logger.atInfo().log("DTLS handshake initiated (duration: " + dtlsDuration + "ms) for client " + clientId);
                 } catch (IOException e) {
-                    logger.atWarning().log("DTLS handshake error for client " + clientId + ": " + e.getMessage());
+                    logger.atSevere().log("DTLS handshake error for client " + clientId + ": " + e.getMessage());
                 }
             }, "dtls-handshake-" + clientId).start();
             }
