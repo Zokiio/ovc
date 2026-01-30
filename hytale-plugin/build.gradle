@@ -94,6 +94,22 @@ dependencies {
     
     // JSON processing
     implementation "com.google.code.gson:gson:${gson_version}"
+    
+    // Testing (root project)
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    
+    // Test dependencies for WebRTC classes
+    testImplementation 'org.jitsi:ice4j:3.2-12-gc2cbf61'
+    testImplementation 'org.bouncycastle:bcprov-lts8on:2.73.10'
+    testImplementation 'org.jitsi:jitsi-utils:1.0-96-g34a49d5'
+    testImplementation "io.netty:netty-all:${netty_version}"
+    testImplementation 'com.google.code.gson:gson:${gson_version}'
+}
+
+// Configure test framework for root project
+test {
+    useJUnitPlatform()
 }
 
 // Configure JAR to include dependencies (fat JAR)
