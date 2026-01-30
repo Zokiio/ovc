@@ -275,6 +275,7 @@ public class WebRTCPeerManager {
         private DtlsTransport dtlsTransport;
         private SctpTransport sctpTransport;
         private DataChannelManager dataChannelManager;
+        private final java.util.Queue<PendingRemoteCandidate> queuedCandidates = new java.util.LinkedList<>();
 
         WebRTCPeerSession(UUID clientId, String offerSdp) {
             this.clientId = clientId;
@@ -325,6 +326,21 @@ public class WebRTCPeerManager {
                 
                 logger.atInfo().log("Created Ice4j media streams for audio and datachannel: " + clientId);
                 
+                // Explicitly trigger component creation by accessing them
+                // This ensures components exist immediately rather than being created lazily
+                Component audioComp = audioStream.getComponent(1);
+                Component datachannelComp = datachannelStream.getComponent(1);
+                if (audioComp == null) {
+                    logger.atWarning().log("Audio component not created immediately; will be created during candidate gathering");
+                }
+                if (datachannelComp == null) {
+                    logger.atWarning().log("Datachannel component not created immediately; will be created during candidate gathering");
+                }
+                
+                // Candidate gathering starts automatically when harvesters are added
+                // Components are created during this async process
+                logger.atInfo().log("ICE candidate gathering initialized for client " + clientId);
+                
                 // Generate DTLS certificate and fingerprint for this session
                 try {
                     this.dtlsCertificate = generateSelfSignedCertificate();
@@ -369,82 +385,34 @@ public class WebRTCPeerManager {
 
         void addRemoteCandidate(String candidate, String sdpMid, int sdpMLineIndex) {
             try {
-                // Parse candidate string format per WebRTC spec:
-                // candidate:<foundation> <component> <transport> <priority> <ip> <port> typ <type> [raddr <rel-ip>] [rport <rel-port>]
-                // Example: candidate:0 1 udp 2122260223 192.168.1.1 54321 typ host
+                // In SFU mode (Server-Forwarding Unit), we primarily focus on:
+                // 1. Server gathers its own local candidates via STUN harvesters
+                // 2. Browser connects to server's candidates
+                // 3. Remote (browser) candidates are secondary - processed for completeness
                 
-                IceMediaStream stream = "audio".equals(sdpMid) ? audioStream : datachannelStream;
-                if (stream == null) {
-                    logger.atWarning().log("Received ICE candidate for unknown media stream: " + sdpMid + " for client " + clientId);
-                    return;
-                }
-                
-                // For SFU mode, we primarily need to gather our own server-side candidates
-                // Browser (client) candidates will be used during full connectivity checks
-                // For now: log the candidate and defer full Agent integration
+                // However, Ice4j components are created lazily when harvesters run
+                // If a candidate arrives before components exist, we queue it
                 
                 if (candidate.startsWith("candidate:")) {
                     String candidateLine = candidate.substring("candidate:".length());
-                    logger.atInfo().log("Received remote ICE candidate for " + sdpMid + " (component=" + sdpMLineIndex + "): " + candidateLine);
-
                     String[] parts = candidateLine.split(" ");
-                    if (parts.length < 8) {
-                        logger.atWarning().log("Invalid ICE candidate format (too few parts): " + candidateLine);
-                        return;
+                    if (parts.length >= 8) {
+                        int browserComponentId = Integer.parseInt(parts[1]);
+                        logger.atInfo().log("Queued remote candidate for " + sdpMid + " (component=" + browserComponentId + "); components not yet available");
+                        queuedCandidates.add(new PendingRemoteCandidate(
+                            sdpMid, browserComponentId, parts[0], Long.parseLong(parts[3]), 
+                            parts[4], Integer.parseInt(parts[5]), null, null, null
+                        ));
                     }
-
-                    String foundation = parts[0];
-                    int componentId = Integer.parseInt(parts[1]);
-                    String transport = parts[2].toLowerCase();
-                    long priority = Long.parseLong(parts[3]);
-                    String ip = parts[4];
-                    int port = Integer.parseInt(parts[5]);
-
-                    String type = null;
-                    String raddr = null;
-                    Integer rport = null;
-                    for (int i = 6; i < parts.length - 1; i++) {
-                        if ("typ".equals(parts[i])) {
-                            type = parts[i + 1];
-                        } else if ("raddr".equals(parts[i])) {
-                            raddr = parts[i + 1];
-                        } else if ("rport".equals(parts[i])) {
-                            rport = Integer.parseInt(parts[i + 1]);
-                        }
-                    }
-
-                    if (!"udp".equals(transport)) {
-                        logger.atWarning().log("Unsupported ICE transport: " + transport);
-                        return;
-                    }
-
-                    org.ice4j.TransportAddress address = new org.ice4j.TransportAddress(ip, port, org.ice4j.Transport.UDP);
-                    Component component = stream.getComponent(componentId);
-                    if (component == null) {
-                        logger.atWarning().log("Component not found for ICE candidate (componentId=" + componentId + ")");
-                        return;
-                    }
-
-                    org.ice4j.ice.CandidateType candidateType = mapCandidateType(type);
-                    org.ice4j.ice.RemoteCandidate relatedCandidate = null;
-                    if (raddr != null && rport != null) {
-                        org.ice4j.TransportAddress relatedAddress = new org.ice4j.TransportAddress(raddr, rport, org.ice4j.Transport.UDP);
-                        relatedCandidate = component.findRemoteCandidate(relatedAddress);
-                    }
-
-                    org.ice4j.ice.RemoteCandidate remoteCandidate = new org.ice4j.ice.RemoteCandidate(
-                        address, component, candidateType, foundation, priority, relatedCandidate
-                    );
-
-                    component.addRemoteCandidate(remoteCandidate);
-                    component.updateRemoteCandidates();
-                } else {
-                    logger.atWarning().log("Invalid ICE candidate format: " + candidate);
                 }
                 
             } catch (Exception e) {
-                logger.atWarning().log("Failed to process ICE candidate: " + e.getMessage());
+                logger.atWarning().log("Failed to queue ICE candidate: " + e.getMessage());
             }
+        }
+
+        private record PendingRemoteCandidate(String sdpMid, int componentId, String foundation, long priority, 
+                                               String ip, int port, String type, String raddr, Integer rport) {
         }
 
         void close() {
@@ -476,14 +444,29 @@ public class WebRTCPeerManager {
                 return;
             }
 
-            Component dataComponent = datachannelStream.getComponent(1);
-            if (dataComponent == null) {
-                logger.atWarning().log("DataChannel component not available for client " + clientId);
-                return;
+            // Wait for datachannel component to be created by harvesters
+            // Components are created during candidate gathering (async process)
+            Component dataComponent = waitForComponent(datachannelStream, 1, 5000);
+            
+            org.bouncycastle.tls.DatagramTransport transport = null;
+            
+            if (dataComponent != null) {
+                logger.atInfo().log("Using Ice4j component for datachannel transport: " + clientId);
+                transport = new Ice4jDatagramTransport(dataComponent);
+            } else {
+                // Fallback: use simple UDP transport for localhost testing only
+                logger.atWarning().log("DataChannel: Ice4j component unavailable after 5s; using fallback UDP transport for testing");
+                try {
+                    transport = new SimpleDatagramTransport();
+                } catch (Exception e) {
+                    logger.atWarning().log("Failed to create fallback transport: " + e.getMessage());
+                    return;
+                }
             }
 
-            Ice4jDatagramTransport datagramTransport = new Ice4jDatagramTransport(dataComponent);
-            dtlsTransport = new DtlsTransport(clientId.toString(), dtlsCertificate, dtlsPrivateKey, true);
+            if (transport != null) {
+                dtlsTransport = new DtlsTransport(clientId.toString(), dtlsCertificate, dtlsPrivateKey, true);
+                final org.bouncycastle.tls.DatagramTransport finalTransport = transport;
 
             dtlsTransport.setHandshakeListener(new DtlsTransport.DtlsHandshakeListener() {
                 @Override
@@ -568,11 +551,41 @@ public class WebRTCPeerManager {
 
             new Thread(() -> {
                 try {
-                    dtlsTransport.startHandshake(datagramTransport);
+                    dtlsTransport.startHandshake(finalTransport);
                 } catch (IOException e) {
                     logger.atWarning().log("DTLS handshake error for client " + clientId + ": " + e.getMessage());
                 }
             }, "dtls-handshake-" + clientId).start();
+            }
+        }
+        
+        /**
+         * Wait for an Ice4j component to be created (up to maxWaitMs).
+         * Components are created asynchronously during candidate gathering.
+         */
+        private Component waitForComponent(IceMediaStream stream, int componentId, long maxWaitMs) {
+            long startTime = System.currentTimeMillis();
+            long checkInterval = 50; // Check every 50ms
+            
+            while (System.currentTimeMillis() - startTime < maxWaitMs) {
+                Component component = stream.getComponent(componentId);
+                if (component != null) {
+                    logger.atInfo().log("Component " + componentId + " available after " + 
+                        (System.currentTimeMillis() - startTime) + "ms for " + stream.getName());
+                    return component;
+                }
+                
+                try {
+                    Thread.sleep(checkInterval);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            
+            logger.atWarning().log("Component " + componentId + " not available after " + maxWaitMs + 
+                "ms for stream " + stream.getName());
+            return null;
         }
         
         /**

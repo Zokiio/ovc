@@ -74,14 +74,35 @@ export class WebRTCManager {
                 this.dataChannelStartRequested = true;
                 if (this.signaling && this.signaling.isConnected()) {
                     this.signaling.sendMessage('start_datachannel', {});
-                    log.info('Requested DataChannel transport start');
+                    log.info('Requested DataChannel transport start (connectionState=connected)');
                 }
             }
         };
 
         this.peerConnection.oniceconnectionstatechange = () => {
-            log.info('ICE connection state:', this.peerConnection.iceConnectionState);
+            const iceState = this.peerConnection.iceConnectionState;
+            log.info('ICE connection state:', iceState);
+            
+            // In case connectionState never reaches 'connected' (e.g., localhost without full ICE),
+            // also trigger start_datachannel when ICE reaches 'connected' or 'completed'
+            if ((iceState === 'connected' || iceState === 'completed') && !this.dataChannelStartRequested) {
+                this.dataChannelStartRequested = true;
+                if (this.signaling && this.signaling.isConnected()) {
+                    this.signaling.sendMessage('start_datachannel', {});
+                    log.info('Requested DataChannel transport start (iceConnectionState=' + iceState + ')');
+                }
+            }
         };
+        
+        // Fallback: send start_datachannel after 3 seconds anyway
+        // In localhost/testing, ICE might not complete fully but DTLS can still work
+        setTimeout(() => {
+            if (!this.dataChannelStartRequested && this.signaling && this.signaling.isConnected()) {
+                this.dataChannelStartRequested = true;
+                this.signaling.sendMessage('start_datachannel', {});
+                log.info('Requested DataChannel transport start (timer fallback after 3s)');
+            }
+        }, 3000);
 
         // Create and send SDP offer
         const offer = await this.peerConnection.createOffer({
