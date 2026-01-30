@@ -39,9 +39,20 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WebRTCPeerManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
-    // Initialize BouncyCastle provider for DTLS certificate generation
+    // Initialize BouncyCastle provider and Ice4j configuration
     static {
         java.security.Security.addProvider(new BouncyCastleProvider());
+        
+        // Configure Ice4j with default values to suppress config warnings
+        // These properties prevent ConfigException when Ice4j tries to initialize
+        try {
+            System.setProperty("org.ice4j.ice.CONSENT_FRESHNESS_INTERVAL", "30000");
+            System.setProperty("org.ice4j.ice.CONSENT_FRESHNESS_ORIGINAL_INTERVAL", "5000");
+            System.setProperty("org.ice4j.stack.TERMINATION_TIMEOUT", "1000");
+            logger.atInfo().log("Ice4j system properties configured");
+        } catch (Exception e) {
+            logger.atWarning().log("Failed to configure Ice4j properties: " + e.getMessage());
+        }
     }
 
     private final Map<UUID, WebRTCPeerSession> sessions = new ConcurrentHashMap<>();
