@@ -279,7 +279,6 @@ public class WebRTCPeerManager {
         private DtlsTransport dtlsTransport;
         private SctpTransport sctpTransport;
         private DataChannelManager dataChannelManager;
-        private final java.util.Queue<PendingRemoteCandidate> queuedCandidates = new java.util.LinkedList<>();
 
         WebRTCPeerSession(UUID clientId, String offerSdp) {
             this.clientId = clientId;
@@ -406,28 +405,20 @@ public class WebRTCPeerManager {
                 // 3. Remote (browser) candidates are secondary - processed for completeness
                 
                 // However, Ice4j components are created lazily when harvesters run
-                // If a candidate arrives before components exist, we queue it
+                // Remote candidates are logged but not explicitly queued since Ice4j handles them
                 
                 if (candidate.startsWith("candidate:")) {
                     String candidateLine = candidate.substring("candidate:".length());
                     String[] parts = candidateLine.split(" ");
                     if (parts.length >= 8) {
                         int browserComponentId = Integer.parseInt(parts[1]);
-                        logger.atInfo().log("Queued remote candidate for " + sdpMid + " (component=" + browserComponentId + "); components not yet available");
-                        queuedCandidates.add(new PendingRemoteCandidate(
-                            sdpMid, browserComponentId, parts[0], Long.parseLong(parts[3]), 
-                            parts[4], Integer.parseInt(parts[5]), null, null, null
-                        ));
+                        logger.atInfo().log("Received remote candidate for " + sdpMid + " (component=" + browserComponentId + ")");
                     }
                 }
                 
             } catch (Exception e) {
-                logger.atWarning().log("Failed to queue ICE candidate: " + e.getMessage());
+                logger.atWarning().log("Failed to process ICE candidate: " + e.getMessage());
             }
-        }
-
-        private record PendingRemoteCandidate(String sdpMid, int componentId, String foundation, long priority, 
-                                               String ip, int port, String type, String raddr, Integer rport) {
         }
 
         void close() {

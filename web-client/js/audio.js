@@ -218,8 +218,6 @@ export class AudioManager {
             return;
         }
         
-        const bufferFillBefore = this.playbackWritePos - this.playbackReadPos;
-        
         // Convert int16 to float32 and write to ring buffer
         for (let i = 0; i < int16Data.length; i++) {
             const floatSample = int16Data[i] / (int16Data[i] < 0 ? 0x8000 : 0x7FFF);
