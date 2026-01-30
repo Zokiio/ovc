@@ -17,9 +17,7 @@ export class AudioManager {
         this.playbackBufferSize = 48000 * 2; // 2 seconds at 48kHz
         this.playbackWritePos = 0;
         this.playbackReadPos = 0;
-        this.playbackSource = null;
-        this.playbackGain = null;
-        this.playbackStartTime = null;
+        this.playbackProcessor = null;
         this.isPlaybackInitialized = false;
     }
     
@@ -107,10 +105,10 @@ export class AudioManager {
         }
     }
     
-        getMediaStream() {
-            return this.mediaStream;
-        }
-    
+    getMediaStream() {
+        return this.mediaStream;
+    }
+
     processAudioInput(audioData) {
         // Convert Float32Array to Int16Array for transmission
         // In a real implementation, we would encode with Opus here
@@ -186,11 +184,8 @@ export class AudioManager {
         this.playbackWritePos = 0;
         this.playbackReadPos = 0;
         
-        // Create a continuous audio source
-        // Use a ScriptProcessorNode or AudioWorklet to pull from buffer
+        // Create a continuous audio source using ScriptProcessorNode
         try {
-            // Try to use AudioWorklet first (preferred)
-            // For now, we'll use ScriptProcessorNode as fallback for Web Audio simplicity
             const bufferSize = 4096; // ~85ms at 48kHz
             this.playbackProcessor = this.audioContext.createScriptProcessor(bufferSize, 0, 1);
             
@@ -208,6 +203,55 @@ export class AudioManager {
                     }
                 }
             };
+            
+            this.playbackProcessor.connect(this.audioContext.destination);
+            this.isPlaybackInitialized = true;
+            log.info('Continuous playback buffer initialized successfully');
+        } catch (error) {
+            log.error('Failed to initialize playback buffer:', error.message);
+        }
+    }
+    
+    writeToPlaybackBuffer(int16Data) {
+        if (!this.playbackBuffer) {
+            return;
+        }
+        
+        // Convert int16 to float32 and write to ring buffer
+        for (let i = 0; i < int16Data.length; i++) {
+            const floatSample = int16Data[i] / (int16Data[i] < 0 ? 0x8000 : 0x7FFF);
+            this.playbackBuffer[this.playbackWritePos % this.playbackBufferSize] = floatSample;
+            this.playbackWritePos++;
+            
+            // Detect buffer overflow (incoming audio faster than playback)
+            if (this.playbackWritePos - this.playbackReadPos > this.playbackBufferSize * 0.9) {
+                log.warn('Playback buffer overflow, dropping oldest audio');
+                this.playbackReadPos += int16Data.length; // Skip ahead
+            }
+        }
+    }
+    
+    mute() {
+        this.isMuted = true;
+        log.info('Microphone muted');
+    }
+    
+    unmute() {
+        this.isMuted = false;
+        log.info('Microphone unmuted');
+    }
+    
+    toggleMute() {
+        if (this.isMuted) {
+            this.unmute();
+        } else {
+            this.mute();
+        }
+        return this.isMuted;
+    }
+    
+    stop() {
+        this.isActive = false;
         this.isPlaybackInitialized = false;
         
         if (this.playbackProcessor) {
@@ -246,56 +290,7 @@ export class AudioManager {
             this.audioContext = null;
         }
         
-        this.playbackBuffer = null;og.info('Microphone muted');
-    }
-    
-    unmute() {
-        this.isMuted = false;
-        log.info('Microphone unmuted');
-    }
-    
-    toggleMute() {
-        if (this.isMuted) {
-            this.unmute();
-        } else {
-            this.mute();
-        }
-        return this.isMuted;
-    }
-    
-    stop() {
-        this.isActive = false;
-        
-        if (this.workletNode) {
-            this.workletNode.port.onmessage = null;
-            this.workletNode.disconnect();
-            this.workletNode = null;
-        }
-        
-        if (this.sinkNode) {
-            this.sinkNode.disconnect();
-            this.sinkNode = null;
-        }
-
-        if (this.processorNode) {
-            this.processorNode.disconnect();
-            this.processorNode = null;
-        }
-        
-        if (this.sourceNode) {
-            this.sourceNode.disconnect();
-            this.sourceNode = null;
-        }
-        
-        if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach(track => track.stop());
-            this.mediaStream = null;
-        }
-        
-        if (this.audioContext) {
-            this.audioContext.close();
-            this.audioContext = null;
-        }
+        this.playbackBuffer = null;
         
         log.info('Audio system stopped');
     }
