@@ -131,12 +131,12 @@ export class SignalingClient {
         const { type, data } = message;
         
         // Log audio messages with summary info
-        if (type === 'audio') {
-            const audioSize = data && data.audioData ? data.audioData.length : 0;
-            log.debug('Received audio message, size:', audioSize);
-        } else {
-            log.debug('Received message:', type, data);
-        }
+        // if (type === 'audio') {
+        //     const audioSize = data && data.audioData ? data.audioData.length : 0;
+        //     log.debug('Received audio message, size:', audioSize);
+        // } else {
+        //     log.debug('Received message:', type, data);
+        // }
         
         const handler = this.messageHandlers.get(type);
         if (handler) {
