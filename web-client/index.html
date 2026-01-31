@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hytale Voice Chat - Web Client</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎙️ Hytale Voice Chat</h1>
+            <p class="subtitle">Browser-based proximity voice chat</p>
+        </header>
+
+        <main>
+            <div id="connection-panel" class="panel">
+                <h2>Connect to Server</h2>
+                <form id="connect-form">
+                    <div class="form-group">
+                        <label for="username">Username:</label>
+                        <input type="text" id="username" required 
+                               placeholder="Your Hytale username" 
+                               autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="server">Server Address:</label>
+                        <input type="text" id="server" required 
+                               placeholder="hytale.server.com" 
+                               autocomplete="url">
+                    </div>
+                    <button type="submit" id="connect-btn" class="btn btn-primary">
+                        Connect
+                    </button>
+                </form>
+            </div>
+
+            <div id="voice-panel" class="panel hidden">
+                <h2>Voice Chat</h2>
+                <div class="status-section">
+                    <div class="status-item">
+                        <span class="status-label">Connection:</span>
+                        <span id="connection-status" class="status-value">Disconnected</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Microphone:</span>
+                        <span id="mic-status" class="status-value">Inactive</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">Username:</span>
+                        <span id="user-display" class="status-value">-</span>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <button id="mute-btn" class="btn btn-secondary">
+                        🎤 Mute
+                    </button>
+                    <button id="disconnect-btn" class="btn btn-danger">
+                        ❌ Disconnect
+                    </button>
+                </div>
+
+                <div class="info-section">
+                    <p><strong>🔊 Voice Activated:</strong> Your microphone is live. Speak normally to communicate with nearby players.</p>
+                    <p><strong>📡 Proximity-based:</strong> Only players within 30 blocks can hear you.</p>
+                </div>
+            </div>
+
+            <div id="error-panel" class="panel panel-error hidden">
+                <h3>⚠️ Error</h3>
+                <p id="error-message"></p>
+                <button id="dismiss-error-btn" class="btn btn-secondary">Dismiss</button>
+            </div>
+        </main>
+
+        <footer>
+            <p>Hytale Voice Chat Web Client v1.0</p>
+            <p class="footer-note">
+                <strong>Note:</strong> Microphone access required. 
+                For best experience, use Chrome/Firefox 
+                <a href="https://github.com/Zokiio/hytale-voicechat" target="_blank">View on GitHub</a>
+            </p>
+        </footer>
+    </div>
+
+    <!-- Load JavaScript as ES module -->
+    <script type="module" src="/js/main.js"></script>
+</body>
+</html>

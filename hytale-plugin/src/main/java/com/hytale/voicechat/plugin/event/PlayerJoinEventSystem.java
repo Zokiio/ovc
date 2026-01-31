@@ -12,7 +12,6 @@ import com.hypixel.hytale.server.core.modules.entity.component.HeadRotation;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
-import com.hytale.voicechat.plugin.network.UDPSocketManager;
 
 import javax.annotation.Nonnull;
 
@@ -23,11 +22,9 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final PlayerPositionTracker positionTracker;
-    private final UDPSocketManager udpServer;
 
-    public PlayerJoinEventSystem(PlayerPositionTracker positionTracker, UDPSocketManager udpServer) {
+    public PlayerJoinEventSystem(PlayerPositionTracker positionTracker, Object ignored) {
         this.positionTracker = positionTracker;
-        this.udpServer = udpServer;
     }
 
     public PlayerJoinEventSystem(PlayerPositionTracker positionTracker) {
@@ -86,11 +83,6 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
             
             logger.atInfo().log("Player quit: " + username + " (UUID: " + playerUUID + ")");
             positionTracker.removePlayer(playerUUID);
-            
-            // Disconnect the player's voice client if they have one connected
-            if (udpServer != null) {
-                udpServer.disconnectPlayerVoiceClient(playerUUID);
-            }
             
             // Clean up any open voice chat pages for this player
             try {
