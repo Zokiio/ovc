@@ -176,9 +176,10 @@ export function useVoiceActivity({
       // Set up audio capture for transmission (using AudioWorklet)
       // Always set up the worklet so it's ready when enableAudioCapture becomes true
       try {
-        // Load the AudioWorklet processor
+        // Load the AudioWorklet processor (cache-bust to ensure latest version)
+        const cacheBuster = `?v=${Date.now()}`
         console.log('[VAD] Loading AudioWorklet module...')
-        await audioContext.audioWorklet.addModule('/audio-capture-processor.js')
+        await audioContext.audioWorklet.addModule(`/audio-capture-processor.js${cacheBuster}`)
         console.log('[VAD] AudioWorklet module loaded successfully')
         
         // Create the worklet node
