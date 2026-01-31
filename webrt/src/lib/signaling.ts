@@ -43,7 +43,9 @@ export class SignalingClient {
         // Ensure server URL has proper protocol
         let url = serverUrl
         if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
-          url = `ws://${url}`
+          // Use secure WebSocket if page is HTTPS, otherwise insecure
+          const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://'
+          url = `${protocol}${url}`
         }
         // Ensure /voice path
         if (!url.endsWith('/voice')) {
