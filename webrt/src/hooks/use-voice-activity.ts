@@ -71,8 +71,8 @@ export function useVoiceActivity({
   const lastLevelUpdateRef = useRef<number>(0)
   const lastReportedLevelRef = useRef<number>(0)
   
-  // Audio capture refs
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null)
+  // Audio capture refs (using AudioWorkletNode)
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const isSpeakingRef = useRef(false)  // Non-reactive ref for use in processor callback
   const onAudioDataRef = useRef(onAudioData)  // Keep callback ref updated
   
@@ -83,6 +83,10 @@ export function useVoiceActivity({
   
   useEffect(() => {
     isSpeakingRef.current = isSpeaking
+    // Notify worklet of speaking status change
+    if (workletNodeRef.current) {
+      workletNodeRef.current.port.postMessage({ type: 'speaking', value: isSpeaking })
+    }
   }, [isSpeaking])
 
   const stopListening = useCallback(() => {
@@ -101,10 +105,10 @@ export function useVoiceActivity({
       silenceTimeoutRef.current = null
     }
 
-    // Clean up script processor for audio capture
-    if (scriptProcessorRef.current) {
-      scriptProcessorRef.current.disconnect()
-      scriptProcessorRef.current = null
+    // Clean up AudioWorklet node for audio capture
+    if (workletNodeRef.current) {
+      workletNodeRef.current.disconnect()
+      workletNodeRef.current = null
     }
 
     if (streamRef.current) {
@@ -167,30 +171,33 @@ export function useVoiceActivity({
       microphoneRef.current = microphone
       microphone.connect(analyser)
 
-      // Set up audio capture for transmission if enabled
+      // Set up audio capture for transmission if enabled (using AudioWorklet)
       if (enableAudioCapture) {
-        console.log('[VAD] Setting up audio capture for transmission')
-        // Use ScriptProcessorNode (deprecated but widely supported)
-        // Buffer size of 4096 samples at 48kHz = ~85ms per buffer
-        const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1)
-        scriptProcessorRef.current = scriptProcessor
-        
-        scriptProcessor.onaudioprocess = (event) => {
-          // Only capture and send audio when speaking
-          if (onAudioDataRef.current) {
-            // Check speaking status
-            if (isSpeakingRef.current) {
-              const inputData = event.inputBuffer.getChannelData(0)
-              const audioData = float32ToBase64(inputData)
+        console.log('[VAD] Setting up audio capture for transmission using AudioWorklet')
+        try {
+          // Load the AudioWorklet processor
+          await audioContext.audioWorklet.addModule('/audio-capture-processor.js')
+          
+          // Create the worklet node
+          const workletNode = new AudioWorkletNode(audioContext, 'audio-capture-processor')
+          workletNodeRef.current = workletNode
+          
+          // Handle audio data from worklet
+          workletNode.port.onmessage = (event) => {
+            if (event.data.type === 'audioData' && onAudioDataRef.current) {
+              const float32Data = new Float32Array(event.data.data)
+              const audioData = float32ToBase64(float32Data)
               console.log('[VAD] Capturing audio frame, length:', audioData.length)
               onAudioDataRef.current(audioData)
             }
           }
+          
+          // Connect: microphone → workletNode
+          microphone.connect(workletNode)
+          // Note: worklet doesn't need to connect to destination
+        } catch (workletError) {
+          console.error('[VAD] AudioWorklet failed, audio capture disabled:', workletError)
         }
-        
-        // Connect: microphone → scriptProcessor → destination (silent output)
-        microphone.connect(scriptProcessor)
-        scriptProcessor.connect(audioContext.destination)
       }
 
       setIsInitialized(true)
@@ -315,8 +322,8 @@ export function useVoiceActivity({
   // Restart when enableAudioCapture changes (need to re-setup the audio pipeline)
   useEffect(() => {
     if (enabled && isInitialized && enableAudioCapture) {
-      // Need to restart to add the script processor
-      if (!scriptProcessorRef.current) {
+      // Need to restart to add the worklet node
+      if (!workletNodeRef.current) {
         console.log('[VAD] Audio capture enabled, restarting to setup capture pipeline')
         stopListening()
         // Defer restart slightly to allow cleanup
