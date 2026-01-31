@@ -73,21 +73,23 @@ export function useVoiceActivity({
   
   // Audio capture refs (using AudioWorkletNode)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
-  const isSpeakingRef = useRef(false)  // Non-reactive ref for use in processor callback
   const onAudioDataRef = useRef(onAudioData)  // Keep callback ref updated
+  const enableAudioCaptureRef = useRef(enableAudioCapture)
   
   // Update refs when props change
   useEffect(() => {
     onAudioDataRef.current = onAudioData
   }, [onAudioData])
   
+  // Activate/deactivate audio capture based on enableAudioCapture prop
   useEffect(() => {
-    isSpeakingRef.current = isSpeaking
-    // Notify worklet of speaking status change
+    enableAudioCaptureRef.current = enableAudioCapture
+    // Notify worklet of active status change
     if (workletNodeRef.current) {
-      workletNodeRef.current.port.postMessage({ type: 'speaking', value: isSpeaking })
+      console.log('[VAD] Sending active status to worklet:', enableAudioCapture)
+      workletNodeRef.current.port.postMessage({ type: 'active', value: enableAudioCapture })
     }
-  }, [isSpeaking])
+  }, [enableAudioCapture])
 
   const stopListening = useCallback(() => {
     if (animationFrameRef.current) {
@@ -173,33 +175,34 @@ export function useVoiceActivity({
       microphoneRef.current = microphone
       microphone.connect(analyser)
 
-      // Set up audio capture for transmission if enabled (using AudioWorklet)
-      if (enableAudioCapture) {
-        console.log('[VAD] Setting up audio capture for transmission using AudioWorklet')
-        try {
-          // Load the AudioWorklet processor
-          await audioContext.audioWorklet.addModule('/audio-capture-processor.js')
-          
-          // Create the worklet node
-          const workletNode = new AudioWorkletNode(audioContext, 'audio-capture-processor')
-          workletNodeRef.current = workletNode
-          
-          // Handle audio data from worklet
-          workletNode.port.onmessage = (event) => {
-            if (event.data.type === 'audioData' && onAudioDataRef.current) {
-              const float32Data = new Float32Array(event.data.data)
-              const audioData = float32ToBase64(float32Data)
-              console.log('[VAD] Capturing audio frame, length:', audioData.length)
-              onAudioDataRef.current(audioData)
-            }
+      // Set up audio capture for transmission (using AudioWorklet)
+      // Always set up the worklet so it's ready when enableAudioCapture becomes true
+      console.log('[VAD] Setting up audio capture pipeline using AudioWorklet')
+      try {
+        // Load the AudioWorklet processor
+        await audioContext.audioWorklet.addModule('/audio-capture-processor.js')
+        
+        // Create the worklet node
+        const workletNode = new AudioWorkletNode(audioContext, 'audio-capture-processor')
+        workletNodeRef.current = workletNode
+        
+        // Handle audio data from worklet
+        workletNode.port.onmessage = (event) => {
+          if (event.data.type === 'audioData' && onAudioDataRef.current) {
+            const float32Data = new Float32Array(event.data.data)
+            const audioData = float32ToBase64(float32Data)
+            onAudioDataRef.current(audioData)
           }
-          
-          // Connect: microphone → workletNode
-          microphone.connect(workletNode)
-          // Note: worklet doesn't need to connect to destination
-        } catch (workletError) {
-          console.error('[VAD] AudioWorklet failed, audio capture disabled:', workletError)
         }
+        
+        // Connect: microphone → workletNode
+        microphone.connect(workletNode)
+        
+        // Set initial active state
+        console.log('[VAD] Setting initial active state:', enableAudioCaptureRef.current)
+        workletNode.port.postMessage({ type: 'active', value: enableAudioCaptureRef.current })
+      } catch (workletError) {
+        console.error('[VAD] AudioWorklet setup failed:', workletError)
       }
 
       setIsInitialized(true)
@@ -309,7 +312,6 @@ export function useVoiceActivity({
     smoothingTimeConstant,
     minSpeechDuration,
     minSilenceDuration,
-    enableAudioCapture,
     stopListening
   ])
 
@@ -322,19 +324,6 @@ export function useVoiceActivity({
       stopListening()
     }
   }, [enabled, isInitialized])
-
-  // Restart when enableAudioCapture changes (need to re-setup the audio pipeline)
-  useEffect(() => {
-    if (enabled && isInitialized && enableAudioCapture) {
-      // Need to restart to add the worklet node
-      if (!workletNodeRef.current) {
-        console.log('[VAD] Audio capture enabled, restarting to setup capture pipeline')
-        stopListening()
-        // Defer restart slightly to allow cleanup
-        setTimeout(() => startListening(), 100)
-      }
-    }
-  }, [enableAudioCapture])
 
   useEffect(() => {
     return () => {

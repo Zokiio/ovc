@@ -1,16 +1,21 @@
 /**
  * AudioWorklet processor for capturing audio data
  * This replaces the deprecated ScriptProcessorNode
+ * 
+ * Sends audio continuously when active (like old client).
+ * VAD UI is for visual feedback only - actual transmission is controlled by app.
  */
 class AudioCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super()
-    this.isSpeaking = false
+    this.isActive = false
+    this.frameCount = 0
     
     // Listen for messages from main thread
     this.port.onmessage = (event) => {
-      if (event.data.type === 'speaking') {
-        this.isSpeaking = event.data.value
+      if (event.data.type === 'active') {
+        this.isActive = event.data.value
+        console.log('[AudioCapture] Active:', this.isActive)
       }
     }
   }
@@ -18,10 +23,16 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
   process(inputs, outputs, parameters) {
     const input = inputs[0]
     
-    // Only capture when we have input and user is speaking
-    if (input && input.length > 0 && input[0].length > 0 && this.isSpeaking) {
+    // Capture audio when active and we have input
+    if (input && input.length > 0 && input[0].length > 0 && this.isActive) {
       // Clone the data since we can't transfer the original buffer
       const audioData = new Float32Array(input[0])
+      
+      // Log every 100 frames (~2 seconds at 48kHz/128 samples)
+      this.frameCount++
+      if (this.frameCount % 100 === 0) {
+        console.log('[AudioCapture] Sending frame', this.frameCount, 'samples:', audioData.length)
+      }
       
       // Send to main thread
       this.port.postMessage({
