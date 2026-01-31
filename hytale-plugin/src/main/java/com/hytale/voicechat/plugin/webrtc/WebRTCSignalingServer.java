@@ -900,6 +900,11 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 groupObj.addProperty("memberCount", group.getMemberCount());
                 groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
                 groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+                
+                // Include members list
+                com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients);
+                groupObj.add("members", membersArray);
+                
                 groupsArray.add(groupObj);
             }
 

@@ -18,10 +18,17 @@ export interface PlayerPosition {
   worldId: string
 }
 
+export interface GroupMember {
+  id: string
+  name: string
+  isSpeaking?: boolean
+}
+
 export interface Group {
   id: string
   name: string
   memberCount: number
+  members?: GroupMember[]
   settings: GroupSettings
 }
 

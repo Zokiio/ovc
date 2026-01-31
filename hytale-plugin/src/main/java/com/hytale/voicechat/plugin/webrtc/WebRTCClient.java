@@ -82,9 +82,10 @@ public class WebRTCClient {
     /**
      * Send audio data to this WebRTC client via WebSocket
      * 
+     * @param senderId The UUID of the sender (for client to know who's speaking)
      * @param audioData The audio data to send
      */
-    public void sendAudio(byte[] audioData) {
+    public void sendAudio(UUID senderId, byte[] audioData) {
         if (!isConnected()) {
             return;
         }
@@ -95,6 +96,7 @@ public class WebRTCClient {
             // Encode audio data as base64 for JSON transmission
             String encodedAudio = java.util.Base64.getEncoder().encodeToString(audioData);
             data.addProperty("audioData", encodedAudio);
+            data.addProperty("senderId", senderId.toString());
             
             SignalingMessage message = new SignalingMessage("audio", data);
             channel.writeAndFlush(new TextWebSocketFrame(message.toJson()));

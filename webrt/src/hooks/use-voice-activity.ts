@@ -176,10 +176,13 @@ export function useVoiceActivity({
         
         scriptProcessor.onaudioprocess = (event) => {
           // Only capture and send audio when speaking
-          if (isSpeakingRef.current && onAudioDataRef.current) {
-            const inputData = event.inputBuffer.getChannelData(0)
-            const audioData = float32ToBase64(inputData)
-            onAudioDataRef.current(audioData)
+          if (onAudioDataRef.current) {
+            // Check speaking status
+            if (isSpeakingRef.current) {
+              const inputData = event.inputBuffer.getChannelData(0)
+              const audioData = float32ToBase64(inputData)
+              onAudioDataRef.current(audioData)
+            }
           }
         }
         

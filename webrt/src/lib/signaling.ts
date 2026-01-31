@@ -193,6 +193,8 @@ export class SignalingClient {
     const userId = String(data.userId || data.senderId || '')
     const audioData = String(data.audioData || '')
     
+    console.log('[Signaling] Received audio from:', userId, 'data length:', audioData.length)
+    
     if (userId && audioData && this.audioPlaybackCallback) {
       this.audioPlaybackCallback(userId, audioData)
     }

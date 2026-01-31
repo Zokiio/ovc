@@ -204,7 +204,7 @@ public class WebRTCAudioBridge {
             
             if (distance <= proximityRange && distance != Double.MAX_VALUE) {
                 logger.atFine().log("Sending audio to group member: " + client.getUsername() + " (distance: " + distance + ")");
-                routeAudioToWebRTC(client.getClientId(), audioData);
+                routeAudioToWebRTC(senderId, client.getClientId(), audioData);
             }
         }
     }
@@ -229,22 +229,26 @@ public class WebRTCAudioBridge {
             
             if (distance <= proximityDistance && distance != Double.MAX_VALUE) {
                 logger.atFine().log("Sending audio to WebRTC client: " + client.getUsername() + " (distance: " + distance + ")");
-                routeAudioToWebRTC(client.getClientId(), audioData);
+                routeAudioToWebRTC(senderId, client.getClientId(), audioData);
             }
         }
     }
     
     /**
      * Send audio to a specific WebRTC client
+     * 
+     * @param senderId The sender's client ID
+     * @param recipientId The recipient's client ID
+     * @param audioData The audio data
      */
-    private void routeAudioToWebRTC(UUID clientId, byte[] audioData) {
-        WebRTCClient client = clients.get(clientId);
+    private void routeAudioToWebRTC(UUID senderId, UUID recipientId, byte[] audioData) {
+        WebRTCClient client = clients.get(recipientId);
         if (client == null) {
             return;
         }
         
         // Send via data channel or WebSocket
-        client.sendAudio(audioData);
+        client.sendAudio(senderId, audioData);
     }
     
     /**

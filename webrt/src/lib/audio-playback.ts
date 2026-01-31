@@ -133,7 +133,7 @@ export class AudioPlaybackManager {
   }
 
   /**
-   * Play audio data for a user (base64 encoded)
+   * Play audio data for a user (base64 encoded raw Int16 PCM)
    */
   public async playUserAudio(userId: string, audioDataBase64: string): Promise<void> {
     await this.ensureReady()
@@ -146,15 +146,25 @@ export class AudioPlaybackManager {
     }
 
     try {
-      // Decode base64 to ArrayBuffer
+      // Decode base64 to ArrayBuffer (raw Int16 PCM data)
       const binaryString = atob(audioDataBase64)
       const bytes = new Uint8Array(binaryString.length)
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i)
       }
 
-      // Decode audio data
-      const audioBuffer = await this.audioContext!.decodeAudioData(bytes.buffer)
+      // Convert Int16 PCM to Float32 samples
+      const int16Array = new Int16Array(bytes.buffer)
+      const float32Array = new Float32Array(int16Array.length)
+      for (let i = 0; i < int16Array.length; i++) {
+        // Convert Int16 [-32768, 32767] to Float32 [-1.0, 1.0]
+        float32Array[i] = int16Array[i] / 32768.0
+      }
+
+      // Create AudioBuffer from raw PCM samples
+      const sampleRate = this.audioContext!.sampleRate
+      const audioBuffer = this.audioContext!.createBuffer(1, float32Array.length, sampleRate)
+      audioBuffer.copyToChannel(float32Array, 0)
       
       // Create source and apply gain
       const source = this.audioContext!.createBufferSource()
@@ -169,8 +179,10 @@ export class AudioPlaybackManager {
       
       source.connect(state.gainNode)
       source.start()
+      
+      console.log(`[AudioPlayback] Playing audio from ${userId}, samples: ${float32Array.length}`)
     } catch (err) {
-      // Audio decode failures are common with partial data, don't spam console
+      console.error('[AudioPlayback] Error playing audio:', err)
     }
   }
 

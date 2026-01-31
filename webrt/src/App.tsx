@@ -302,12 +302,13 @@ function App() {
       })
 
       client.on('group_list', (data: unknown) => {
-        const payload = data as { groups?: Array<{id: string, name: string, memberCount: number, maxMembers: number, proximityRange: number}> }
+        const payload = data as { groups?: Array<{id: string, name: string, memberCount: number, maxMembers: number, proximityRange: number, members?: Array<{id: string, username: string, isSpeaking?: boolean}>}> }
         const groupsData = payload.groups || []
         const groupsList = groupsData.map(g => ({
           id: g.id,
           name: g.name,
           memberCount: g.memberCount,
+          members: g.members?.map(m => ({ id: m.id, name: m.username, isSpeaking: m.isSpeaking })) || [],
           settings: {
             defaultVolume: 100,
             proximityRange: g.proximityRange || 30,
@@ -400,21 +401,31 @@ function App() {
                 : g
             )
           )
-          // Update the individual users if provided
+          // Update the individual users if provided - MERGE with existing users, don't replace
           if (payload.members && payload.members.length > 0) {
-            const updatedUsers = new Map<string, User>()
-            payload.members.forEach(m => {
-              updatedUsers.set(m.id, {
-                id: m.id,
-                name: m.username,
-                isSpeaking: m.isSpeaking,
-                isMuted: m.isMuted,
-                volume: m.volume,
-                groupId: payload.groupId
+            console.log('[App] Updating group users:', payload.members)
+            setUsers(currentUsers => {
+              const newUsers = new Map(currentUsers)
+              // First, remove users who were in this group but are no longer members
+              const memberIds = new Set(payload.members!.map(m => m.id))
+              newUsers.forEach((user, id) => {
+                if (user.groupId === payload.groupId && !memberIds.has(id)) {
+                  newUsers.delete(id)
+                }
               })
+              // Then add/update the current members
+              payload.members!.forEach(m => {
+                newUsers.set(m.id, {
+                  id: m.id,
+                  name: m.username,
+                  isSpeaking: m.isSpeaking,
+                  isMuted: m.isMuted,
+                  volume: m.volume,
+                  groupId: payload.groupId
+                })
+              })
+              return newUsers
             })
-            console.log('[App] Updating group users:', Array.from(updatedUsers.values()))
-            setUsers(updatedUsers)
           }
         }
       })

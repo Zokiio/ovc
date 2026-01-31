@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { UsersIcon, SignInIcon, SignOutIcon, GearIcon } from '@phosphor-icons/react'
+import { UsersIcon, SignInIcon, SignOutIcon, GearIcon, UserIcon, MicrophoneIcon } from '@phosphor-icons/react'
 import { Group } from '@/lib/types'
 
 interface GroupCardProps {
@@ -30,6 +30,26 @@ export function GroupCard({ group, isJoined, onJoin, onLeave, onSettings }: Grou
           </Badge>
         )}
       </div>
+
+      {/* Members list */}
+      {group.members && group.members.length > 0 && (
+        <div className="mb-3 space-y-1">
+          {group.members.slice(0, 5).map(member => (
+            <div key={member.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+              <UserIcon size={14} />
+              <span className="truncate">{member.name}</span>
+              {member.isSpeaking && (
+                <MicrophoneIcon size={14} className="text-accent animate-pulse" weight="fill" />
+              )}
+            </div>
+          ))}
+          {group.members.length > 5 && (
+            <div className="text-xs text-muted-foreground/70">
+              +{group.members.length - 5} more
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2">
         {isJoined ? (
