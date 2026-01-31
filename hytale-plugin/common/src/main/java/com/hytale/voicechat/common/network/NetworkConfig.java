@@ -2,14 +2,47 @@ package com.hytale.voicechat.common.network;
 
 /**
  * Configuration for voice chat networking (WebRTC SFU)
+ * Values can be set via Hytale config system or legacy VoiceConfig fallback
  */
 public class NetworkConfig {
-    public static final int DEFAULT_SIGNALING_PORT = 24455; // WebSocket signaling for WebRTC
+    // Signaling server port (configurable)
+    private static int signalingPort = 24455;
+    
+    // SSL/TLS configuration
+    private static boolean enableSSL = false;
+    private static String sslCertPath = "/etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem";
+    private static String sslKeyPath = "/etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem";
+    
+    // CORS allowed origins
+    private static String allowedOrigins = "https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173";
+    
+    // Legacy fallback to custom VoiceConfig for backward compatibility
+    static {
+        try {
+            // Try HOCON-style property names first (from ovc.conf)
+            signalingPort = com.hytale.voicechat.common.config.VoiceConfig.getInt("SignalingPort", signalingPort);
+            enableSSL = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("EnableSSL", enableSSL);
+            sslCertPath = com.hytale.voicechat.common.config.VoiceConfig.getString("SSLCertPath", sslCertPath);
+            sslKeyPath = com.hytale.voicechat.common.config.VoiceConfig.getString("SSLKeyPath", sslKeyPath);
+            allowedOrigins = com.hytale.voicechat.common.config.VoiceConfig.getString("AllowedOrigins", allowedOrigins);
+            
+            // Fallback to old property names for backward compatibility
+            signalingPort = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.signaling.port", signalingPort);
+            enableSSL = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.ssl.enabled", enableSSL);
+            sslCertPath = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.ssl.cert", sslCertPath);
+            sslKeyPath = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.ssl.key", sslKeyPath);
+            allowedOrigins = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.allowed.origins", allowedOrigins);
+        } catch (Exception e) {
+            System.err.println("[NetworkConfig] Failed to load VoiceConfig: " + e.getMessage());
+        }
+    }
+    
     public static final int DEFAULT_SAMPLE_RATE = 48000;
     public static final int FRAME_DURATION_MS = 20;
     public static final int FRAME_SIZE = 960; // 20ms at 48kHz
     public static final int[] SUPPORTED_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000};
     public static final int MAX_PACKET_SIZE = 1024;
+    
     // Voice chat proximity settings (in blocks)
     public static final double DEFAULT_PROXIMITY_DISTANCE = 30.0;  // Max hearing distance
     public static final double PROXIMITY_FADE_START = 20.0;        // Distance where volume fade begins
@@ -23,24 +56,41 @@ public class NetworkConfig {
     
     // Group isolation mode default
     public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
-    
-    // SSL/TLS configuration for WebSocket signaling
-    // Set to false when using a reverse proxy (Nginx/Apache) that handles SSL (RECOMMENDED)
-    // Set to true only if the Java application needs to handle SSL directly
-    public static final boolean ENABLE_SSL = false;
-    
-    // SSL certificate paths (for Let's Encrypt or custom certificates)
-    // Default to Let's Encrypt paths, override with system properties
-    public static final String SSL_CERT_PATH = System.getProperty("voice.ssl.cert", "/etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem");
-    public static final String SSL_KEY_PATH = System.getProperty("voice.ssl.key", "/etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem");
-    
-    // Allowed origins for WebSocket connections (CORS)
-    // Add your web client domains here, separated by commas
-    public static final String ALLOWED_ORIGINS = System.getProperty("voice.allowed.origins", 
-        "https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173");
 
     private NetworkConfig() {
         // Utility class
+    }
+    
+    /**
+     * Update configuration from Hytale's VoiceChatConfig
+     * Called by the plugin during setup() after loading the config
+     */
+    public static void updateFromHytaleConfig(int port, boolean ssl, String certPath, String keyPath, String origins) {
+        signalingPort = port;
+        enableSSL = ssl;
+        sslCertPath = certPath;
+        sslKeyPath = keyPath;
+        allowedOrigins = origins;
+    }
+    
+    public static int getSignalingPort() {
+        return signalingPort;
+    }
+    
+    public static boolean isSSLEnabled() {
+        return enableSSL;
+    }
+    
+    public static String getSSLCertPath() {
+        return sslCertPath;
+    }
+    
+    public static String getSSLKeyPath() {
+        return sslKeyPath;
+    }
+    
+    public static String getAllowedOrigins() {
+        return allowedOrigins;
     }
 
     /**

@@ -64,6 +64,10 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         logger.atInfo().log("Setting up Hytale Voice Chat Plugin (WebRTC SFU)...");
         
         try {
+            // Voice configuration is loaded automatically via VoiceConfig static initialization
+            // Config file: voice-chat.json (or path specified by -Dvoice.config.file)
+            logger.atInfo().log("Voice Chat Configuration loaded from: voice-chat.json or system properties");
+            
             // Get data directory for persistent storage
             Path dataDir = Path.of("plugins", "voicechat");
             
@@ -86,7 +90,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             EntityStore.REGISTRY.registerSystem(new UIRefreshTickingSystem());
             
             // Initialize and start WebRTC signaling server
-            signalingServer = new WebRTCSignalingServer(NetworkConfig.DEFAULT_SIGNALING_PORT);
+            signalingServer = new WebRTCSignalingServer(NetworkConfig.getSignalingPort());
             signalingServer.setPositionTracker(positionTracker);
             signalingServer.setPlugin(this);
             
@@ -130,7 +134,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Register voice group command
             getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager, this));
             
-            logger.atInfo().log("Hytale Voice Chat Plugin setup complete - WebSocket signaling on port " + NetworkConfig.DEFAULT_SIGNALING_PORT + " (proximity=" + proximityDistance + ")");
+            logger.atInfo().log("Hytale Voice Chat Plugin setup complete - WebSocket signaling on port " + NetworkConfig.getSignalingPort() + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
             logger.atSevere().log("Failed to setup Hytale Voice Chat Plugin: " + e.getMessage());
             e.printStackTrace();

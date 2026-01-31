@@ -28,8 +28,6 @@ public class DtlsTransport {
     }
     
     private final String clientId;
-    private final X509Certificate localCertificate;
-    private final PrivateKey privateKey;
     private final boolean isServer;
     private final TlsCrypto crypto;
     
@@ -53,8 +51,6 @@ public class DtlsTransport {
      */
     public DtlsTransport(String clientId, X509Certificate certificate, PrivateKey privateKey, boolean isServer) {
         this.clientId = clientId;
-        this.localCertificate = certificate;
-        this.privateKey = privateKey;
         this.isServer = isServer;
         
         // Initialize crypto provider

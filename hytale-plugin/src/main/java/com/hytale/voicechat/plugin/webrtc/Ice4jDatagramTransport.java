@@ -3,7 +3,6 @@ package com.hytale.voicechat.plugin.webrtc;
 import com.hypixel.hytale.logger.HytaleLogger;
 import org.bouncycastle.tls.DatagramTransport;
 import org.ice4j.ice.Component;
-import org.ice4j.socket.IceSocketWrapper;
 
 import java.io.IOException;
 import java.net.DatagramPacket;

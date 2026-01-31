@@ -80,7 +80,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     }
     
     public WebRTCSignalingServer() {
-        this(NetworkConfig.DEFAULT_SIGNALING_PORT);
+        this(NetworkConfig.getSignalingPort());
     }
     
     public WebRTCSignalingServer(int port) {
@@ -91,7 +91,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         // Parse allowed origins from configuration
         this.allowedOrigins = new java.util.HashSet<>();
-        String originsConfig = NetworkConfig.ALLOWED_ORIGINS;
+        String originsConfig = NetworkConfig.getAllowedOrigins();
         if (originsConfig != null && !originsConfig.isEmpty()) {
             String[] origins = originsConfig.split(",");
             for (String origin : origins) {
@@ -142,7 +142,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         try {
             // Create SSL context if enabled in configuration
-            if (NetworkConfig.ENABLE_SSL) {
+            if (NetworkConfig.isSSLEnabled()) {
                 this.sslContext = createSSLContext();
                 logger.atInfo().log("SSL enabled - WebSocket will use wss:// protocol");
             } else {
@@ -169,7 +169,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         }
                     });
             
-            String protocol = NetworkConfig.ENABLE_SSL ? "wss://" : "ws://";
+            String protocol = NetworkConfig.isSSLEnabled() ? "wss://" : "ws://";
             serverChannel = bootstrap.bind(port).sync().channel();
             logger.atInfo().log("WebRTC signaling server started on port " + port + " (" + protocol + " protocol)");
             
@@ -196,11 +196,11 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private SslContext createSSLContext() throws CertificateException, SSLException {
         try {
             // Try to load certificate from file system first (Let's Encrypt or custom)
-            java.io.File certFile = new java.io.File(NetworkConfig.SSL_CERT_PATH);
-            java.io.File keyFile = new java.io.File(NetworkConfig.SSL_KEY_PATH);
+            java.io.File certFile = new java.io.File(NetworkConfig.getSSLCertPath());
+            java.io.File keyFile = new java.io.File(NetworkConfig.getSSLKeyPath());
             
             if (certFile.exists() && keyFile.exists()) {
-                logger.atInfo().log("Loading SSL certificate from: " + NetworkConfig.SSL_CERT_PATH);
+                logger.atInfo().log("Loading SSL certificate from: " + NetworkConfig.getSSLCertPath());
                 SslContext context = SslContextBuilder
                         .forServer(certFile, keyFile)
                         .build();
@@ -208,7 +208,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 return context;
             } else {
                 // Fall back to self-signed certificate for development
-                logger.atWarning().log("Certificate files not found at " + NetworkConfig.SSL_CERT_PATH + ", using self-signed certificate");
+                logger.atWarning().log("Certificate files not found at " + NetworkConfig.getSSLCertPath() + ", using self-signed certificate");
                 logger.atInfo().log("For production, ensure Let's Encrypt certificates are accessible");
                 SelfSignedCertificate ssc = new SelfSignedCertificate();
                 SslContext context = SslContextBuilder
@@ -1075,7 +1075,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         private String getWebSocketLocation(FullHttpRequest req) {
             String location = req.headers().get(HttpHeaderNames.HOST) + "/voice";
-            String protocol = NetworkConfig.ENABLE_SSL ? "wss://" : "ws://";
+            String protocol = NetworkConfig.isSSLEnabled() ? "wss://" : "ws://";
             return protocol + location;
         }
         
