@@ -9,6 +9,13 @@ export interface UserAudioState {
   isMuted: boolean
   gainNode: GainNode | null
   audioElement: HTMLAudioElement | null
+  // Continuous playback buffer (like old client)
+  playbackBuffer: Float32Array | null
+  playbackBufferSize: number
+  playbackWritePos: number
+  playbackReadPos: number
+  playbackProcessor: ScriptProcessorNode | null
+  isPlaybackInitialized: boolean
 }
 
 export class AudioPlaybackManager {
@@ -134,6 +141,7 @@ export class AudioPlaybackManager {
 
   /**
    * Play audio data for a user (base64 encoded raw Int16 PCM)
+   * Uses continuous ring buffer for smooth playback (matches old client)
    */
   public async playUserAudio(userId: string, audioDataBase64: string): Promise<void> {
     await this.ensureReady()
@@ -146,6 +154,11 @@ export class AudioPlaybackManager {
     }
 
     try {
+      // Initialize continuous playback on first audio
+      if (!state.isPlaybackInitialized) {
+        this.initializeUserPlayback(userId)
+      }
+
       // Decode base64 to ArrayBuffer (raw Int16 PCM data)
       const binaryString = atob(audioDataBase64)
       const bytes = new Uint8Array(binaryString.length)
@@ -153,36 +166,98 @@ export class AudioPlaybackManager {
         bytes[i] = binaryString.charCodeAt(i)
       }
 
-      // Convert Int16 PCM to Float32 samples
+      // Convert Int16 PCM to Float32 and write to ring buffer
+      // Use asymmetric conversion like old client
       const int16Array = new Int16Array(bytes.buffer)
-      const float32Array = new Float32Array(int16Array.length)
-      for (let i = 0; i < int16Array.length; i++) {
-        // Convert Int16 [-32768, 32767] to Float32 [-1.0, 1.0]
-        float32Array[i] = int16Array[i] / 32768.0
-      }
-
-      // Create AudioBuffer from raw PCM samples
-      const sampleRate = this.audioContext!.sampleRate
-      const audioBuffer = this.audioContext!.createBuffer(1, float32Array.length, sampleRate)
-      audioBuffer.copyToChannel(float32Array, 0)
+      this.writeToPlaybackBuffer(userId, int16Array)
       
-      // Create source and apply gain
-      const source = this.audioContext!.createBufferSource()
-      source.buffer = audioBuffer
-      
-      // Ensure user has a gain node
-      if (!state.gainNode) {
-        state.gainNode = this.audioContext!.createGain()
-        state.gainNode.connect(this.masterGainNode!)
-        this.updateUserGain(userId)
-      }
-      
-      source.connect(state.gainNode)
-      source.start()
-      
-      console.log(`[AudioPlayback] Playing audio from ${userId}, samples: ${float32Array.length}`)
+      console.log(`[AudioPlayback] Buffered audio from ${userId}, samples: ${int16Array.length}`)
     } catch (err) {
       console.error('[AudioPlayback] Error playing audio:', err)
+    }
+  }
+
+  /**
+   * Initialize continuous playback buffer for a user
+   */
+  private initializeUserPlayback(userId: string): void {
+    const state = this.userAudioStates.get(userId)
+    if (!state || state.isPlaybackInitialized || !this.audioContext) {
+      return
+    }
+
+    console.log(`[AudioPlayback] Initializing continuous playback for user ${userId}`)
+
+    // Create ring buffer for audio samples
+    state.playbackBuffer = new Float32Array(state.playbackBufferSize)
+    state.playbackWritePos = 0
+    state.playbackReadPos = 0
+
+    // Create gain node if not exists
+    if (!state.gainNode) {
+      state.gainNode = this.audioContext.createGain()
+      state.gainNode.connect(this.masterGainNode!)
+      this.updateUserGain(userId)
+    }
+
+    // Create continuous audio source using ScriptProcessorNode (like old client)
+    const bufferSize = 4096 // ~85ms at 48kHz
+    state.playbackProcessor = this.audioContext.createScriptProcessor(bufferSize, 0, 1)
+    
+    state.playbackProcessor.onaudioprocess = (event) => {
+      const output = event.outputBuffer.getChannelData(0)
+      const userState = this.userAudioStates.get(userId)
+      
+      if (!userState || !userState.playbackBuffer) {
+        // Fill with silence if no buffer
+        output.fill(0)
+        return
+      }
+
+      // Fill output buffer from ring buffer
+      for (let i = 0; i < output.length; i++) {
+        if (userState.playbackReadPos < userState.playbackWritePos) {
+          output[i] = userState.playbackBuffer[userState.playbackReadPos % userState.playbackBufferSize]
+          userState.playbackReadPos++
+        } else {
+          // No more audio available, output silence
+          output[i] = 0
+        }
+      }
+    }
+
+    state.playbackProcessor.connect(state.gainNode)
+    state.isPlaybackInitialized = true
+    
+    console.log(`[AudioPlayback] Continuous playback initialized for user ${userId}`)
+  }
+
+  /**
+   * Write Int16 samples to user's playback ring buffer
+   * Uses asymmetric conversion matching old client behavior
+   */
+  private writeToPlaybackBuffer(userId: string, int16Data: Int16Array): void {
+    const state = this.userAudioStates.get(userId)
+    if (!state || !state.playbackBuffer) {
+      return
+    }
+
+    for (let i = 0; i < int16Data.length; i++) {
+      // Asymmetric conversion: divide by 0x8000 for negative, 0x7FFF for positive
+      // This matches the old client exactly
+      const floatSample = int16Data[i] / (int16Data[i] < 0 ? 0x8000 : 0x7FFF)
+      state.playbackBuffer[state.playbackWritePos % state.playbackBufferSize] = floatSample
+      state.playbackWritePos++
+    }
+
+    // Check buffer fill level
+    const bufferFill = state.playbackWritePos - state.playbackReadPos
+
+    // Detect buffer overflow (incoming audio faster than playback)
+    if (bufferFill > state.playbackBufferSize * 0.95) {
+      console.warn(`[AudioPlayback] Buffer near full for user ${userId}, adjusting`)
+      // Skip to 50% buffer fill to provide headroom
+      state.playbackReadPos = state.playbackWritePos - Math.floor(state.playbackBufferSize * 0.5)
     }
   }
 
@@ -217,6 +292,10 @@ export class AudioPlaybackManager {
   public disconnectUser(userId: string): void {
     const state = this.userAudioStates.get(userId)
     if (state) {
+      if (state.playbackProcessor) {
+        state.playbackProcessor.disconnect()
+        state.playbackProcessor = null
+      }
       if (state.gainNode) {
         state.gainNode.disconnect()
         state.gainNode = null
@@ -226,6 +305,8 @@ export class AudioPlaybackManager {
         state.audioElement.srcObject = null
         state.audioElement = null
       }
+      state.playbackBuffer = null
+      state.isPlaybackInitialized = false
       this.userAudioStates.delete(userId)
       console.log(`[AudioPlayback] Disconnected user ${userId}`)
     }
@@ -238,10 +319,17 @@ export class AudioPlaybackManager {
     let state = this.userAudioStates.get(userId)
     if (!state) {
       state = {
-        volume: 80,
+        volume: 100,
         isMuted: false,
         gainNode: null,
-        audioElement: null
+        audioElement: null,
+        // Continuous playback buffer (like old client)
+        playbackBuffer: null,
+        playbackBufferSize: 48000 * 2, // 2 seconds at 48kHz
+        playbackWritePos: 0,
+        playbackReadPos: 0,
+        playbackProcessor: null,
+        isPlaybackInitialized: false
       }
       this.userAudioStates.set(userId, state)
     }
