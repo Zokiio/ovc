@@ -2,6 +2,7 @@ package com.hytale.voicechat.plugin.webrtc;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
+import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
 
@@ -21,6 +22,8 @@ public class WebRTCAudioBridge {
     
     private final PlayerPositionTracker positionTracker;
     private final Map<UUID, WebRTCClient> clients;
+    private GroupStateManager groupStateManager;
+    private GroupManager groupManager;
     
     // Audio buffering and routing
     private final BlockingQueue<AudioFrame> audioQueue;
@@ -35,6 +38,14 @@ public class WebRTCAudioBridge {
         this.positionTracker = positionTracker;
         this.clients = clients;
         this.audioQueue = new LinkedBlockingQueue<>(1000); // Buffer up to 1000 frames
+    }
+    
+    public void setGroupStateManager(GroupStateManager stateManager) {
+        this.groupStateManager = stateManager;
+    }
+    
+    public void setGroupManager(GroupManager groupManager) {
+        this.groupManager = groupManager;
     }
     
     /**
@@ -142,11 +153,69 @@ public class WebRTCAudioBridge {
     
     /**
      * Route audio to nearby WebRTC clients
+     * Supports both group-based routing and proximity-based routing
      */
     private void routeAudioToNearbyWebRTC(PlayerPosition senderPosition, byte[] audioData) {
+        UUID senderId = senderPosition.getPlayerId();
+        
+        // Check if sender is in a group
+        if (groupStateManager != null) {
+            UUID groupId = groupStateManager.getClientGroup(senderId);
+            if (groupId != null && groupManager != null) {
+                // Route within group with proximity filtering
+                routeAudioToGroup(groupId, senderId, senderPosition, audioData);
+                return;
+            }
+        }
+        
+        // Fallback: proximity-based routing
+        routeAudioByProximity(senderId, senderPosition, audioData);
+    }
+    
+    /**
+     * Route audio within a group with proximity filtering
+     */
+    private void routeAudioToGroup(UUID groupId, UUID senderId, PlayerPosition senderPosition, byte[] audioData) {
+        if (groupStateManager == null || groupManager == null) {
+            return;
+        }
+        
+        var group = groupManager.getGroup(groupId);
+        if (group == null) {
+            return;
+        }
+        
+        double proximityRange = group.getSettings().getProximityRange();
+        List<WebRTCClient> groupMembers = groupStateManager.getGroupClients(groupId);
+        
+        for (WebRTCClient client : groupMembers) {
+            // Skip self
+            if (client.getClientId().equals(senderId)) {
+                continue;
+            }
+            
+            PlayerPosition clientPosition = positionTracker.getPlayerPosition(client.getClientId());
+            if (clientPosition == null) {
+                continue;
+            }
+            
+            // Check if within group proximity
+            double distance = senderPosition.distanceTo(clientPosition);
+            
+            if (distance <= proximityRange && distance != Double.MAX_VALUE) {
+                logger.atFine().log("Sending audio to group member: " + client.getUsername() + " (distance: " + distance + ")");
+                routeAudioToWebRTC(client.getClientId(), audioData);
+            }
+        }
+    }
+    
+    /**
+     * Route audio by proximity (for non-group players)
+     */
+    private void routeAudioByProximity(UUID senderId, PlayerPosition senderPosition, byte[] audioData) {
         for (WebRTCClient client : clients.values()) {
             // Skip self
-            if (client.getClientId().equals(senderPosition.getPlayerId())) {
+            if (client.getClientId().equals(senderId)) {
                 continue;
             }
             

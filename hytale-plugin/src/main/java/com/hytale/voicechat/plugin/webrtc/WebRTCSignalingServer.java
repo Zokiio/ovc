@@ -1,9 +1,11 @@
 package com.hytale.voicechat.plugin.webrtc;
 
 import com.google.gson.JsonObject;
+import com.hytale.voicechat.common.model.GroupSettings;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.common.signaling.SignalingMessage;
+import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
 import io.netty.bootstrap.ServerBootstrap;
@@ -35,6 +37,8 @@ public class WebRTCSignalingServer {
     private WebRTCAudioBridge audioBridge;
     private WebRTCPeerManager peerManager;
     private WebRTCClientListener clientListener;
+    private GroupStateManager groupStateManager;
+    private GroupManager groupManager;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
@@ -54,10 +58,20 @@ public class WebRTCSignalingServer {
     public WebRTCSignalingServer(int port) {
         this.port = port;
         this.clients = new ConcurrentHashMap<>();
+        this.groupStateManager = new GroupStateManager();
     }
     
     public void setPositionTracker(PlayerPositionTracker tracker) {
         this.positionTracker = tracker;
+    }
+    
+    public void setGroupManager(GroupManager groupManager) {
+        this.groupManager = groupManager;
+        logger.atInfo().log("Group manager set for WebRTC signaling server");
+    }
+    
+    public void setGroupStateManager(GroupStateManager stateManager) {
+        this.groupStateManager = stateManager;
     }
     
     public void setAudioBridge(WebRTCAudioBridge bridge) {
@@ -226,6 +240,27 @@ public class WebRTCSignalingServer {
                 switch (message.getType()) {
                     case SignalingMessage.TYPE_AUTHENTICATE:
                         handleAuthenticate(ctx, message);
+                        break;
+                    case "create_group":
+                        handleCreateGroup(ctx, message);
+                        break;
+                    case "join_group":
+                        handleJoinGroup(ctx, message);
+                        break;
+                    case "leave_group":
+                        handleLeaveGroup(ctx, message);
+                        break;
+                    case "list_groups":
+                        handleListGroups(ctx, message);
+                        break;
+                    case "get_group_members":
+                        handleGetGroupMembers(ctx, message);
+                        break;
+                    case "user_speaking":
+                        handleUserSpeakingStatus(ctx, message);
+                        break;
+                    case "ping":
+                        handlePing(ctx, message);
                         break;
                     case "audio":
                         handleAudioData(ctx, message);
@@ -405,6 +440,9 @@ public class WebRTCSignalingServer {
         private void handleDisconnect(ChannelHandlerContext ctx) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client != null) {
+                // Remove from group state
+                groupStateManager.removeClientFromAllGroups(client.getClientId());
+                
                 // Notify listener of client disconnection
                 if (clientListener != null) {
                     clientListener.onClientDisconnected(client.getClientId(), client.getUsername());
@@ -418,6 +456,256 @@ public class WebRTCSignalingServer {
                 clients.remove(client.getClientId());
                 logger.atInfo().log("WebRTC client disconnected: " + client.getClientId());
             }
+        }
+        
+        
+        private void handleCreateGroup(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (groupManager == null) {
+                sendError(ctx, "Group manager not available");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            String groupName = data.has("groupName") ? data.get("groupName").getAsString() : null;
+            
+            if (groupName == null || groupName.isEmpty()) {
+                sendError(ctx, "Invalid group name");
+                return;
+            }
+
+            // Extract settings from message if provided
+            GroupSettings settings = new GroupSettings();
+            if (data.has("settings")) {
+                JsonObject settingsObj = data.getAsJsonObject("settings");
+                int defaultVolume = settingsObj.has("defaultVolume") ? settingsObj.get("defaultVolume").getAsInt() : GroupSettings.DEFAULT_VOLUME;
+                double proximityRange = settingsObj.has("proximityRange") ? settingsObj.get("proximityRange").getAsDouble() : GroupSettings.DEFAULT_PROXIMITY_RANGE;
+                boolean allowInvites = settingsObj.has("allowInvites") ? settingsObj.get("allowInvites").getAsBoolean() : GroupSettings.DEFAULT_ALLOW_INVITES;
+                int maxMembers = settingsObj.has("maxMembers") ? settingsObj.get("maxMembers").getAsInt() : GroupSettings.DEFAULT_MAX_MEMBERS;
+                settings = new GroupSettings(defaultVolume, proximityRange, allowInvites, maxMembers);
+            }
+
+            var group = groupManager.createGroup(groupName, false, client.getClientId(), settings);
+            if (group == null) {
+                sendError(ctx, "Failed to create group (name may already exist)");
+                return;
+            }
+
+            // Auto-join creator
+            groupManager.joinGroup(client.getClientId(), group.getGroupId());
+            groupStateManager.addClientToGroup(client.getClientId(), client, group.getGroupId());
+
+            // Send success response
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("groupId", group.getGroupId().toString());
+            responseData.addProperty("groupName", group.getName());
+            responseData.addProperty("membersCount", group.getMemberCount());
+            
+            SignalingMessage response = new SignalingMessage("group_created", responseData);
+            sendMessage(ctx, response);
+            
+            logger.atFine().log("Group created by " + client.getUsername() + ": " + groupName);
+        }
+
+        private void handleJoinGroup(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (groupManager == null) {
+                sendError(ctx, "Group manager not available");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
+            
+            if (groupIdStr == null) {
+                sendError(ctx, "Invalid group ID");
+                return;
+            }
+
+            UUID groupId;
+            try {
+                groupId = UUID.fromString(groupIdStr);
+            } catch (IllegalArgumentException e) {
+                sendError(ctx, "Invalid group ID format");
+                return;
+            }
+
+            var group = groupManager.getGroup(groupId);
+            if (group == null) {
+                sendError(ctx, "Group not found");
+                return;
+            }
+
+            // Check capacity
+            if (group.getSettings().isAtCapacity(group.getMemberCount())) {
+                sendError(ctx, "Group is at capacity");
+                return;
+            }
+
+            boolean joined = groupManager.joinGroup(client.getClientId(), groupId);
+            if (!joined) {
+                sendError(ctx, "Failed to join group");
+                return;
+            }
+
+            groupStateManager.addClientToGroup(client.getClientId(), client, groupId);
+
+            // Send success response
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("groupId", groupId.toString());
+            responseData.addProperty("groupName", group.getName());
+            
+            SignalingMessage response = new SignalingMessage("group_joined", responseData);
+            sendMessage(ctx, response);
+
+            // Broadcast member list update to all group members
+            broadcastGroupMembersUpdate(groupId);
+            
+            logger.atFine().log("Client " + client.getUsername() + " joined group: " + group.getName());
+        }
+
+        private void handleLeaveGroup(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (groupManager == null) {
+                sendError(ctx, "Group manager not available");
+                return;
+            }
+
+            UUID groupId = groupStateManager.getClientGroup(client.getClientId());
+            if (groupId == null) {
+                sendError(ctx, "Not in any group");
+                return;
+            }
+
+            groupStateManager.removeClientFromAllGroups(client.getClientId());
+            groupManager.leaveGroup(client.getClientId());
+
+            // Send success response
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("groupId", groupId.toString());
+            SignalingMessage response = new SignalingMessage("group_left", responseData);
+            sendMessage(ctx, response);
+
+            // Broadcast member list update
+            broadcastGroupMembersUpdate(groupId);
+            
+            logger.atFine().log("Client " + client.getUsername() + " left group: " + groupId);
+        }
+
+        private void handleListGroups(ChannelHandlerContext ctx, SignalingMessage message) {
+            if (groupManager == null) {
+                sendError(ctx, "Group manager not available");
+                return;
+            }
+
+            var groups = groupManager.listGroups();
+            com.google.gson.JsonArray groupsArray = new com.google.gson.JsonArray();
+            
+            for (var group : groups) {
+                JsonObject groupObj = new JsonObject();
+                groupObj.addProperty("id", group.getGroupId().toString());
+                groupObj.addProperty("name", group.getName());
+                groupObj.addProperty("memberCount", group.getMemberCount());
+                groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
+                groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+                groupsArray.add(groupObj);
+            }
+
+            JsonObject responseData = new JsonObject();
+            responseData.add("groups", groupsArray);
+            SignalingMessage response = new SignalingMessage("group_list", responseData);
+            sendMessage(ctx, response);
+        }
+
+        private void handleGetGroupMembers(ChannelHandlerContext ctx, SignalingMessage message) {
+            JsonObject data = message.getData();
+            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
+            
+            if (groupIdStr == null) {
+                sendError(ctx, "Invalid group ID");
+                return;
+            }
+
+            UUID groupId;
+            try {
+                groupId = UUID.fromString(groupIdStr);
+            } catch (IllegalArgumentException e) {
+                sendError(ctx, "Invalid group ID format");
+                return;
+            }
+
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients);
+            
+            JsonObject responseData = new JsonObject();
+            responseData.add("members", membersArray);
+            SignalingMessage response = new SignalingMessage("group_members_list", responseData);
+            sendMessage(ctx, response);
+        }
+
+        private void handleUserSpeakingStatus(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            boolean isSpeaking = data.has("isSpeaking") ? data.get("isSpeaking").getAsBoolean() : false;
+            
+            client.setSpeaking(isSpeaking);
+            
+            // Debounced broadcast to group
+            UUID groupId = groupStateManager.getClientGroup(client.getClientId());
+            if (groupId != null) {
+                JsonObject broadcastData = new JsonObject();
+                broadcastData.addProperty("userId", client.getClientId().toString());
+                broadcastData.addProperty("isSpeaking", isSpeaking);
+                broadcastData.addProperty("username", client.getUsername());
+                SignalingMessage broadcastMsg = new SignalingMessage("user_speaking_status", broadcastData);
+                groupStateManager.broadcastToGroup(groupId, broadcastMsg, client.getClientId());
+            }
+        }
+
+        private void handlePing(ChannelHandlerContext ctx, SignalingMessage message) {
+            JsonObject data = message.getData();
+            long timestamp = data.has("timestamp") ? data.get("timestamp").getAsLong() : System.currentTimeMillis();
+            
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("timestamp", timestamp);
+            SignalingMessage response = new SignalingMessage("pong", responseData);
+            sendMessage(ctx, response);
+        }
+
+        private void broadcastGroupMembersUpdate(UUID groupId) {
+            if (groupManager == null) {
+                return;
+            }
+
+            var group = groupManager.getGroup(groupId);
+            if (group == null) {
+                return;
+            }
+
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients);
+            JsonObject broadcastData = new JsonObject();
+            broadcastData.addProperty("groupId", groupId.toString());
+            broadcastData.addProperty("groupName", group.getName());
+            broadcastData.add("members", membersArray);
+            
+            SignalingMessage broadcastMsg = new SignalingMessage("group_members_updated", broadcastData);
+            groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
         }
         
         private void sendMessage(ChannelHandlerContext ctx, SignalingMessage message) {
