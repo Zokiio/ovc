@@ -12,6 +12,7 @@ import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
+import com.hytale.voicechat.plugin.tracker.AuthCodeStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hytale.voicechat.plugin.webrtc.DataChannelAudioHandler;
 import com.hytale.voicechat.plugin.webrtc.WebRTCAudioBridge;
@@ -19,6 +20,7 @@ import com.hytale.voicechat.plugin.webrtc.WebRTCPeerManager;
 import com.hytale.voicechat.plugin.webrtc.WebRTCSignalingServer;
 
 import javax.annotation.Nonnull;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,17 +33,27 @@ import java.util.UUID;
  */
 public class HytaleVoiceChatPlugin extends JavaPlugin {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+    private static HytaleVoiceChatPlugin instance;
     
     private WebRTCSignalingServer signalingServer;
     private WebRTCAudioBridge webRtcAudioBridge;
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
     private GroupManager groupManager;
+    private AuthCodeStore authCodeStore;
     private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);
+        instance = this;
         logger.atInfo().log("Hytale Voice Chat Plugin (WebRTC SFU) initialized - version " + this.getManifest().getVersion());
+    }
+    
+    /**
+     * Get the plugin instance
+     */
+    public static HytaleVoiceChatPlugin instance() {
+        return instance;
     }
 
     /**
@@ -52,6 +64,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         logger.atInfo().log("Setting up Hytale Voice Chat Plugin (WebRTC SFU)...");
         
         try {
+            // Get data directory for persistent storage
+            Path dataDir = Path.of("plugins", "voicechat");
+            
+            // Initialize auth code store with file persistence
+            authCodeStore = new AuthCodeStore(dataDir);
+            logger.atInfo().log("Initialized AuthCodeStore with file persistence");
+            
             // Initialize group manager
             groupManager = new GroupManager();
             
@@ -69,6 +88,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Initialize and start WebRTC signaling server
             signalingServer = new WebRTCSignalingServer(NetworkConfig.DEFAULT_SIGNALING_PORT);
             signalingServer.setPositionTracker(positionTracker);
+            signalingServer.setPlugin(this);
             
             // Create and set group state manager for group operations
             com.hytale.voicechat.plugin.webrtc.GroupStateManager groupStateManager = new com.hytale.voicechat.plugin.webrtc.GroupStateManager();
@@ -211,6 +231,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     public PlayerPositionTracker getPositionTracker() {
         return positionTracker;
+    }
+    
+    /**
+     * Get the auth code store
+     */
+    public AuthCodeStore getAuthCodeStore() {
+        return authCodeStore;
     }
 
     // TODO: Register Hytale event listeners when API becomes available

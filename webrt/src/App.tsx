@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
-import { useVoiceActivity } from '@/hooks/use-voice-activity'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -8,10 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Toaster } from '@/components/ui/sonner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { MagnifyingGlass, Plus, Users as UsersIcon, SignOut, UserList, Stack, Waveform, SquaresFour, Rows } from '@phosphor-icons/react'
+import { MagnifyingGlassIcon, PlusIcon, UsersIcon, SignOutIcon, UserListIcon, StackIcon, WaveformIcon } from '@phosphor-icons/react'
 import { User, Group, GroupSettings, AudioSettings, ConnectionState, PlayerPosition } from '@/lib/types'
 import { UserCard } from '@/components/UserCard'
-import { UserCardCompact } from '@/components/UserCardCompact'
 import { GroupCard } from '@/components/GroupCard'
 import { CreateGroupDialog } from '@/components/CreateGroupDialog'
 import { GroupSettingsDialog } from '@/components/GroupSettingsDialog'
@@ -29,8 +27,16 @@ function App() {
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const eventListenersSetUpRef = useRef(false)
   
-  const [users, setUsers] = useState<User[]>([])
+  // Use Map for O(1) user lookups and updates
+  const [users, setUsers] = useState<Map<string, User>>(new Map())
   const [groups, setGroups] = useState<Group[]>([])
+  
+  // Batch high-frequency updates to reduce re-renders
+  const updateQueueRef = useRef<{
+    positions: Map<string, PlayerPosition & { username: string }>
+    speaking: Map<string, boolean>
+  }>({ positions: new Map(), speaking: new Map() })
+  const flushTimeoutRef = useRef<number | null>(null)
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null)
   const [username, setUsername] = useState<string>('')
   const [audioSettings, setAudioSettings] = useState<AudioSettings>({
@@ -47,9 +53,7 @@ function App() {
     serverUrl: ''
   })
   const [vadEnabled, setVadEnabled] = useState<boolean>(true)
-  const [currentUserId] = useState<string>('user-1')
-  const [mockMode, setMockMode] = useState<boolean>(false)
-  const [compactView, setCompactView] = useState<boolean>(false)
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   
   const [searchQuery, setSearchQuery] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -57,75 +61,67 @@ function App() {
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [activeTab, setActiveTab] = useState<'current-group' | 'groups' | 'all-users'>('groups')
 
-  const { isSpeaking: currentUserIsSpeaking } = useVoiceActivity({
-    enabled: vadEnabled || false,
-    audioSettings: audioSettings || {
-      inputDevice: 'default',
-      outputDevice: 'default',
-      inputVolume: 80,
-      outputVolume: 80,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true
-    }
-  })
+  // Flush batched updates at 10Hz (every 100ms)
+  const flushUpdates = useCallback(() => {
+    const queue = updateQueueRef.current
+    if (queue.positions.size === 0 && queue.speaking.size === 0) return
 
-  useEffect(() => {
-    if (vadEnabled) {
-      const client = signalingClient.current
-      setUsers(currentUsers => 
-        currentUsers.map(user => 
-          user.id === currentUserId ? { ...user, isSpeaking: currentUserIsSpeaking } : user
-        )
-      )
-      // Send speaking status to server if connected
-      if (client.isConnected()) {
-        client.updateSpeakingStatus(currentUserIsSpeaking)
-      }
-    }
-  }, [currentUserIsSpeaking, vadEnabled, currentUserId])
-
-  useEffect(() => {
-    if (!mockMode) return
-
-    // Reduced frequency from 500ms to 1000ms for better performance
-    const interval = setInterval(() => {
-      setUsers(currentUsers => {
-        return currentUsers.map(user => {
-          if (user.id === currentUserId) return user
-          
-          if (user.isSpeaking) {
-            return Math.random() > 0.3 ? user : { ...user, isSpeaking: false }
-          } else {
-            return Math.random() > 0.95 ? { ...user, isSpeaking: true } : user
-          }
-        })
+    setUsers(currentUsers => {
+      const newUsers = new Map(currentUsers)
+      
+      // Apply position updates
+      queue.positions.forEach((pos, userId) => {
+        const user = newUsers.get(userId)
+        if (user) {
+          newUsers.set(userId, { ...user, position: pos })
+        }
       })
-    }, 1000)
+      
+      // Apply speaking status updates
+      queue.speaking.forEach((isSpeaking, userId) => {
+        const user = newUsers.get(userId)
+        if (user && user.isSpeaking !== isSpeaking) {
+          newUsers.set(userId, { ...user, isSpeaking })
+        }
+      })
+      
+      return newUsers
+    })
 
-    return () => clearInterval(interval)
-  }, [mockMode, currentUserId])
-  
-  useEffect(() => {
-    const generateMockUsers = () => {
-      if (users.length === 0) {
-        // Reduced from 25 to 12 users for better performance
-        const mockUsers: User[] = Array.from({ length: 12 }, (_, i) => ({
-          id: `user-${i + 1}`,
-          name: i === 0 ? 'You' : `User ${i + 1}`,
-          isSpeaking: false,
-          isMuted: Math.random() > 0.8,
-          volume: 80,
-          groupId: i < 8 ? currentGroupId || undefined : undefined
-        }))
-        setUsers(mockUsers)
-      }
-    }
-    generateMockUsers()
+    // Clear the queues
+    queue.positions.clear()
+    queue.speaking.clear()
+    flushTimeoutRef.current = null
   }, [])
 
+  const scheduleFlush = useCallback(() => {
+    if (!flushTimeoutRef.current) {
+      flushTimeoutRef.current = window.setTimeout(flushUpdates, 100)
+    }
+  }, [flushUpdates])
+
+  // Handle speaking status changes from VoiceActivityMonitor
+  const handleSpeakingChange = useCallback((isSpeaking: boolean) => {
+    if (currentUserId) {
+      const client = signalingClient.current
+      // Update immediately for current user for responsiveness
+      setUsers(currentUsers => {
+        const newUsers = new Map(currentUsers)
+        const user = newUsers.get(currentUserId)
+        if (user) {
+          newUsers.set(currentUserId, { ...user, isSpeaking })
+        }
+        return newUsers
+      })
+      // Send speaking status to server if connected
+      if (client.isConnected()) {
+        client.updateSpeakingStatus(isSpeaking)
+      }
+    }
+  }, [currentUserId])
+
   const filteredUsers = useMemo(() => {
-    let filtered = users
+    let filtered = Array.from(users.values())
 
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
@@ -144,24 +140,29 @@ function App() {
 
   const handleVolumeChange = useCallback((userId: string, volume: number) => {
     // Update local state
-    setUsers(currentUsers => 
-      currentUsers.map(user => 
-        user.id === userId ? { ...user, volume } : user
-      )
-    )
+    setUsers(currentUsers => {
+      const newUsers = new Map(currentUsers)
+      const user = newUsers.get(userId)
+      if (user) {
+        newUsers.set(userId, { ...user, volume })
+      }
+      return newUsers
+    })
     // Apply to audio playback
     audioPlayback.current.setUserVolume(userId, volume)
   }, [])
 
   const handleToggleMute = useCallback((userId: string) => {
     setUsers(currentUsers => {
-      const user = currentUsers.find(u => u.id === userId)
-      const newMuted = user ? !user.isMuted : false
-      // Apply to audio playback
-      audioPlayback.current.setUserMuted(userId, newMuted)
-      return currentUsers.map(u => 
-        u.id === userId ? { ...u, isMuted: newMuted } : u
-      )
+      const newUsers = new Map(currentUsers)
+      const user = newUsers.get(userId)
+      if (user) {
+        const newMuted = !user.isMuted
+        // Apply to audio playback
+        audioPlayback.current.setUserMuted(userId, newMuted)
+        newUsers.set(userId, { ...user, isMuted: newMuted })
+      }
+      return newUsers
     })
   }, [])
 
@@ -169,16 +170,7 @@ function App() {
     console.log('[App] handleCreateGroup called:', name, settings)
     const client = signalingClient.current
     if (!client.isConnected()) {
-      console.log('[App] Not connected to server, using mock group creation')
-      // Fallback to mock creation if not connected
-      const newGroup: Group = {
-        id: `group-${Date.now()}`,
-        name,
-        memberCount: 0,
-        settings
-      }
-      setGroups(currentGroups => [...(currentGroups || []), newGroup])
-      toast.success(`Group "${name}" created successfully`)
+      toast.error('Not connected to server')
       return
     }
 
@@ -201,15 +193,7 @@ function App() {
     }
 
     if (!client.isConnected()) {
-      console.log('[App] Not connected, using mock join')
-      // Fallback to mock join if not connected
-      setCurrentGroupId(groupId)
-      setGroups(currentGroups =>
-        (currentGroups || []).map(g =>
-          g.id === groupId ? { ...g, memberCount: g.memberCount + 1 } : g
-        )
-      )
-      toast.success(`Joined "${group.name}"`)
+      toast.error('Not connected to server')
       return
     }
 
@@ -227,15 +211,7 @@ function App() {
     }
 
     if (!client.isConnected()) {
-      console.log('[App] Not connected, using mock leave')
-      // Fallback to mock leave if not connected
-      setCurrentGroupId(null)
-      setGroups(currentGroups =>
-        (currentGroups || []).map(g =>
-          g.id === groupId ? { ...g, memberCount: Math.max(0, g.memberCount - 1) } : g
-        )
-      )
-      toast.info(`Left "${group.name}"`)
+      toast.error('Not connected to server')
       return
     }
 
@@ -260,7 +236,7 @@ function App() {
     toast.success('Settings updated')
   }, [])
 
-  const handleConnect = useCallback(async (serverUrl: string, username: string) => {
+  const handleConnect = useCallback(async (serverUrl: string, username: string, authCode: string) => {
     setConnectionState(currentState => ({
       serverUrl,
       status: 'connecting',
@@ -282,7 +258,7 @@ function App() {
         pingIntervalRef.current = null
       }
       
-      await client.connect(serverUrl, username)
+      await client.connect(serverUrl, username, authCode)
       
       setConnectionState(currentState => ({
         serverUrl,
@@ -310,7 +286,11 @@ function App() {
       }, 5000)
 
       // Setup event listeners (only once per connection)
-      client.on('authenticated', () => {
+      client.on('authenticated', (data: unknown) => {
+        const payload = data as { clientId?: string }
+        if (payload.clientId) {
+          setCurrentUserId(payload.clientId)
+        }
         toast.success('Connected to server')
       })
 
@@ -415,15 +395,18 @@ function App() {
           )
           // Update the individual users if provided
           if (payload.members && payload.members.length > 0) {
-            const updatedUsers = payload.members.map(m => ({
-              id: m.id,
-              name: m.username,
-              isSpeaking: m.isSpeaking,
-              isMuted: m.isMuted,
-              volume: m.volume,
-              groupId: payload.groupId
-            }))
-            console.log('[App] Updating group users:', updatedUsers)
+            const updatedUsers = new Map<string, User>()
+            payload.members.forEach(m => {
+              updatedUsers.set(m.id, {
+                id: m.id,
+                name: m.username,
+                isSpeaking: m.isSpeaking,
+                isMuted: m.isMuted,
+                volume: m.volume,
+                groupId: payload.groupId
+              })
+            })
+            console.log('[App] Updating group users:', Array.from(updatedUsers.values()))
             setUsers(updatedUsers)
           }
         }
@@ -432,11 +415,9 @@ function App() {
       client.on('user_speaking_status', (data: unknown) => {
         const payload = data as { userId?: string, isSpeaking?: boolean }
         if (payload.userId) {
-          setUsers(currentUsers =>
-            currentUsers.map(u =>
-              u.id === payload.userId ? { ...u, isSpeaking: payload.isSpeaking || false } : u
-            )
-          )
+          // Batch speaking status updates
+          updateQueueRef.current.speaking.set(payload.userId, payload.isSpeaking || false)
+          scheduleFlush()
         }
       })
 
@@ -454,27 +435,19 @@ function App() {
           }>
         }
         if (payload.positions && payload.positions.length > 0) {
-          setUsers(currentUsers => {
-            // Create a map of positions by userId
-            const posMap = new Map(payload.positions!.map(p => [p.userId, p]))
-            return currentUsers.map(user => {
-              const pos = posMap.get(user.id)
-              if (pos) {
-                return {
-                  ...user,
-                  position: {
-                    x: pos.x,
-                    y: pos.y,
-                    z: pos.z,
-                    yaw: pos.yaw,
-                    pitch: pos.pitch,
-                    worldId: pos.worldId
-                  }
-                }
-              }
-              return user
+          // Batch position updates
+          payload.positions.forEach(pos => {
+            updateQueueRef.current.positions.set(pos.userId, {
+              x: pos.x,
+              y: pos.y,
+              z: pos.z,
+              yaw: pos.yaw,
+              pitch: pos.pitch,
+              worldId: pos.worldId,
+              username: pos.username
             })
           })
+          scheduleFlush()
         }
       })
 
@@ -541,8 +514,14 @@ function App() {
       errorMessage: undefined
     }))
     setCurrentGroupId(null)
-    setUsers([])
+    setCurrentUserId(null)
+    setUsers(new Map())
     setGroups([])
+    // Clear any pending flush
+    if (flushTimeoutRef.current) {
+      clearTimeout(flushTimeoutRef.current)
+      flushTimeoutRef.current = null
+    }
     toast.info('Disconnected from server')
   }, [])
 
@@ -552,6 +531,10 @@ function App() {
       if (pingIntervalRef.current) {
         clearInterval(pingIntervalRef.current)
         pingIntervalRef.current = null
+      }
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current)
+        flushTimeoutRef.current = null
       }
       const client = signalingClient.current
       if (client.isConnected()) {
@@ -575,7 +558,7 @@ function App() {
   }
 
   const currentGroup = (groups || []).find(g => g.id === currentGroupId)
-  const currentUser = users.find(u => u.id === currentUserId)
+  const currentUser = currentUserId ? users.get(currentUserId) : undefined
 
   useEffect(() => {
     if (currentGroupId && activeTab === 'groups') {
@@ -602,31 +585,11 @@ function App() {
               <div className="flex items-center gap-2">
                 <Button
                   size="icon"
-                  variant={compactView ? "default" : "outline"}
-                  onClick={() => setCompactView(!compactView)}
-                  className={compactView ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
-                  title={compactView ? "Standard View" : "Compact View"}
-                >
-                  {compactView ? <SquaresFour size={18} weight="bold" /> : <Rows size={18} weight="bold" />}
-                </Button>
-
-                <Button
-                  size="icon"
                   variant={vadEnabled ? "default" : "outline"}
                   onClick={handleToggleVAD}
                   className={vadEnabled ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
                 >
-                  <Waveform size={18} weight="bold" />
-                </Button>
-                
-                <Button
-                  size="icon"
-                  variant={mockMode ? "default" : "outline"}
-                  onClick={() => setMockMode(!mockMode)}
-                  className={mockMode ? "bg-secondary text-secondary-foreground hover:bg-secondary/90" : ""}
-                  title="Mock Mode: Simulates other users speaking"
-                >
-                  <UsersIcon size={18} weight="bold" />
+                  <WaveformIcon size={18} weight="bold" />
                 </Button>
                 
                 {currentGroup && (
@@ -658,6 +621,7 @@ function App() {
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
                 onAudioSettingsChange={handleAudioSettingsChange}
+                onSpeakingChange={handleSpeakingChange}
               />
 
               <Card>
@@ -671,11 +635,11 @@ function App() {
                         </TabsTrigger>
                       )}
                       <TabsTrigger value="groups" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 1' }}>
-                        <Stack size={12} weight="fill" className="mr-1" />
+                        <StackIcon size={12} weight="fill" className="mr-1" />
                         Groups
                       </TabsTrigger>
                       <TabsTrigger value="all-users" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 2' }}>
-                        <UserList size={12} weight="fill" className="mr-1" />
+                        <UserListIcon size={12} weight="fill" className="mr-1" />
                         All Users
                       </TabsTrigger>
                     </TabsList>
@@ -694,7 +658,7 @@ function App() {
                               size="sm"
                               onClick={() => handleLeaveGroup(currentGroup.id)}
                             >
-                              <SignOut size={14} weight="fill" />
+                              <SignOutIcon size={14} weight="fill" />
                               Leave
                             </Button>
                           </div>
@@ -708,7 +672,7 @@ function App() {
 
                         <div className="space-y-2">
                           <div className="relative">
-                            <MagnifyingGlass 
+                            <MagnifyingGlassIcon 
                               size={14} 
                               className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" 
                             />
@@ -729,27 +693,14 @@ function App() {
                             </div>
                           ) : (
                             <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                              {compactView ? (
-                                <div className="grid grid-cols-1 gap-1.5">
-                                  {groupUsers.map(user => (
-                                    <UserCardCompact
-                                      key={user.id}
-                                      user={user}
-                                      onVolumeChange={handleVolumeChange}
-                                      onToggleMute={handleToggleMute}
-                                    />
-                                  ))}
-                                </div>
-                              ) : (
-                                groupUsers.map(user => (
-                                  <UserCard
-                                    key={user.id}
-                                    user={user}
-                                    onVolumeChange={handleVolumeChange}
-                                    onToggleMute={handleToggleMute}
-                                  />
-                                ))
-                              )}
+                              {groupUsers.map(user => (
+                                <UserCard
+                                  key={user.id}
+                                  user={user}
+                                  onVolumeChange={handleVolumeChange}
+                                  onToggleMute={handleToggleMute}
+                                />
+                              ))}
                             </div>
                           )}
                         </div>
@@ -764,14 +715,14 @@ function App() {
                           size="sm"
                           className="bg-accent text-accent-foreground hover:bg-accent/90"
                         >
-                          <Plus size={14} weight="bold" />
+                          <PlusIcon size={14} weight="bold" />
                           Create
                         </Button>
                       </div>
 
                       {(groups || []).length === 0 ? (
                         <div className="text-center py-8">
-                          <Stack size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
+                          <StackIcon size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
                           <p className="text-xs text-muted-foreground mb-3">
                             No groups available yet
                           </p>
@@ -803,7 +754,7 @@ function App() {
                       <h3 className="text-lg font-bold">All Users</h3>
 
                       <div className="relative">
-                        <MagnifyingGlass 
+                        <MagnifyingGlassIcon 
                           size={14} 
                           className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" 
                         />
@@ -817,34 +768,21 @@ function App() {
 
                       {filteredUsers.length === 0 ? (
                         <div className="text-center py-8">
-                          <UserList size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
+                          <UserListIcon size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
                           <p className="text-xs text-muted-foreground">
                             {searchQuery ? 'No users found' : 'No users available'}
                           </p>
                         </div>
                       ) : (
                         <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                          {compactView ? (
-                            <div className="grid grid-cols-1 gap-1.5">
-                              {filteredUsers.map(user => (
-                                <UserCardCompact
-                                  key={user.id}
-                                  user={user}
-                                  onVolumeChange={handleVolumeChange}
-                                  onToggleMute={handleToggleMute}
-                                />
-                              ))}
-                            </div>
-                          ) : (
-                            filteredUsers.map(user => (
-                              <UserCard
-                                key={user.id}
-                                user={user}
-                                onVolumeChange={handleVolumeChange}
-                                onToggleMute={handleToggleMute}
-                              />
-                            ))
-                          )}
+                          {filteredUsers.map(user => (
+                            <UserCard
+                              key={user.id}
+                              user={user}
+                              onVolumeChange={handleVolumeChange}
+                              onToggleMute={handleToggleMute}
+                            />
+                          ))}
                         </div>
                       )}
                     </TabsContent>
@@ -867,30 +805,12 @@ function App() {
               <div className="flex items-center gap-3">
                 <Button
                   size="default"
-                  variant={compactView ? "default" : "outline"}
-                  onClick={() => setCompactView(!compactView)}
-                  className={compactView ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
-                >
-                  {compactView ? <SquaresFour size={20} weight="bold" /> : <Rows size={20} weight="bold" />}
-                  {compactView ? 'Compact' : 'Standard'}
-                </Button>
-                <Button
-                  size="default"
                   variant={vadEnabled ? "default" : "outline"}
                   onClick={handleToggleVAD}
                   className={vadEnabled ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
                 >
-                  <Waveform size={20} weight="bold" />
+                  <WaveformIcon size={20} weight="bold" />
                   Voice Detection {vadEnabled ? 'On' : 'Off'}
-                </Button>
-                <Button
-                  size="default"
-                  variant={mockMode ? "default" : "outline"}
-                  onClick={() => setMockMode(!mockMode)}
-                  className={mockMode ? "bg-secondary text-secondary-foreground hover:bg-secondary/90" : ""}
-                >
-                  <UsersIcon size={20} weight="bold" />
-                  Mock Users {mockMode ? 'On' : 'Off'}
                 </Button>
               </div>
             </div>
@@ -912,6 +832,7 @@ function App() {
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
                 onAudioSettingsChange={handleAudioSettingsChange}
+                onSpeakingChange={handleSpeakingChange}
               />
             </div>
 
@@ -927,11 +848,11 @@ function App() {
                         </TabsTrigger>
                       )}
                       <TabsTrigger value="groups" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 2' }}>
-                        <Stack size={16} weight="fill" className="mr-1.5" />
+                        <StackIcon size={16} weight="fill" className="mr-1.5" />
                         Available Groups
                       </TabsTrigger>
                       <TabsTrigger value="all-users" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 1' }}>
-                        <UserList size={16} weight="fill" className="mr-1.5" />
+                        <UserListIcon size={16} weight="fill" className="mr-1.5" />
                         All Users
                       </TabsTrigger>
                     </TabsList>
@@ -956,7 +877,7 @@ function App() {
                               size="sm"
                               onClick={() => handleLeaveGroup(currentGroup.id)}
                             >
-                              <SignOut size={16} weight="fill" />
+                              <SignOutIcon size={16} weight="fill" />
                               Leave
                             </Button>
                           </div>
@@ -966,7 +887,7 @@ function App() {
 
                         <div className="space-y-3">
                           <div className="relative">
-                            <MagnifyingGlass 
+                            <MagnifyingGlassIcon 
                               size={16} 
                               className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" 
                             />
@@ -987,23 +908,14 @@ function App() {
                             </div>
                           ) : (
                             <ScrollArea className="h-[450px]">
-                              <div className={compactView ? "grid grid-cols-1 gap-1.5 pr-4" : "space-y-2 pr-4"}>
+                              <div className="space-y-2 pr-4">
                                 {groupUsers.map(user => (
-                                  compactView ? (
-                                    <UserCardCompact
-                                      key={user.id}
-                                      user={user}
-                                      onVolumeChange={handleVolumeChange}
-                                      onToggleMute={handleToggleMute}
-                                    />
-                                  ) : (
-                                    <UserCard
-                                      key={user.id}
-                                      user={user}
-                                      onVolumeChange={handleVolumeChange}
-                                      onToggleMute={handleToggleMute}
-                                    />
-                                  )
+                                  <UserCard
+                                    key={user.id}
+                                    user={user}
+                                    onVolumeChange={handleVolumeChange}
+                                    onToggleMute={handleToggleMute}
+                                  />
                                 ))}
                               </div>
                             </ScrollArea>
@@ -1020,14 +932,14 @@ function App() {
                           size="sm"
                           className="bg-accent text-accent-foreground hover:bg-accent/90"
                         >
-                          <Plus size={16} weight="bold" />
+                          <PlusIcon size={16} weight="bold" />
                           Create
                         </Button>
                       </div>
 
                       {(groups || []).length === 0 ? (
                         <div className="text-center py-8">
-                          <Stack size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
+                          <StackIcon size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
                           <p className="text-sm text-muted-foreground mb-4">
                             No groups available yet
                           </p>
@@ -1061,7 +973,7 @@ function App() {
                       <h3 className="text-xl font-bold">All Users</h3>
 
                       <div className="relative">
-                        <MagnifyingGlass 
+                        <MagnifyingGlassIcon 
                           size={16} 
                           className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" 
                         />
@@ -1075,30 +987,21 @@ function App() {
 
                       {filteredUsers.length === 0 ? (
                         <div className="text-center py-8">
-                          <UserList size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
+                          <UserListIcon size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
                           <p className="text-sm text-muted-foreground">
                             {searchQuery ? 'No users found' : 'No users available'}
                           </p>
                         </div>
                       ) : (
                         <ScrollArea className="h-[450px]">
-                          <div className={compactView ? "grid grid-cols-1 gap-1.5 pr-4" : "space-y-2 pr-4"}>
+                          <div className="space-y-2 pr-4">
                             {filteredUsers.map(user => (
-                              compactView ? (
-                                <UserCardCompact
-                                  key={user.id}
-                                  user={user}
-                                  onVolumeChange={handleVolumeChange}
-                                  onToggleMute={handleToggleMute}
-                                />
-                              ) : (
-                                <UserCard
-                                  key={user.id}
-                                  user={user}
-                                  onVolumeChange={handleVolumeChange}
-                                  onToggleMute={handleToggleMute}
-                                />
-                              )
+                              <UserCard
+                                key={user.id}
+                                user={user}
+                                onVolumeChange={handleVolumeChange}
+                                onToggleMute={handleToggleMute}
+                              />
                             ))}
                           </div>
                         </ScrollArea>

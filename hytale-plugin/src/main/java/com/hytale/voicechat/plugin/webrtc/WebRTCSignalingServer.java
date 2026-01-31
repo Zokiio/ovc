@@ -7,8 +7,13 @@ import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
 import com.hytale.voicechat.common.signaling.SignalingMessage;
 import com.hytale.voicechat.plugin.GroupManager;
+import com.hytale.voicechat.plugin.HytaleVoiceChatPlugin;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
+import com.hypixel.hytale.component.Ref;
+import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
+import com.hypixel.hytale.server.core.entity.entities.Player;
+import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.MultiThreadIoEventLoopGroup;
@@ -34,12 +39,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     
     private final int port;
     private final Map<UUID, WebRTCClient> clients;
+    private final ClientIdMapper clientIdMapper;
     private PlayerPositionTracker positionTracker;
     private WebRTCAudioBridge audioBridge;
     private WebRTCPeerManager peerManager;
     private WebRTCClientListener clientListener;
     private GroupStateManager groupStateManager;
     private GroupManager groupManager;
+    private HytaleVoiceChatPlugin plugin;
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
@@ -62,6 +69,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         this.port = port;
         this.clients = new ConcurrentHashMap<>();
         this.groupStateManager = new GroupStateManager();
+        this.clientIdMapper = new ClientIdMapper();
+    }
+    
+    public void setPlugin(HytaleVoiceChatPlugin plugin) {
+        this.plugin = plugin;
+        logger.atInfo().log("Plugin reference set for auth validation");
     }
     
     public void setPositionTracker(PlayerPositionTracker tracker) {
@@ -158,6 +171,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
         });
         clients.clear();
+        
+        // Clear obfuscated ID mappings
+        clientIdMapper.clear();
         
         if (serverChannel != null) {
             serverChannel.close();
@@ -304,7 +320,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     }
     
     /**
-     * Broadcast all player positions to connected web clients
+     * Broadcast player positions to connected web clients.
+     * Only sends positions of users within the viewer's proximity range.
+     * Uses obfuscated IDs instead of real UUIDs.
      */
     private void broadcastPositions() {
         if (positionTracker == null || clients.isEmpty()) {
@@ -312,31 +330,61 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         }
         
         try {
-            Map<UUID, PlayerPosition> positions = positionTracker.getPlayerPositions();
-            if (positions.isEmpty()) {
+            Map<UUID, PlayerPosition> allPositions = positionTracker.getPlayerPositions();
+            if (allPositions.isEmpty()) {
                 return;
             }
             
-            com.google.gson.JsonArray positionsArray = new com.google.gson.JsonArray();
-            for (PlayerPosition pos : positions.values()) {
-                JsonObject posObj = new JsonObject();
-                posObj.addProperty("userId", pos.getPlayerId().toString());
-                posObj.addProperty("username", pos.getPlayerName());
-                posObj.addProperty("x", pos.getX());
-                posObj.addProperty("y", pos.getY());
-                posObj.addProperty("z", pos.getZ());
-                posObj.addProperty("yaw", pos.getYaw());
-                posObj.addProperty("pitch", pos.getPitch());
-                posObj.addProperty("worldId", pos.getWorldId());
-                positionsArray.add(posObj);
+            // Per-client filtering by proximity
+            for (WebRTCClient client : clients.values()) {
+                if (!client.isConnected()) continue;
+                
+                PlayerPosition viewerPos = allPositions.get(client.getClientId());
+                if (viewerPos == null) continue;
+                
+                // Get proximity range from group settings or use default
+                double proximityRange = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
+                UUID groupId = groupStateManager.getClientGroup(client.getClientId());
+                if (groupId != null && groupManager != null) {
+                    Group group = groupManager.getGroup(groupId);
+                    if (group != null) {
+                        proximityRange = group.getSettings().getProximityRange();
+                    }
+                }
+                
+                com.google.gson.JsonArray positionsArray = new com.google.gson.JsonArray();
+                for (PlayerPosition pos : allPositions.values()) {
+                    // Skip self
+                    if (pos.getPlayerId().equals(client.getClientId())) continue;
+                    
+                    // Check proximity
+                    double distance = viewerPos.distanceTo(pos);
+                    if (distance <= proximityRange && distance != Double.MAX_VALUE) {
+                        JsonObject posObj = new JsonObject();
+                        // Use obfuscated ID instead of real UUID
+                        posObj.addProperty("userId", clientIdMapper.getObfuscatedId(pos.getPlayerId()));
+                        posObj.addProperty("username", pos.getPlayerName());
+                        posObj.addProperty("x", pos.getX());
+                        posObj.addProperty("y", pos.getY());
+                        posObj.addProperty("z", pos.getZ());
+                        posObj.addProperty("yaw", pos.getYaw());
+                        posObj.addProperty("pitch", pos.getPitch());
+                        posObj.addProperty("worldId", pos.getWorldId());
+                        posObj.addProperty("distance", Math.round(distance * 10.0) / 10.0); // Round to 1 decimal
+                        positionsArray.add(posObj);
+                    }
+                }
+                
+                // Only send if there are nearby positions
+                if (positionsArray.size() > 0) {
+                    JsonObject data = new JsonObject();
+                    data.add("positions", positionsArray);
+                    data.addProperty("timestamp", System.currentTimeMillis());
+                    
+                    SignalingMessage message = new SignalingMessage("position_update", data);
+                    client.sendMessage(message.toJson());
+                }
             }
-            
-            JsonObject data = new JsonObject();
-            data.add("positions", positionsArray);
-            data.addProperty("timestamp", System.currentTimeMillis());
-            
-            SignalingMessage message = new SignalingMessage("position_update", data);
-            broadcastToAll(message);
         } catch (Exception e) {
             logger.atWarning().log("Error broadcasting positions: " + e.getMessage());
         }
@@ -452,19 +500,45 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         private void handleAuthenticate(ChannelHandlerContext ctx, SignalingMessage message) {
             JsonObject data = message.getData();
+            
+            // Extract username and auth code
+            if (!data.has("username")) {
+                sendError(ctx, "Missing username");
+                return;
+            }
             String username = data.get("username").getAsString();
             
-            // Create new client. Prefer binding to existing player UUID (by username) so GUI linkage works like UDP
-            UUID clientId = null;
-            if (positionTracker != null) {
-                clientId = positionTracker.getPlayerUUIDByUsername(username);
-                if (clientId != null) {
-                    logger.atInfo().log("WebRTC auth mapped username " + username + " to existing player UUID: " + clientId);
+            // Validate auth code if plugin is available
+            if (plugin != null) {
+                if (!data.has("authCode")) {
+                    sendError(ctx, "Missing auth code. Use /vc login in-game to get your code.");
+                    return;
+                }
+                String authCode = data.get("authCode").getAsString();
+                
+                if (!plugin.getAuthCodeStore().validateCode(username, authCode)) {
+                    sendError(ctx, "Invalid auth code. Use /vc login in-game to get the correct code.");
+                    logger.atWarning().log("Auth failed for username " + username + " - invalid code");
+                    return;
                 }
             }
-            if (clientId == null) {
-                clientId = UUID.randomUUID();
+            
+            // Get player UUID from auth store or position tracker
+            UUID clientId = null;
+            if (plugin != null) {
+                clientId = plugin.getAuthCodeStore().getPlayerUUID(username);
             }
+            if (clientId == null && positionTracker != null) {
+                clientId = positionTracker.getPlayerUUIDByUsername(username);
+            }
+            if (clientId == null) {
+                // Reject if we can't find the player
+                sendError(ctx, "Player not found. Please log in to the game first.");
+                return;
+            }
+            
+            logger.atInfo().log("WebRTC auth validated for " + username + " (UUID: " + clientId + ")");
+            
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
             clients.put(clientId, client);
             ctx.channel().attr(CLIENT_ATTR).set(client);
@@ -482,16 +556,17 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 clientListener.onClientConnected(clientId, username);
             }
             
-            // Send success response
+            // Send success response with obfuscated client ID
+            String obfuscatedId = clientIdMapper.getObfuscatedId(clientId);
             JsonObject responseData = new JsonObject();
-            responseData.addProperty("clientId", clientId.toString());
+            responseData.addProperty("clientId", obfuscatedId);
             responseData.addProperty("username", username);
             
             SignalingMessage response = new SignalingMessage(
                     SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
             sendMessage(ctx, response);
             
-            logger.atInfo().log("WebRTC client authenticated: " + username + " (" + clientId + ")");
+            logger.atInfo().log("WebRTC client authenticated: " + username + " (obfuscated: " + obfuscatedId + ")");
         }
         
         private void handleAudioData(ChannelHandlerContext ctx, SignalingMessage message) {
@@ -617,6 +692,10 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     positionTracker.removePlayer(client.getClientId());
                     logger.atInfo().log("Removed WebRTC client from position tracker: " + client.getClientId());
                 }
+                
+                // Remove obfuscated ID mapping
+                clientIdMapper.removeMapping(client.getClientId());
+                
                 clients.remove(client.getClientId());
                 logger.atInfo().log("WebRTC client disconnected: " + client.getClientId());
             }

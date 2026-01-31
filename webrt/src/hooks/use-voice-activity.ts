@@ -42,6 +42,8 @@ export function useVoiceActivity({
   const lastSpeechTimeRef = useRef<number>(0)
   const lastSilenceTimeRef = useRef<number>(0)
   const isInitializingRef = useRef(false)
+  const lastLevelUpdateRef = useRef<number>(0)
+  const lastReportedLevelRef = useRef<number>(0)
 
   const stopListening = useCallback(() => {
     if (animationFrameRef.current) {
@@ -141,13 +143,18 @@ export function useVoiceActivity({
         const rms = Math.sqrt(sum / bufferLength)
         const normalizedLevel = Math.min(1, rms * 10)
         
-        setAudioLevel(normalizedLevel)
+        // Throttle audio level updates to ~10fps (every 100ms) and only if changed significantly
+        const now = Date.now()
+        if (now - lastLevelUpdateRef.current > 100 || 
+            Math.abs(normalizedLevel - lastReportedLevelRef.current) > 0.05) {
+          lastLevelUpdateRef.current = now
+          lastReportedLevelRef.current = normalizedLevel
+          setAudioLevel(normalizedLevel)
+        }
 
         const volumeMultiplier = audioSettings.inputVolume / 100
         const adjustedThreshold = threshold / Math.max(volumeMultiplier, 0.1)
         const isSpeechDetected = rms > adjustedThreshold
-
-        const now = Date.now()
 
         if (isSpeechDetected) {
           lastSpeechTimeRef.current = now

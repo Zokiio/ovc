@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, memo } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,26 +8,34 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { 
-  Microphone, 
-  SpeakerHigh, 
-  WifiHigh, 
-  WifiSlash, 
-  Plugs,
-  CircleNotch,
-  CheckCircle,
-  WarningCircle
+  MicrophoneIcon, 
+  SpeakerHighIcon, 
+  WifiHighIcon, 
+  WifiSlashIcon, 
+  PlugsIcon,
+  CircleNotchIcon,
+  CheckCircleIcon,
+  WarningCircleIcon,
+  FloppyDiskIcon,
+  TrashIcon,
+  PencilSimpleIcon,
+  CaretDownIcon,
+  WaveformIcon
 } from '@phosphor-icons/react'
 import { ConnectionState, AudioSettings } from '@/lib/types'
 import { toast } from 'sonner'
 import { VoiceActivityMonitor } from '@/components/VoiceActivityMonitor'
+import { useSavedServers } from '@/hooks/use-saved-servers'
 
 interface ConnectionViewProps {
   connectionState: ConnectionState
   audioSettings: AudioSettings
-  onConnect: (serverUrl: string, username: string) => void
+  onConnect: (serverUrl: string, username: string, authCode: string) => void
   onDisconnect: () => void
   onAudioSettingsChange: (settings: AudioSettings) => void
+  onSpeakingChange?: (isSpeaking: boolean) => void
 }
 
 export function ConnectionView({
@@ -35,20 +43,124 @@ export function ConnectionView({
   audioSettings,
   onConnect,
   onDisconnect,
-  onAudioSettingsChange
+  onAudioSettingsChange,
+  onSpeakingChange
 }: ConnectionViewProps) {
   const [serverUrl, setServerUrl] = useState(connectionState.serverUrl)
   const [username, setUsername] = useState('')
+  const [authCode, setAuthCode] = useState('')
+  const [serverNickname, setServerNickname] = useState('')
+  const [selectedServerId, setSelectedServerId] = useState<string>('')
+  const [isEditing, setIsEditing] = useState(false)
   const [audioDevices, setAudioDevices] = useState<{ inputDevices: MediaDeviceInfo[], outputDevices: MediaDeviceInfo[] }>({
     inputDevices: [],
     outputDevices: []
   })
   const [micLevel, setMicLevel] = useState(0)
   const [isTesting, setIsTesting] = useState(false)
+  const [micSettingsOpen, setMicSettingsOpen] = useState(false)
+  const [outputSettingsOpen, setOutputSettingsOpen] = useState(false)
+  const [vadOpen, setVadOpen] = useState(false)
+  const [connectionOpen, setConnectionOpen] = useState(true)
+  
+  const { servers, addServer, updateServer, removeServer, markUsed } = useSavedServers()
+
+  // Memoize server options to prevent dropdown sluggishness
+  const serverOptions = useMemo(() => {
+    return servers.map(server => ({
+      id: server.id,
+      nickname: server.nickname
+    }))
+  }, [servers])
 
   useEffect(() => {
     enumerateDevices()
   }, [])
+
+  const handleSelectServer = (serverId: string) => {
+    if (serverId === 'new') {
+      setSelectedServerId('')
+      setServerUrl('')
+      setUsername('')
+      setAuthCode('')
+      setServerNickname('')
+      setIsEditing(false)
+      return
+    }
+    const server = servers.find(s => s.id === serverId)
+    if (server) {
+      setSelectedServerId(serverId)
+      setServerUrl(server.url)
+      setUsername(server.username)
+      setAuthCode(server.authCode)
+      setServerNickname(server.nickname)
+      setIsEditing(false)
+    }
+  }
+
+  const handleSaveServer = () => {
+    if (!serverUrl.trim() || !username.trim()) {
+      toast.error('Please enter server URL and username')
+      return
+    }
+    const nickname = serverNickname.trim() || serverUrl
+    const newServer = addServer({
+      nickname,
+      url: serverUrl,
+      username,
+      authCode
+    })
+    setSelectedServerId(newServer.id)
+    setIsEditing(false)
+    toast.success(`Server "${nickname}" saved`)
+  }
+
+  const handleUpdateServer = () => {
+    if (!selectedServerId) return
+    if (!serverUrl.trim() || !username.trim()) {
+      toast.error('Please enter server URL and username')
+      return
+    }
+    const nickname = serverNickname.trim() || serverUrl
+    updateServer(selectedServerId, {
+      nickname,
+      url: serverUrl,
+      username,
+      authCode
+    })
+    setIsEditing(false)
+    toast.success(`Server "${nickname}" updated`)
+  }
+
+  const handleDeleteServer = () => {
+    if (selectedServerId) {
+      const server = servers.find(s => s.id === selectedServerId)
+      removeServer(selectedServerId)
+      setSelectedServerId('')
+      setServerUrl('')
+      setUsername('')
+      setAuthCode('')
+      setServerNickname('')
+      setIsEditing(false)
+      toast.success(`Server "${server?.nickname}" removed`)
+    }
+  }
+
+  const handleStartEdit = () => {
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    // Restore original values from selected server
+    const server = servers.find(s => s.id === selectedServerId)
+    if (server) {
+      setServerUrl(server.url)
+      setUsername(server.username)
+      setAuthCode(server.authCode)
+      setServerNickname(server.nickname)
+    }
+    setIsEditing(false)
+  }
 
   const enumerateDevices = async () => {
     try {
@@ -71,7 +183,14 @@ export function ConnectionView({
       toast.error('Please enter a username')
       return
     }
-    onConnect(serverUrl, username)
+    if (!authCode.trim()) {
+      toast.error('Please enter your auth code (use /vc login in-game)')
+      return
+    }
+    if (selectedServerId) {
+      markUsed(selectedServerId)
+    }
+    onConnect(serverUrl, username, authCode)
   }
 
   const testMicrophone = async () => {
@@ -121,13 +240,13 @@ export function ConnectionView({
   const getStatusIcon = () => {
     switch (connectionState.status) {
       case 'connected':
-        return <CheckCircle size={20} weight="fill" className="text-accent" />
+        return <CheckCircleIcon size={20} weight="fill" className="text-accent" />
       case 'connecting':
-        return <CircleNotch size={20} weight="bold" className="text-muted-foreground animate-spin" />
+        return <CircleNotchIcon size={20} weight="bold" className="text-muted-foreground animate-spin" />
       case 'error':
-        return <WarningCircle size={20} weight="fill" className="text-destructive" />
+        return <WarningCircleIcon size={20} weight="fill" className="text-destructive" />
       default:
-        return <WifiSlash size={20} weight="bold" className="text-muted-foreground" />
+        return <WifiSlashIcon size={20} weight="bold" className="text-muted-foreground" />
     }
   }
 
@@ -150,30 +269,159 @@ export function ConnectionView({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-3">
-                <Plugs size={24} weight="bold" />
-                Server Connection
-              </CardTitle>
-              <CardDescription>Connect to a WebRTC SFU server</CardDescription>
+      <Collapsible open={connectionOpen} onOpenChange={setConnectionOpen}>
+        <Card>
+          <CardHeader>
+            <CollapsibleTrigger asChild>
+              <div className="flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity">
+                <div className="flex-1">
+                  <CardTitle className="flex items-center gap-3">
+                    <PlugsIcon size={24} weight="bold" />
+                    Server Connection
+                  </CardTitle>
+                  <CardDescription>Connect to a WebRTC SFU server</CardDescription>
+                </div>
+                <div className="flex items-center gap-3">
+                  {getStatusBadge()}
+                  {connectionState.status === 'connected' && (
+                    <CaretDownIcon 
+                      size={20} 
+                      weight="bold"
+                      className={`transition-transform duration-200 ${connectionOpen ? '' : '-rotate-90'}`}
+                    />
+                  )}
+                </div>
+              </div>
+            </CollapsibleTrigger>
+          </CardHeader>
+          {(connectionState.status !== 'connected' || connectionOpen) && (
+            <CollapsibleContent>
+              <CardContent className="space-y-4">
+                {/* Saved Servers */}
+          <div className="space-y-2">
+            <Label htmlFor="saved-servers">Saved Servers</Label>
+            <div className="flex gap-2">
+              <Select 
+                value={selectedServerId || 'new'} 
+                onValueChange={handleSelectServer}
+                disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              >
+                <SelectTrigger id="saved-servers" className="flex-1">
+                  <SelectValue placeholder="Select a saved server" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="new">New Connection...</SelectItem>
+                  {serverOptions.map(server => (
+                    <SelectItem key={server.id} value={server.id}>
+                      {server.nickname}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {/* Action buttons based on state */}
+              {!selectedServerId ? (
+                // New connection - show save button
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleSaveServer}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  title="Save as new server"
+                >
+                  <FloppyDiskIcon size={20} weight="bold" />
+                </Button>
+              ) : isEditing ? (
+                // Editing existing - show save/cancel
+                <>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleUpdateServer}
+                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                    title="Save changes"
+                    className="text-accent"
+                  >
+                    <FloppyDiskIcon size={20} weight="bold" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleCancelEdit}
+                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                    title="Cancel editing"
+                  >
+                    ✕
+                  </Button>
+                </>
+              ) : (
+                // Selected but not editing - show edit/delete
+                <>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleStartEdit}
+                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                    title="Edit server"
+                  >
+                    <PencilSimpleIcon size={20} weight="bold" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleDeleteServer}
+                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                    title="Delete server"
+                  >
+                    <TrashIcon size={20} weight="bold" className="text-destructive" />
+                  </Button>
+                </>
+              )}
             </div>
-            {getStatusBadge()}
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+
+          {/* Server Nickname - show when new or editing */}
+          {(!selectedServerId || isEditing) && (
+            <div className="space-y-2">
+              <Label htmlFor="server-nickname">Server Nickname {selectedServerId ? '' : '(optional)'}</Label>
+              <Input
+                id="server-nickname"
+                type="text"
+                placeholder="My Server"
+                value={serverNickname}
+                onChange={(e) => setServerNickname(e.target.value)}
+                disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              />
+            </div>
+          )}
+
+          <Separator />
+
           <div className="space-y-2">
             <Label htmlFor="username">Username</Label>
             <Input
               id="username"
               type="text"
-              placeholder="Your username"
+              placeholder="Your in-game username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="auth-code">Auth Code</Label>
+            <Input
+              id="auth-code"
+              type="text"
+              placeholder="Use /vc login in-game to get your code"
+              value={authCode}
+              onChange={(e) => setAuthCode(e.target.value.toUpperCase())}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              maxLength={6}
+              className="font-mono uppercase tracking-widest"
+            />
+            <p className="text-xs text-muted-foreground">Type /vc login in Hytale to get your permanent auth code</p>
           </div>
 
           <div className="space-y-2">
@@ -193,7 +441,7 @@ export function ConnectionView({
                   variant="destructive"
                   className="min-w-[120px]"
                 >
-                  <WifiSlash size={20} weight="bold" />
+                  <WifiSlashIcon size={20} weight="bold" />
                   Disconnect
                 </Button>
               ) : (
@@ -202,7 +450,7 @@ export function ConnectionView({
                   disabled={connectionState.status === 'connecting'}
                   className="min-w-[120px] bg-accent text-accent-foreground hover:bg-accent/90"
                 >
-                  <WifiHigh size={20} weight="bold" />
+                  <WifiHighIcon size={20} weight="bold" />
                   Connect
                 </Button>
               )}
@@ -223,20 +471,64 @@ export function ConnectionView({
               {connectionState.errorMessage}
             </div>
           )}
-        </CardContent>
-      </Card>
+              </CardContent>
+            </CollapsibleContent>
+          )}
+        </Card>
+      </Collapsible>
 
-      <VoiceActivityMonitor audioSettings={audioSettings} />
+      {!vadOpen ? (
+        <Card className="cursor-pointer hover:bg-accent/5 transition-colors" onClick={() => setVadOpen(true)}>
+          <CardHeader className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <WaveformIcon size={24} weight="bold" />
+                <CardTitle>Voice Activity Detection</CardTitle>
+              </div>
+              <CaretDownIcon size={20} weight="bold" />
+            </div>
+          </CardHeader>
+        </Card>
+      ) : (
+        <div className="relative">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setVadOpen(false)}
+            className="absolute top-4 right-4 z-10 h-8 w-8 hover:bg-accent/10"
+          >
+            <CaretDownIcon 
+              size={16} 
+              weight="bold" 
+              className="rotate-180"
+            />
+          </Button>
+          <VoiceActivityMonitor audioSettings={audioSettings} onSpeakingChange={onSpeakingChange} />
+        </div>
+      )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <Microphone size={24} weight="bold" />
-            Microphone Settings
-          </CardTitle>
-          <CardDescription>Configure your input device and audio processing</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <Collapsible open={micSettingsOpen} onOpenChange={setMicSettingsOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover:bg-accent/5 transition-colors">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-3">
+                    <MicrophoneIcon size={24} weight="bold" />
+                    Microphone Settings
+                  </CardTitle>
+                  <CardDescription>Configure your input device and audio processing</CardDescription>
+                </div>
+                <CaretDownIcon 
+                  size={20} 
+                  weight="bold" 
+                  className={`transition-transform duration-200 ${micSettingsOpen ? 'rotate-180' : ''}`}
+                />
+              </div>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="input-device">Input Device</Label>
             <Select 
@@ -339,18 +631,33 @@ export function ConnectionView({
               />
             </div>
           </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-3">
-            <SpeakerHigh size={24} weight="bold" />
-            Audio Output Settings
-          </CardTitle>
-          <CardDescription>Configure your output device and volume</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <Collapsible open={outputSettingsOpen} onOpenChange={setOutputSettingsOpen}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer hover:bg-accent/5 transition-colors">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-3">
+                    <SpeakerHighIcon size={24} weight="bold" />
+                    Audio Output Settings
+                  </CardTitle>
+                  <CardDescription>Configure your output device and volume</CardDescription>
+                </div>
+                <CaretDownIcon 
+                  size={20} 
+                  weight="bold" 
+                  className={`transition-transform duration-200 ${outputSettingsOpen ? 'rotate-180' : ''}`}
+                />
+              </div>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="output-device">Output Device</Label>
             <Select 
@@ -388,8 +695,12 @@ export function ConnectionView({
               className="w-full"
             />
           </div>
-        </CardContent>
-      </Card>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
     </div>
   )
 }
+
+export default memo(ConnectionView)

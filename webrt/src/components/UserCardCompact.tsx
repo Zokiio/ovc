@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo, memo } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { SpeakerHigh, SpeakerSlash } from '@phosphor-icons/react'
+import { SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useAnimationTicker } from '@/hooks/use-mobile'
 
 interface UserCardCompactProps {
   user: User
@@ -23,19 +24,17 @@ export function UserCardCompact({ user, onToggleMute }: UserCardCompactProps) {
       .slice(0, 2)
   }, [user.name])
 
-  useEffect(() => {
+  // Use shared animation ticker instead of per-user setInterval
+  useAnimationTicker(() => {
     if (user.isSpeaking) {
-      // Reduced from 80ms to 150ms
-      const interval = setInterval(() => {
-        const randomLevel = Math.random() * 0.6 + 0.4
-        setAudioLevel(randomLevel)
-      }, 150)
+      const randomLevel = Math.random() * 0.6 + 0.4
+      setAudioLevel(randomLevel)
+    }
+  }, user.isSpeaking)
 
-      return () => {
-        clearInterval(interval)
-        setAudioLevel(0)
-      }
-    } else {
+  // Reset audio level when not speaking
+  useEffect(() => {
+    if (!user.isSpeaking) {
       setAudioLevel(0)
     }
   }, [user.isSpeaking])
@@ -105,9 +104,9 @@ export function UserCardCompact({ user, onToggleMute }: UserCardCompactProps) {
           onClick={() => onToggleMute(user.id)}
         >
           {user.isMuted ? (
-            <SpeakerSlash size={12} weight="fill" />
+            <SpeakerSlashIcon size={12} weight="fill" />
           ) : (
-            <SpeakerHigh size={12} weight="fill" />
+            <SpeakerHighIcon size={12} weight="fill" />
           )}
         </Button>
       </div>

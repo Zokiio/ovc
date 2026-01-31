@@ -14,6 +14,11 @@ export class SignalingClient {
   private messageHandlers: Map<string, (data: Record<string, unknown>) => void> = new Map()
   private eventListeners: Map<string, ((data: unknown) => void)[]> = new Map()
   private audioPlaybackCallback: ((userId: string, audioData: string) => void) | null = null
+  
+  // Throttle logging for high-frequency messages
+  private highFrequencyMessages = new Set(['position_update', 'user_speaking_status', 'audio'])
+  private lastLogTime: Map<string, number> = new Map()
+  private logThrottle = 5000 // Log high-frequency messages at most once per 5 seconds
 
   constructor() {
     // Register default handlers
@@ -32,7 +37,7 @@ export class SignalingClient {
   /**
    * Connect to the WebRTC signaling server
    */
-  public async connect(serverUrl: string, username: string): Promise<void> {
+  public async connect(serverUrl: string, username: string, authCode: string): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         // Ensure server URL has proper protocol
@@ -50,7 +55,7 @@ export class SignalingClient {
 
         this.ws.onopen = () => {
           console.log('Connected to signaling server:', url)
-          this.authenticate(username)
+          this.authenticate(username, authCode)
           resolve()
         }
 
@@ -82,10 +87,10 @@ export class SignalingClient {
   /**
    * Authenticate with the server
    */
-  private authenticate(username: string): void {
+  private authenticate(username: string, authCode: string): void {
     this.send({
       type: 'authenticate',
-      data: { username },
+      data: { username, authCode },
     })
   }
 
@@ -111,7 +116,21 @@ export class SignalingClient {
    * Handle incoming messages
    */
   private handleMessage(message: SignalingMessage): void {
-    console.log('Received message:', message.type, message.data)
+    // Throttle logging for high-frequency messages
+    const shouldLog = !this.highFrequencyMessages.has(message.type) || 
+      (() => {
+        const now = Date.now()
+        const lastLog = this.lastLogTime.get(message.type) || 0
+        if (now - lastLog >= this.logThrottle) {
+          this.lastLogTime.set(message.type, now)
+          return true
+        }
+        return false
+      })()
+    
+    if (shouldLog) {
+      console.log('Received message:', message.type, message.data)
+    }
 
     const handler = this.messageHandlers.get(message.type)
     if (handler) {

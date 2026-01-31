@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Users, SignIn, SignOut, Gear } from '@phosphor-icons/react'
+import { UsersIcon, SignInIcon, SignOutIcon, GearIcon } from '@phosphor-icons/react'
 import { Group } from '@/lib/types'
 
 interface GroupCardProps {
@@ -20,7 +20,7 @@ export function GroupCard({ group, isJoined, onJoin, onLeave, onSettings }: Grou
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-semibold mb-1">{group.name}</h3>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Users size={16} weight="fill" />
+            <UsersIcon size={16} weight="fill" />
             <span className="font-mono">{group.memberCount} / {group.settings.maxMembers}</span>
           </div>
         </div>
@@ -40,7 +40,7 @@ export function GroupCard({ group, isJoined, onJoin, onLeave, onSettings }: Grou
               className="flex-1"
               onClick={() => onLeave(group.id)}
             >
-              <SignOut size={16} weight="fill" />
+              <SignOutIcon size={16} weight="fill" />
               Leave
             </Button>
             <Button
@@ -49,7 +49,7 @@ export function GroupCard({ group, isJoined, onJoin, onLeave, onSettings }: Grou
               className="h-9 w-9"
               onClick={() => onSettings(group.id)}
             >
-              <Gear size={16} weight="fill" />
+              <GearIcon size={16} weight="fill" />
             </Button>
           </>
         ) : (
@@ -60,7 +60,7 @@ export function GroupCard({ group, isJoined, onJoin, onLeave, onSettings }: Grou
             onClick={() => onJoin(group.id)}
             disabled={group.memberCount >= group.settings.maxMembers}
           >
-            <SignIn size={16} weight="fill" />
+            <SignInIcon size={16} weight="fill" />
             Join Group
           </Button>
         )}

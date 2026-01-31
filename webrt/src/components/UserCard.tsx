@@ -4,10 +4,11 @@ import { Slider } from '@/components/ui/slider'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { SpeakerHigh, SpeakerSlash, Microphone } from '@phosphor-icons/react'
+import { SpeakerHighIcon, SpeakerSlashIcon, MicrophoneIcon } from '@phosphor-icons/react'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AudioLevelMeter } from '@/components/AudioLevelMeter'
+import { useAnimationTicker } from '@/hooks/use-mobile'
 
 interface UserCardProps {
   user: User
@@ -27,20 +28,18 @@ export function UserCard({ user, onVolumeChange, onToggleMute }: UserCardProps) 
       .slice(0, 2)
   }, [user.name])
 
-  useEffect(() => {
+  // Use shared animation ticker instead of per-user setInterval
+  useAnimationTicker(() => {
     if (user.isSpeaking) {
-      // Reduced animation frequency from 120ms to 200ms
-      const interval = setInterval(() => {
-        const jump = Math.random() * 30 + 10
-        const targetVolume = Math.min(200, user.volume + jump)
-        setVisualVolume(targetVolume)
-      }, 200)
+      const jump = Math.random() * 30 + 10
+      const targetVolume = Math.min(200, user.volume + jump)
+      setVisualVolume(targetVolume)
+    }
+  }, user.isSpeaking)
 
-      return () => {
-        clearInterval(interval)
-        setVisualVolume(user.volume)
-      }
-    } else {
+  // Reset visual volume when not speaking
+  useEffect(() => {
+    if (!user.isSpeaking) {
       setVisualVolume(user.volume)
     }
   }, [user.isSpeaking, user.volume])
@@ -62,7 +61,7 @@ export function UserCard({ user, onVolumeChange, onToggleMute }: UserCardProps) 
           </Avatar>
           {user.isSpeaking && (
             <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-accent flex items-center justify-center">
-              <Microphone size={12} weight="fill" className="text-accent-foreground" />
+              <MicrophoneIcon size={12} weight="fill" className="text-accent-foreground" />
             </div>
           )}
         </div>
@@ -84,9 +83,9 @@ export function UserCard({ user, onVolumeChange, onToggleMute }: UserCardProps) 
               onClick={() => onToggleMute(user.id)}
             >
               {user.isMuted ? (
-                <SpeakerSlash size={14} weight="fill" />
+                <SpeakerSlashIcon size={14} weight="fill" />
               ) : (
-                <SpeakerHigh size={14} weight="fill" />
+                <SpeakerHighIcon size={14} weight="fill" />
               )}
             </Button>
 

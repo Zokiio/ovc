@@ -17,3 +17,43 @@ export function useIsMobile() {
 
   return !!isMobile
 }
+// Shared animation ticker - single RAF loop for all components
+let tickerCallbacks: Set<() => void> = new Set()
+let tickerRunning = false
+let lastTickTime = 0
+const TICK_INTERVAL = 100 // 10Hz
+
+function tick() {
+  const now = Date.now()
+  if (now - lastTickTime >= TICK_INTERVAL) {
+    tickerCallbacks.forEach(cb => cb())
+    lastTickTime = now
+  }
+  if (tickerCallbacks.size > 0) {
+    requestAnimationFrame(tick)
+  } else {
+    tickerRunning = false
+  }
+}
+
+export function useAnimationTicker(callback: () => void, enabled: boolean) {
+  const callbackRef = React.useRef(callback)
+  callbackRef.current = callback
+
+  React.useEffect(() => {
+    if (!enabled) return
+
+    const cb = () => callbackRef.current()
+    tickerCallbacks.add(cb)
+    
+    if (!tickerRunning) {
+      tickerRunning = true
+      lastTickTime = Date.now()
+      requestAnimationFrame(tick)
+    }
+
+    return () => {
+      tickerCallbacks.delete(cb)
+    }
+  }, [enabled])
+}

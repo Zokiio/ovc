@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { useAnimationTicker } from '@/hooks/use-mobile'
 
 interface AudioLevelMeterProps {
   isSpeaking: boolean
@@ -9,13 +10,9 @@ interface AudioLevelMeterProps {
 export function AudioLevelMeter({ isSpeaking, className }: AudioLevelMeterProps) {
   const [levels, setLevels] = useState<number[]>(Array(8).fill(0))
 
-  useEffect(() => {
-    if (!isSpeaking) {
-      setLevels(Array(8).fill(0))
-      return
-    }
-
-    const interval = setInterval(() => {
+  // Use shared animation ticker instead of setInterval
+  useAnimationTicker(() => {
+    if (isSpeaking) {
       setLevels(prev => {
         const newLevels = prev.map((_, index) => {
           const baseLevel = Math.random() * 0.6 + 0.2
@@ -25,9 +22,14 @@ export function AudioLevelMeter({ isSpeaking, className }: AudioLevelMeterProps)
         })
         return newLevels
       })
-    }, 100)
+    }
+  }, isSpeaking)
 
-    return () => clearInterval(interval)
+  // Reset levels when not speaking
+  useEffect(() => {
+    if (!isSpeaking) {
+      setLevels(Array(8).fill(0))
+    }
   }, [isSpeaking])
 
   return (

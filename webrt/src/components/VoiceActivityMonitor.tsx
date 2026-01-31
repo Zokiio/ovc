@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { Waveform, XCircle, SunDim, Buildings, Wind, Lightning, MicrophoneStage, Info } from '@phosphor-icons/react'
+import { WaveformIcon, XCircleIcon, SunDimIcon, BuildingsIcon, WindIcon, LightningIcon, MicrophoneStageIcon, InfoIcon } from '@phosphor-icons/react'
 import { AudioSettings, VADSettings } from '@/lib/types'
 import { useVoiceActivity } from '@/hooks/use-voice-activity'
 import { cn } from '@/lib/utils'
@@ -14,11 +14,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 
 interface VoiceActivityMonitorProps {
   audioSettings: AudioSettings
+  onSpeakingChange?: (isSpeaking: boolean) => void
 }
 
 type EnvironmentPreset = {
   name: string
-  icon: typeof SunDim
+  icon: typeof SunDimIcon
   description: string
   settings: VADSettings
 }
@@ -26,7 +27,7 @@ type EnvironmentPreset = {
 const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
   {
     name: 'Quiet',
-    icon: SunDim,
+    icon: SunDimIcon,
     description: 'Low background noise, studio or quiet room',
     settings: {
       threshold: 0.08,
@@ -37,7 +38,7 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
   },
   {
     name: 'Normal',
-    icon: Buildings,
+    icon: BuildingsIcon,
     description: 'Moderate noise, typical office or home',
     settings: {
       threshold: 0.15,
@@ -48,7 +49,7 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
   },
   {
     name: 'Noisy',
-    icon: Wind,
+    icon: WindIcon,
     description: 'High background noise, café or busy area',
     settings: {
       threshold: 0.28,
@@ -59,7 +60,7 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
   }
 ]
 
-export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProps) {
+export function VoiceActivityMonitor({ audioSettings, onSpeakingChange }: VoiceActivityMonitorProps) {
   const [vadEnabled, setVadEnabled] = useState(true)
   const [vadSettings, setVadSettings] = useState<VADSettings>({
     threshold: 0.15,
@@ -73,6 +74,7 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
   const [minSilenceDuration, setMinSilenceDuration] = useState(vadSettings?.minSilenceDuration || 300)
   const [smoothingTimeConstant, setSmoothingTimeConstant] = useState(vadSettings?.smoothingTimeConstant || 0.8)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const prevSpeakingRef = useRef<boolean | null>(null)
 
   const {
     isSpeaking,
@@ -89,6 +91,14 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
     minSilenceDuration,
     smoothingTimeConstant
   })
+
+  // Notify parent of speaking status changes
+  useEffect(() => {
+    if (onSpeakingChange && prevSpeakingRef.current !== isSpeaking) {
+      prevSpeakingRef.current = isSpeaking
+      onSpeakingChange(isSpeaking)
+    }
+  }, [isSpeaking, onSpeakingChange])
 
   useEffect(() => {
     if (vadSettings) {
@@ -164,31 +174,13 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
                   ? "bg-accent/20 text-accent" 
                   : "bg-muted text-muted-foreground"
               )}>
-                <Waveform size={20} weight="bold" />
+                <WaveformIcon size={20} weight="bold" />
               </div>
               Voice Activity Detection
             </CardTitle>
             <CardDescription>Real-time speech monitoring for optimal voice transmission</CardDescription>
           </div>
-          <Badge 
-            variant={isInitialized ? 'default' : 'outline'} 
-            className={cn(
-              "gap-2 transition-all",
-              isInitialized && "bg-accent/20 text-accent border-accent/40"
-            )}
-          >
-            {isInitialized ? (
-              <>
-                <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                Active
-              </>
-            ) : (
-              <>
-                <div className="w-2 h-2 rounded-full bg-muted-foreground/40" />
-                Inactive
-              </>
-            )}
-          </Badge>
+         
         </div>
       </CardHeader>
 
@@ -197,7 +189,7 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
           <div className="space-y-4">
             <div className="rounded-xl bg-gradient-to-br from-accent/10 via-accent/5 to-transparent border-2 border-accent/20 p-8 text-center space-y-4">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-2">
-                <MicrophoneStage size={32} weight="duotone" className="text-accent" />
+                <MicrophoneStageIcon size={32} weight="duotone" className="text-accent" />
               </div>
               <div className="space-y-2">
                 <h3 className="font-bold text-lg">Enable Voice Detection</h3>
@@ -210,7 +202,7 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
                 size="lg"
                 className="bg-accent text-accent-foreground hover:bg-accent/90 gap-2 mt-2"
               >
-                <Lightning size={20} weight="fill" />
+                <LightningIcon size={20} weight="fill" />
                 Start Voice Detection
               </Button>
             </div>
@@ -237,7 +229,7 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
           <>
             {error && (
               <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-4 text-sm text-destructive flex items-start gap-3">
-                <XCircle size={20} weight="fill" className="flex-shrink-0 mt-0.5" />
+                <XCircleIcon size={20} weight="fill" className="flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold mb-1">Microphone Access Error</p>
                   <p className="text-xs opacity-90">{error}</p>
@@ -361,7 +353,7 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
                       className="w-full justify-between font-semibold"
                     >
                       <span className="flex items-center gap-2">
-                        <Info size={16} weight="fill" />
+                        <InfoIcon size={16} weight="fill" />
                         Advanced Settings
                       </span>
                       <span className={cn(
@@ -448,7 +440,7 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
                     size="sm"
                     className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/10"
                   >
-                    <XCircle size={16} weight="fill" />
+                    <XCircleIcon size={16} weight="fill" />
                     Stop Voice Detection
                   </Button>
                 </div>
@@ -458,7 +450,7 @@ export function VoiceActivityMonitor({ audioSettings }: VoiceActivityMonitorProp
             {!isInitialized && !error && (
               <div className="text-center py-8 space-y-3">
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-muted animate-pulse">
-                  <Waveform size={24} weight="bold" className="text-muted-foreground" />
+                  <WaveformIcon size={24} weight="bold" className="text-muted-foreground" />
                 </div>
                 <p className="text-sm text-muted-foreground">Initializing voice detection...</p>
               </div>
