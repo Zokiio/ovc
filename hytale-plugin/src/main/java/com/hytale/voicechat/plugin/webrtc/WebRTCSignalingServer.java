@@ -58,6 +58,18 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private SslContext sslContext;
     private java.util.concurrent.ScheduledExecutorService positionBroadcastScheduler;
     private static final long POSITION_BROADCAST_INTERVAL_MS = 100; // 10 Hz
+    private final java.util.Set<String> allowedOrigins;
+    
+    /**
+     * Check if an origin is allowed to connect
+     */
+    private boolean isOriginAllowed(String origin) {
+        if (origin == null || origin.isEmpty()) {
+            return false;
+        }
+        // Allow exact matches or wildcard for local development
+        return allowedOrigins.contains(origin) || allowedOrigins.contains("*");
+    }
     
     /**
      * Listener interface for web client connection/disconnection events
@@ -76,6 +88,17 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         this.clients = new ConcurrentHashMap<>();
         this.groupStateManager = new GroupStateManager();
         this.clientIdMapper = new ClientIdMapper();
+        
+        // Parse allowed origins from configuration
+        this.allowedOrigins = new java.util.HashSet<>();
+        String originsConfig = NetworkConfig.ALLOWED_ORIGINS;
+        if (originsConfig != null && !originsConfig.isEmpty()) {
+            String[] origins = originsConfig.split(",");
+            for (String origin : origins) {
+                allowedOrigins.add(origin.trim());
+            }
+        }
+        logger.atInfo().log("Allowed origins for WebSocket connections: " + allowedOrigins);
     }
     
     public void setPlugin(HytaleVoiceChatPlugin plugin) {
@@ -118,8 +141,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         workerGroup = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
         
         try {
-            // Create SSL context with self-signed certificate
-            this.sslContext = createSSLContext();
+            // Create SSL context if enabled in configuration
+            if (NetworkConfig.ENABLE_SSL) {
+                this.sslContext = createSSLContext();
+                logger.atInfo().log("SSL enabled - WebSocket will use wss:// protocol");
+            } else {
+                this.sslContext = null;
+                logger.atInfo().log("SSL disabled - WebSocket will use ws:// protocol (development mode)");
+            }
             
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
@@ -129,7 +158,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         protected void initChannel(SocketChannel ch) {
                             ChannelPipeline pipeline = ch.pipeline();
                             
-                            // Add SSL handler for wss:// support
+                            // Add SSL handler for wss:// support (only if enabled)
                             if (sslContext != null) {
                                 pipeline.addLast(sslContext.newHandler(ch.alloc()));
                             }
@@ -140,8 +169,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         }
                     });
             
+            String protocol = NetworkConfig.ENABLE_SSL ? "wss://" : "ws://";
             serverChannel = bootstrap.bind(port).sync().channel();
-            logger.atInfo().log("WebRTC signaling server started on port " + port + " (wss:// supported)");
+            logger.atInfo().log("WebRTC signaling server started on port " + port + " (" + protocol + " protocol)");
             
             // Start audio bridge if available
             if (audioBridge != null && !audioBridge.isRunning()) {
@@ -161,20 +191,38 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     }
     
     /**
-     * Create an SSL context with a self-signed certificate for wss:// support
+     * Create an SSL context with Let's Encrypt certificate or self-signed fallback
      */
     private SslContext createSSLContext() throws CertificateException, SSLException {
         try {
-            logger.atInfo().log("Creating self-signed certificate for wss:// WebSocket support");
-            SelfSignedCertificate ssc = new SelfSignedCertificate();
-            SslContext context = SslContextBuilder
-                    .forServer(ssc.certificate(), ssc.privateKey())
-                    .build();
-            logger.atInfo().log("SSL context created successfully");
-            return context;
+            // Try to load certificate from file system first (Let's Encrypt or custom)
+            java.io.File certFile = new java.io.File(NetworkConfig.SSL_CERT_PATH);
+            java.io.File keyFile = new java.io.File(NetworkConfig.SSL_KEY_PATH);
+            
+            if (certFile.exists() && keyFile.exists()) {
+                logger.atInfo().log("Loading SSL certificate from: " + NetworkConfig.SSL_CERT_PATH);
+                SslContext context = SslContextBuilder
+                        .forServer(certFile, keyFile)
+                        .build();
+                logger.atInfo().log("SSL context created successfully with certificate from file system");
+                return context;
+            } else {
+                // Fall back to self-signed certificate for development
+                logger.atWarning().log("Certificate files not found at " + NetworkConfig.SSL_CERT_PATH + ", using self-signed certificate");
+                logger.atInfo().log("For production, ensure Let's Encrypt certificates are accessible");
+                SelfSignedCertificate ssc = new SelfSignedCertificate();
+                SslContext context = SslContextBuilder
+                        .forServer(ssc.certificate(), ssc.privateKey())
+                        .build();
+                logger.atInfo().log("SSL context created with self-signed certificate");
+                return context;
+            }
         } catch (CertificateException e) {
-            logger.atSevere().log("Failed to create self-signed certificate", e);
+            logger.atSevere().log("Failed to create SSL context", e);
             throw e;
+        } catch (Exception e) {
+            logger.atSevere().log("Unexpected error creating SSL context", e);
+            throw new SSLException("Failed to create SSL context", e);
         }
     }
     
@@ -442,6 +490,16 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         req.protocolVersion(), HttpResponseStatus.BAD_REQUEST));
                 return;
             }
+            
+            // Validate origin for security (prevent cross-site WebSocket hijacking)
+            String origin = req.headers().get(HttpHeaderNames.ORIGIN);
+            if (!isOriginAllowed(origin)) {
+                logger.atWarning().log("Rejected WebSocket connection from unauthorized origin: " + origin);
+                sendHttpResponse(ctx, req, new DefaultFullHttpResponse(
+                        req.protocolVersion(), HttpResponseStatus.FORBIDDEN));
+                return;
+            }
+            logger.atFine().log("Accepting WebSocket connection from origin: " + origin);
             
             // WebSocket handshake
             WebSocketServerHandshakerFactory wsFactory = new WebSocketServerHandshakerFactory(
@@ -1017,7 +1075,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         private String getWebSocketLocation(FullHttpRequest req) {
             String location = req.headers().get(HttpHeaderNames.HOST) + "/voice";
-            return "wss://" + location;
+            String protocol = NetworkConfig.ENABLE_SSL ? "wss://" : "ws://";
+            return protocol + location;
         }
         
         private void sendHttpResponse(ChannelHandlerContext ctx, FullHttpRequest req, FullHttpResponse res) {

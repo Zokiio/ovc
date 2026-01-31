@@ -23,6 +23,21 @@ public class NetworkConfig {
     
     // Group isolation mode default
     public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
+    
+    // SSL/TLS configuration for WebSocket signaling
+    // Set to false when using a reverse proxy (Nginx/Apache) that handles SSL (RECOMMENDED)
+    // Set to true only if the Java application needs to handle SSL directly
+    public static final boolean ENABLE_SSL = false;
+    
+    // SSL certificate paths (for Let's Encrypt or custom certificates)
+    // Default to Let's Encrypt paths, override with system properties
+    public static final String SSL_CERT_PATH = System.getProperty("voice.ssl.cert", "/etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem");
+    public static final String SSL_KEY_PATH = System.getProperty("voice.ssl.key", "/etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem");
+    
+    // Allowed origins for WebSocket connections (CORS)
+    // Add your web client domains here, separated by commas
+    public static final String ALLOWED_ORIGINS = System.getProperty("voice.allowed.origins", 
+        "https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173");
 
     private NetworkConfig() {
         // Utility class
