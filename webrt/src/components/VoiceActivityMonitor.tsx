@@ -63,6 +63,7 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
 ]
 
 export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAudioCapture = false, onAudioData }: VoiceActivityMonitorProps) {
+  console.log('[VoiceActivityMonitor] Component rendering, enableAudioCapture:', enableAudioCapture)
   const [vadEnabled, setVadEnabled] = useState(true)
   const [vadSettings, setVadSettings] = useState<VADSettings>({
     threshold: 0.15,
@@ -78,6 +79,7 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const prevSpeakingRef = useRef<boolean | null>(null)
 
+  console.log('[VoiceActivityMonitor] Calling useVoiceActivity with enabled:', vadEnabled, 'enableAudioCapture:', enableAudioCapture)
   const {
     isSpeaking,
     audioLevel,
@@ -103,6 +105,18 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
       onSpeakingChange(isSpeaking)
     }
   }, [isSpeaking, onSpeakingChange])
+
+  // Log when component mounts
+  useEffect(() => {
+    console.log('[VoiceActivityMonitor] Component mounted, isInitialized:', isInitialized, 'error:', error)
+    return () => {
+      console.log('[VoiceActivityMonitor] Component unmounting')
+    }
+  }, [])
+
+  useEffect(() => {
+    console.log('[VoiceActivityMonitor] isInitialized changed to:', isInitialized)
+  }, [isInitialized])
 
   useEffect(() => {
     if (vadSettings) {
