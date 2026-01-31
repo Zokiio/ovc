@@ -9,19 +9,11 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super()
     this.isActive = false
-    this.frameCount = 0
-    this.totalFrames = 0
     
     // Listen for messages from main thread
     this.port.onmessage = (event) => {
       if (event.data.type === 'active') {
-        const wasActive = this.isActive
         this.isActive = event.data.value
-        // Send status back to main thread (worklet console.log doesn't show in browser)
-        this.port.postMessage({
-          type: 'status',
-          message: `Active changed: ${wasActive} -> ${this.isActive}`
-        })
       }
     }
     
@@ -31,30 +23,11 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
 
   process(inputs, outputs, parameters) {
     const input = inputs[0]
-    this.totalFrames++
-    
-    // Log every 500 frames to confirm process() is being called
-    if (this.totalFrames % 500 === 0) {
-      const hasInput = input && input.length > 0 && input[0] && input[0].length > 0
-      this.port.postMessage({
-        type: 'status',
-        message: `Process running: frame ${this.totalFrames}, hasInput: ${hasInput}, isActive: ${this.isActive}`
-      })
-    }
     
     // Capture audio when active and we have input
     if (input && input.length > 0 && input[0].length > 0 && this.isActive) {
       // Clone the data since we can't transfer the original buffer
       const audioData = new Float32Array(input[0])
-      
-      // Send status every 100 frames (~2 seconds at 48kHz/128 samples)
-      this.frameCount++
-      if (this.frameCount % 100 === 0) {
-        this.port.postMessage({
-          type: 'status',
-          message: `Captured ${this.frameCount} frames, samples: ${audioData.length}`
-        })
-      }
       
       // Send to main thread
       this.port.postMessage({

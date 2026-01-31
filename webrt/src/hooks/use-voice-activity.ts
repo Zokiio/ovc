@@ -14,7 +14,7 @@ interface VoiceActivityOptions {
 
 interface VoiceActivityResult {
   isSpeaking: boolean
-  audioLevel: number
+  audioLevelRef: React.RefObject<number>  // Use ref to avoid re-renders
   isInitialized: boolean
   error: string | null
   startListening: () => Promise<void>
@@ -54,7 +54,7 @@ export function useVoiceActivity({
   onAudioData
 }: VoiceActivityOptions): VoiceActivityResult {
   const [isSpeaking, setIsSpeaking] = useState(false)
-  const [audioLevel, setAudioLevel] = useState(0)
+  const audioLevelRef = useRef(0)  // Use ref instead of state to avoid re-renders
   const [isInitialized, setIsInitialized] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -86,7 +86,6 @@ export function useVoiceActivity({
     enableAudioCaptureRef.current = enableAudioCapture
     // Notify worklet of active status change
     if (workletNodeRef.current) {
-      console.log('[VAD] Activating audio capture:', enableAudioCapture)
       workletNodeRef.current.port.postMessage({ type: 'active', value: enableAudioCapture })
     }
   }, [enableAudioCapture])
@@ -134,7 +133,7 @@ export function useVoiceActivity({
     }
 
     setIsSpeaking(false)
-    setAudioLevel(0)
+    audioLevelRef.current = 0
     setIsInitialized(false)
   }, [])
 
@@ -178,14 +177,11 @@ export function useVoiceActivity({
       try {
         // Load the AudioWorklet processor (cache-bust to ensure latest version)
         const cacheBuster = `?v=${Date.now()}`
-        console.log('[VAD] Loading AudioWorklet module...')
         await audioContext.audioWorklet.addModule(`/audio-capture-processor.js${cacheBuster}`)
-        console.log('[VAD] AudioWorklet module loaded successfully')
         
         // Create the worklet node
         const workletNode = new AudioWorkletNode(audioContext, 'audio-capture-processor')
         workletNodeRef.current = workletNode
-        console.log('[VAD] AudioWorklet node created')
         
         // Handle audio data from worklet - MUST be set up immediately after node creation
         workletNode.port.onmessage = (event) => {
@@ -193,10 +189,6 @@ export function useVoiceActivity({
             const float32Data = new Float32Array(event.data.data)
             const audioData = float32ToBase64(float32Data)
             onAudioDataRef.current(audioData)
-          } else if (event.data.type === 'status') {
-            console.log('[AudioCapture]', event.data.message)
-          } else if (event.data.type === 'ready') {
-            console.log('[AudioCapture] Processor ready')
           }
         }
         
@@ -212,10 +204,8 @@ export function useVoiceActivity({
         silentGain.gain.value = 0 // Silent output
         workletNode.connect(silentGain)
         silentGain.connect(audioContext.destination)
-        console.log('[VAD] Microphone -> worklet -> destination connected')
         
         // Set initial active state
-        console.log('[VAD] Setting initial active state:', enableAudioCaptureRef.current)
         workletNode.port.postMessage({ type: 'active', value: enableAudioCaptureRef.current })
       } catch (workletError) {
         console.error('[VAD] AudioWorklet setup failed:', workletError)
@@ -243,13 +233,13 @@ export function useVoiceActivity({
         const rms = Math.sqrt(sum / bufferLength)
         const normalizedLevel = Math.min(1, rms * 10)
         
-        // Throttle audio level updates to ~10fps (every 100ms) and only if changed significantly
+        // Update ref (no re-renders) - throttle slightly to avoid excessive updates
         const now = Date.now()
-        if (now - lastLevelUpdateRef.current > 100 || 
+        if (now - lastLevelUpdateRef.current > 50 || 
             Math.abs(normalizedLevel - lastReportedLevelRef.current) > 0.05) {
           lastLevelUpdateRef.current = now
           lastReportedLevelRef.current = normalizedLevel
-          setAudioLevel(normalizedLevel)
+          audioLevelRef.current = normalizedLevel
         }
 
         const volumeMultiplier = audioSettings.inputVolume / 100
@@ -349,7 +339,7 @@ export function useVoiceActivity({
 
   return {
     isSpeaking,
-    audioLevel,
+    audioLevelRef,
     isInitialized,
     error,
     startListening,

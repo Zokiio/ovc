@@ -77,10 +77,11 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
   const [smoothingTimeConstant, setSmoothingTimeConstant] = useState(vadSettings?.smoothingTimeConstant || 0.8)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const prevSpeakingRef = useRef<boolean | null>(null)
+  const [displayLevel, setDisplayLevel] = useState(0) // Local state for UI animation
 
   const {
     isSpeaking,
-    audioLevel,
+    audioLevelRef,
     isInitialized,
     error,
     startListening,
@@ -103,6 +104,18 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
       onSpeakingChange(isSpeaking)
     }
   }, [isSpeaking, onSpeakingChange])
+
+  // Update display level from ref at ~20fps for smooth UI without causing hook re-renders
+  useEffect(() => {
+    if (!isInitialized) return
+    
+    const updateDisplay = () => {
+      setDisplayLevel(audioLevelRef.current)
+    }
+    
+    const intervalId = setInterval(updateDisplay, 50) // 20fps
+    return () => clearInterval(intervalId)
+  }, [isInitialized, audioLevelRef])
 
   useEffect(() => {
     if (vadSettings) {
@@ -251,7 +264,7 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground font-mono">
-                          Level: <span className="font-bold text-foreground">{(audioLevel * 100).toFixed(0)}%</span>
+                          Level: <span className="font-bold text-foreground">{(displayLevel * 100).toFixed(0)}%</span>
                         </span>
                       </div>
 
@@ -260,12 +273,12 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
                           <div 
                             className={cn(
                               "h-full transition-all duration-100",
-                              audioLevel > threshold 
+                              displayLevel > threshold 
                                 ? "bg-accent shadow-[inset_0_0_12px_rgba(255,255,255,0.3)]" 
                                 : "bg-muted-foreground/60"
                             )}
                             style={{ 
-                              width: `${Math.min(100, audioLevel * 100)}%`,
+                              width: `${Math.min(100, displayLevel * 100)}%`,
                             }}
                           />
                         </div>
@@ -325,7 +338,7 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
                       variant="outline"
                       className={cn(
                         "font-mono text-xs",
-                        audioLevel > threshold && "bg-accent/20 text-accent border-accent/50"
+                        displayLevel > threshold && "bg-accent/20 text-accent border-accent/50"
                       )}
                     >
                       {(threshold * 100).toFixed(0)}%
