@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 
 const MOBILE_BREAKPOINT = 768
 
@@ -37,10 +37,10 @@ function tick() {
 }
 
 export function useAnimationTicker(callback: () => void, enabled: boolean) {
-  const callbackRef = React.useRef(callback)
+  const callbackRef = useRef(callback)
   callbackRef.current = callback
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!enabled) return
 
     const cb = () => callbackRef.current()
