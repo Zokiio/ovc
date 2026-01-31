@@ -77,16 +77,6 @@ export function ConnectionView({
     }))
   }, [servers])
 
-  // Log when component mounts
-  useEffect(() => {
-    console.log('[ConnectionView] Component mounted, vadOpen:', vadOpen, 'enableAudioCapture:', enableAudioCapture)
-    return () => console.log('[ConnectionView] Component unmounting')
-  }, [])
-
-  useEffect(() => {
-    console.log('[ConnectionView] vadOpen changed to:', vadOpen)
-  }, [vadOpen])
-
   useEffect(() => {
     enumerateDevices()
   }, [])

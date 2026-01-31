@@ -49,8 +49,6 @@ export function useAudioTransmission({
     
     const client = signalingClientRef.current
     if (client.isConnected()) {
-      // Debug: log audio transmission (comment out in production)
-      console.log('[AudioTransmission] Sending audio data, length:', audioData.length)
       client.sendAudio(audioData)
     }
   }, [])
