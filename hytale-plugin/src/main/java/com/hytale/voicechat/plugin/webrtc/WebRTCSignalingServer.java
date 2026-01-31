@@ -43,6 +43,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
+    private java.util.concurrent.ScheduledExecutorService positionBroadcastScheduler;
+    private static final long POSITION_BROADCAST_INTERVAL_MS = 100; // 10 Hz
     
     /**
      * Listener interface for web client connection/disconnection events
@@ -120,6 +122,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             } else if (audioBridge == null) {
                 logger.atWarning().log("WebRTC audio bridge is not set; audio routing disabled");
             }
+            
+            // Start position broadcast scheduler
+            startPositionBroadcaster();
         } catch (Exception e) {
             logger.atSevere().log("Failed to start WebRTC signaling server", e);
             shutdown();
@@ -129,6 +134,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     
     public void shutdown() {
         logger.atInfo().log("Shutting down WebRTC signaling server");
+        
+        // Stop position broadcaster
+        if (positionBroadcastScheduler != null) {
+            positionBroadcastScheduler.shutdownNow();
+            positionBroadcastScheduler = null;
+        }
         
         // Shutdown audio bridge first
         if (audioBridge != null && audioBridge.isRunning()) {
@@ -266,6 +277,69 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         SignalingMessage message = new SignalingMessage("group_list", data);
         broadcastToAll(message);
+    }
+    
+    /**
+     * Start the periodic position broadcaster
+     */
+    private void startPositionBroadcaster() {
+        if (positionBroadcastScheduler != null) {
+            return;
+        }
+        
+        positionBroadcastScheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "PositionBroadcaster");
+            t.setDaemon(true);
+            return t;
+        });
+        
+        positionBroadcastScheduler.scheduleAtFixedRate(
+            this::broadcastPositions,
+            POSITION_BROADCAST_INTERVAL_MS,
+            POSITION_BROADCAST_INTERVAL_MS,
+            java.util.concurrent.TimeUnit.MILLISECONDS
+        );
+        
+        logger.atInfo().log("Position broadcaster started (interval: " + POSITION_BROADCAST_INTERVAL_MS + "ms)");
+    }
+    
+    /**
+     * Broadcast all player positions to connected web clients
+     */
+    private void broadcastPositions() {
+        if (positionTracker == null || clients.isEmpty()) {
+            return;
+        }
+        
+        try {
+            Map<UUID, PlayerPosition> positions = positionTracker.getPlayerPositions();
+            if (positions.isEmpty()) {
+                return;
+            }
+            
+            com.google.gson.JsonArray positionsArray = new com.google.gson.JsonArray();
+            for (PlayerPosition pos : positions.values()) {
+                JsonObject posObj = new JsonObject();
+                posObj.addProperty("userId", pos.getPlayerId().toString());
+                posObj.addProperty("username", pos.getPlayerName());
+                posObj.addProperty("x", pos.getX());
+                posObj.addProperty("y", pos.getY());
+                posObj.addProperty("z", pos.getZ());
+                posObj.addProperty("yaw", pos.getYaw());
+                posObj.addProperty("pitch", pos.getPitch());
+                posObj.addProperty("worldId", pos.getWorldId());
+                positionsArray.add(posObj);
+            }
+            
+            JsonObject data = new JsonObject();
+            data.add("positions", positionsArray);
+            data.addProperty("timestamp", System.currentTimeMillis());
+            
+            SignalingMessage message = new SignalingMessage("position_update", data);
+            broadcastToAll(message);
+        } catch (Exception e) {
+            logger.atWarning().log("Error broadcasting positions: " + e.getMessage());
+        }
     }
     
     private class WebSocketServerHandler extends SimpleChannelInboundHandler<Object> {

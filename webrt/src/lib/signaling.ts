@@ -13,6 +13,7 @@ export class SignalingClient {
   private lastPingTime: number = 0
   private messageHandlers: Map<string, (data: Record<string, unknown>) => void> = new Map()
   private eventListeners: Map<string, ((data: unknown) => void)[]> = new Map()
+  private audioPlaybackCallback: ((userId: string, audioData: string) => void) | null = null
 
   constructor() {
     // Register default handlers
@@ -24,6 +25,8 @@ export class SignalingClient {
     this.onMessage('user_speaking_status', (data) => this.handleUserSpeakingStatus(data))
     this.onMessage('auth_success', (data) => this.handleAuthSuccess(data))
     this.onMessage('pong', (data) => this.handlePong(data))
+    this.onMessage('audio', (data) => this.handleAudio(data))
+    this.onMessage('position_update', (data) => this.handlePositionUpdate(data))
   }
 
   /**
@@ -165,6 +168,22 @@ export class SignalingClient {
     this.emit('latency', { latency })
   }
 
+  private handleAudio(data: Record<string, unknown>): void {
+    const userId = String(data.userId || data.senderId || '')
+    const audioData = String(data.audioData || '')
+    
+    if (userId && audioData && this.audioPlaybackCallback) {
+      this.audioPlaybackCallback(userId, audioData)
+    }
+    
+    this.emit('audio', { userId, audioData })
+  }
+
+  private handlePositionUpdate(data: Record<string, unknown>): void {
+    // Forward position updates to listeners
+    this.emit('position_update', data)
+  }
+
   // ========== Public API Methods ==========
 
   /**
@@ -240,6 +259,13 @@ export class SignalingClient {
       type: 'audio',
       data: { audioData },
     })
+  }
+
+  /**
+   * Set callback for processing incoming audio from other users
+   */
+  public setAudioPlaybackCallback(callback: (userId: string, audioData: string) => void): void {
+    this.audioPlaybackCallback = callback
   }
 
   /**

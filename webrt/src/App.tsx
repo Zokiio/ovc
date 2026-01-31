@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator'
 import { Toaster } from '@/components/ui/sonner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { MagnifyingGlass, Plus, Users as UsersIcon, SignOut, UserList, Stack, Waveform, SquaresFour, Rows } from '@phosphor-icons/react'
-import { User, Group, GroupSettings, AudioSettings, ConnectionState } from '@/lib/types'
+import { User, Group, GroupSettings, AudioSettings, ConnectionState, PlayerPosition } from '@/lib/types'
 import { UserCard } from '@/components/UserCard'
 import { UserCardCompact } from '@/components/UserCardCompact'
 import { GroupCard } from '@/components/GroupCard'
@@ -19,11 +19,13 @@ import { ConnectionView } from '@/components/ConnectionView'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { getSignalingClient } from '@/lib/signaling'
+import { getAudioPlaybackManager } from '@/lib/audio-playback'
 import icon from '@/assets/images/icon.png'
 
 function App() {
   const isMobile = useIsMobile()
   const signalingClient = useRef(getSignalingClient())
+  const audioPlayback = useRef(getAudioPlaybackManager())
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const eventListenersSetUpRef = useRef(false)
   
@@ -141,19 +143,26 @@ function App() {
   }, [filteredUsers, currentGroupId])
 
   const handleVolumeChange = useCallback((userId: string, volume: number) => {
+    // Update local state
     setUsers(currentUsers => 
       currentUsers.map(user => 
         user.id === userId ? { ...user, volume } : user
       )
     )
+    // Apply to audio playback
+    audioPlayback.current.setUserVolume(userId, volume)
   }, [])
 
   const handleToggleMute = useCallback((userId: string) => {
-    setUsers(currentUsers => 
-      currentUsers.map(user => 
-        user.id === userId ? { ...user, isMuted: !user.isMuted } : user
+    setUsers(currentUsers => {
+      const user = currentUsers.find(u => u.id === userId)
+      const newMuted = user ? !user.isMuted : false
+      // Apply to audio playback
+      audioPlayback.current.setUserMuted(userId, newMuted)
+      return currentUsers.map(u => 
+        u.id === userId ? { ...u, isMuted: newMuted } : u
       )
-    )
+    })
   }, [])
 
   const handleCreateGroup = useCallback((name: string, settings: GroupSettings) => {
@@ -281,6 +290,14 @@ function App() {
         latency: currentState?.latency,
         errorMessage: undefined
       }))
+      
+      // Initialize audio playback
+      await audioPlayback.current.initialize()
+      
+      // Set up audio playback callback for incoming audio
+      client.setAudioPlaybackCallback((userId: string, audioData: string) => {
+        audioPlayback.current.playUserAudio(userId, audioData)
+      })
       
       // Request group list
       client.listGroups()
@@ -420,6 +437,44 @@ function App() {
               u.id === payload.userId ? { ...u, isSpeaking: payload.isSpeaking || false } : u
             )
           )
+        }
+      })
+
+      client.on('position_update', (data: unknown) => {
+        const payload = data as { 
+          positions?: Array<{
+            userId: string
+            username: string
+            x: number
+            y: number
+            z: number
+            yaw: number
+            pitch: number
+            worldId: string
+          }>
+        }
+        if (payload.positions && payload.positions.length > 0) {
+          setUsers(currentUsers => {
+            // Create a map of positions by userId
+            const posMap = new Map(payload.positions!.map(p => [p.userId, p]))
+            return currentUsers.map(user => {
+              const pos = posMap.get(user.id)
+              if (pos) {
+                return {
+                  ...user,
+                  position: {
+                    x: pos.x,
+                    y: pos.y,
+                    z: pos.z,
+                    yaw: pos.yaw,
+                    pitch: pos.pitch,
+                    worldId: pos.worldId
+                  }
+                }
+              }
+              return user
+            })
+          })
         }
       })
 

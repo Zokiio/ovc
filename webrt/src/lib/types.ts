@@ -6,6 +6,16 @@ export interface User {
   isMuted: boolean
   volume: number
   groupId?: string
+  position?: PlayerPosition
+}
+
+export interface PlayerPosition {
+  x: number
+  y: number
+  z: number
+  yaw: number
+  pitch: number
+  worldId: string
 }
 
 export interface Group {
