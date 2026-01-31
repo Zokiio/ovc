@@ -1,0 +1,1076 @@
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useVoiceActivity } from '@/hooks/use-voice-activity'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
+import { Toaster } from '@/components/ui/sonner'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { MagnifyingGlass, Plus, Users as UsersIcon, SignOut, UserList, Stack, Waveform, SquaresFour, Rows } from '@phosphor-icons/react'
+import { User, Group, GroupSettings, AudioSettings, ConnectionState } from '@/lib/types'
+import { UserCard } from '@/components/UserCard'
+import { UserCardCompact } from '@/components/UserCardCompact'
+import { GroupCard } from '@/components/GroupCard'
+import { CreateGroupDialog } from '@/components/CreateGroupDialog'
+import { GroupSettingsDialog } from '@/components/GroupSettingsDialog'
+import { ConnectionView } from '@/components/ConnectionView'
+import { toast } from 'sonner'
+import { useIsMobile } from '@/hooks/use-mobile'
+import { getSignalingClient } from '@/lib/signaling'
+import icon from '@/assets/images/icon.png'
+
+function App() {
+  const isMobile = useIsMobile()
+  const signalingClient = useRef(getSignalingClient())
+  const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const eventListenersSetUpRef = useRef(false)
+  
+  const [users, setUsers] = useState<User[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
+  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null)
+  const [username, setUsername] = useState<string>('')
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>({
+    inputDevice: 'default',
+    outputDevice: 'default',
+    inputVolume: 80,
+    outputVolume: 80,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true
+  })
+  const [connectionState, setConnectionState] = useState<ConnectionState>({
+    status: 'disconnected',
+    serverUrl: ''
+  })
+  const [vadEnabled, setVadEnabled] = useState<boolean>(true)
+  const [currentUserId] = useState<string>('user-1')
+  const [mockMode, setMockMode] = useState<boolean>(false)
+  const [compactView, setCompactView] = useState<boolean>(false)
+  
+  const [searchQuery, setSearchQuery] = useState('')
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
+  const [activeTab, setActiveTab] = useState<'current-group' | 'groups' | 'all-users'>('groups')
+
+  const { isSpeaking: currentUserIsSpeaking } = useVoiceActivity({
+    enabled: vadEnabled || false,
+    audioSettings: audioSettings || {
+      inputDevice: 'default',
+      outputDevice: 'default',
+      inputVolume: 80,
+      outputVolume: 80,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    }
+  })
+
+  useEffect(() => {
+    if (vadEnabled) {
+      const client = signalingClient.current
+      setUsers(currentUsers => 
+        currentUsers.map(user => 
+          user.id === currentUserId ? { ...user, isSpeaking: currentUserIsSpeaking } : user
+        )
+      )
+      // Send speaking status to server if connected
+      if (client.isConnected()) {
+        client.updateSpeakingStatus(currentUserIsSpeaking)
+      }
+    }
+  }, [currentUserIsSpeaking, vadEnabled, currentUserId])
+
+  useEffect(() => {
+    if (!mockMode) return
+
+    // Reduced frequency from 500ms to 1000ms for better performance
+    const interval = setInterval(() => {
+      setUsers(currentUsers => {
+        return currentUsers.map(user => {
+          if (user.id === currentUserId) return user
+          
+          if (user.isSpeaking) {
+            return Math.random() > 0.3 ? user : { ...user, isSpeaking: false }
+          } else {
+            return Math.random() > 0.95 ? { ...user, isSpeaking: true } : user
+          }
+        })
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [mockMode, currentUserId])
+  
+  useEffect(() => {
+    const generateMockUsers = () => {
+      if (users.length === 0) {
+        // Reduced from 25 to 12 users for better performance
+        const mockUsers: User[] = Array.from({ length: 12 }, (_, i) => ({
+          id: `user-${i + 1}`,
+          name: i === 0 ? 'You' : `User ${i + 1}`,
+          isSpeaking: false,
+          isMuted: Math.random() > 0.8,
+          volume: 80,
+          groupId: i < 8 ? currentGroupId || undefined : undefined
+        }))
+        setUsers(mockUsers)
+      }
+    }
+    generateMockUsers()
+  }, [])
+
+  const filteredUsers = useMemo(() => {
+    let filtered = users
+
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(
+        user => user.name.toLowerCase().includes(query) || user.id.toLowerCase().includes(query)
+      )
+    }
+
+    return filtered
+  }, [users, searchQuery])
+
+  const groupUsers = useMemo(() => {
+    if (!currentGroupId) return []
+    return filteredUsers.filter(user => user.groupId === currentGroupId)
+  }, [filteredUsers, currentGroupId])
+
+  const handleVolumeChange = useCallback((userId: string, volume: number) => {
+    setUsers(currentUsers => 
+      currentUsers.map(user => 
+        user.id === userId ? { ...user, volume } : user
+      )
+    )
+  }, [])
+
+  const handleToggleMute = useCallback((userId: string) => {
+    setUsers(currentUsers => 
+      currentUsers.map(user => 
+        user.id === userId ? { ...user, isMuted: !user.isMuted } : user
+      )
+    )
+  }, [])
+
+  const handleCreateGroup = useCallback((name: string, settings: GroupSettings) => {
+    console.log('[App] handleCreateGroup called:', name, settings)
+    const client = signalingClient.current
+    if (!client.isConnected()) {
+      console.log('[App] Not connected to server, using mock group creation')
+      // Fallback to mock creation if not connected
+      const newGroup: Group = {
+        id: `group-${Date.now()}`,
+        name,
+        memberCount: 0,
+        settings
+      }
+      setGroups(currentGroups => [...(currentGroups || []), newGroup])
+      toast.success(`Group "${name}" created successfully`)
+      return
+    }
+
+    console.log('[App] Connected, sending create_group message')
+    client.createGroup(name, settings)
+  }, [])
+
+  const handleJoinGroup = useCallback((groupId: string) => {
+    console.log('[App] handleJoinGroup called:', groupId)
+    const client = signalingClient.current
+    const group = (groups || []).find(g => g.id === groupId)
+    if (!group) {
+      console.warn('[App] Group not found:', groupId)
+      return
+    }
+
+    if (group.memberCount >= group.settings.maxMembers) {
+      toast.error('Group is full')
+      return
+    }
+
+    if (!client.isConnected()) {
+      console.log('[App] Not connected, using mock join')
+      // Fallback to mock join if not connected
+      setCurrentGroupId(groupId)
+      setGroups(currentGroups =>
+        (currentGroups || []).map(g =>
+          g.id === groupId ? { ...g, memberCount: g.memberCount + 1 } : g
+        )
+      )
+      toast.success(`Joined "${group.name}"`)
+      return
+    }
+
+    console.log('[App] Connected, sending join_group message')
+    client.joinGroup(groupId)
+  }, [groups])
+
+  const handleLeaveGroup = useCallback((groupId: string) => {
+    console.log('[App] handleLeaveGroup called:', groupId)
+    const client = signalingClient.current
+    const group = (groups || []).find(g => g.id === groupId)
+    if (!group) {
+      console.warn('[App] Group not found:', groupId)
+      return
+    }
+
+    if (!client.isConnected()) {
+      console.log('[App] Not connected, using mock leave')
+      // Fallback to mock leave if not connected
+      setCurrentGroupId(null)
+      setGroups(currentGroups =>
+        (currentGroups || []).map(g =>
+          g.id === groupId ? { ...g, memberCount: Math.max(0, g.memberCount - 1) } : g
+        )
+      )
+      toast.info(`Left "${group.name}"`)
+      return
+    }
+
+    console.log('[App] Connected, sending leave_group message')
+    client.leaveGroup()
+  }, [groups])
+
+  const handleOpenSettings = useCallback((groupId: string) => {
+    const group = (groups || []).find(g => g.id === groupId)
+    if (group) {
+      setSelectedGroup(group)
+      setSettingsDialogOpen(true)
+    }
+  }, [groups])
+
+  const handleSaveSettings = useCallback((groupId: string, settings: GroupSettings) => {
+    setGroups(currentGroups =>
+      (currentGroups || []).map(g =>
+        g.id === groupId ? { ...g, settings } : g
+      )
+    )
+    toast.success('Settings updated')
+  }, [])
+
+  const handleConnect = useCallback(async (serverUrl: string, username: string) => {
+    setConnectionState(currentState => ({
+      serverUrl,
+      status: 'connecting',
+      latency: currentState?.latency,
+      errorMessage: undefined
+    }))
+    
+    try {
+      const client = signalingClient.current
+      
+      // Clear previous event listeners if reconnecting
+      if (eventListenersSetUpRef.current) {
+        client.removeAllListeners()
+      }
+      
+      // Clear any existing ping interval
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current)
+        pingIntervalRef.current = null
+      }
+      
+      await client.connect(serverUrl, username)
+      
+      setConnectionState(currentState => ({
+        serverUrl,
+        status: 'connected',
+        latency: currentState?.latency,
+        errorMessage: undefined
+      }))
+      
+      // Request group list
+      client.listGroups()
+      
+      // Start ping for latency monitoring
+      pingIntervalRef.current = setInterval(() => {
+        if (client.isConnected()) {
+          client.ping()
+        }
+      }, 5000)
+
+      // Setup event listeners (only once per connection)
+      client.on('authenticated', () => {
+        toast.success('Connected to server')
+      })
+
+      client.on('group_list', (data: unknown) => {
+        const payload = data as { groups?: Array<{id: string, name: string, memberCount: number, maxMembers: number, proximityRange: number}> }
+        const groupsData = payload.groups || []
+        const groupsList = groupsData.map(g => ({
+          id: g.id,
+          name: g.name,
+          memberCount: g.memberCount,
+          settings: {
+            defaultVolume: 100,
+            proximityRange: g.proximityRange || 30,
+            allowInvites: true,
+            maxMembers: g.maxMembers || 50
+          }
+        }))
+        console.log('[App] Received group list:', groupsList)
+        // Merge with existing groups to preserve any groups not in the list
+        // but remove groups that are now empty
+        setGroups(groupsList.filter(g => g.memberCount > 0))
+      })
+
+      client.on('group_created', (data: unknown) => {
+        console.log('[App] Received group_created:', data)
+        const payload = data as { groupId?: string, groupName?: string, membersCount?: number }
+        if (payload.groupId && payload.groupName) {
+          // Add new group to list
+          const newGroup: Group = {
+            id: payload.groupId,
+            name: payload.groupName,
+            memberCount: payload.membersCount || 1,
+            settings: {
+              defaultVolume: 100,
+              proximityRange: 30,
+              allowInvites: true,
+              maxMembers: 50
+            }
+          }
+          console.log('[App] Adding group to list:', newGroup)
+          setGroups(currentGroups => [...(currentGroups || []), newGroup])
+          // Auto-join the creator to the group they just created
+          console.log('[App] Auto-joining created group:', payload.groupId)
+          setCurrentGroupId(payload.groupId)
+          toast.success(`Group "${payload.groupName}" created`)
+        } else {
+          console.warn('[App] Invalid group_created payload:', payload)
+        }
+      })
+
+      client.on('group_joined', (data: unknown) => {
+        const payload = data as { groupId?: string, groupName?: string }
+        if (payload.groupId) {
+          setCurrentGroupId(payload.groupId)
+          toast.success(`Joined "${payload.groupName || 'group'}"`)
+          // Refresh group list to get updated member counts
+          client.listGroups()
+        }
+      })
+
+      client.on('group_left', (data: unknown) => {
+        const payload = data as { groupId?: string, memberCount?: number }
+        console.log('[App] Left group:', payload)
+        setCurrentGroupId(null)
+        // If the group is now empty, remove it from the list
+        if (payload.groupId && payload.memberCount === 0) {
+          console.log('[App] Removing empty group:', payload.groupId)
+          setGroups(currentGroups =>
+            (currentGroups || []).filter(g => g.id !== payload.groupId)
+          )
+        } else if (payload.groupId && typeof payload.memberCount === 'number') {
+          // Update the member count if provided
+          const memberCount = payload.memberCount
+          console.log('[App] Updating group member count after leave:', payload.groupId, memberCount)
+          setGroups(currentGroups =>
+            (currentGroups || []).map(g =>
+              g.id === payload.groupId
+                ? { ...g, memberCount }
+                : g
+            )
+          )
+        }
+        toast.info('Left group')
+        // Refresh group list
+        client.listGroups()
+      })
+
+      client.on('group_members_updated', (data: unknown) => {
+        // Update users with new group members
+        const payload = data as { groupId?: string, memberCount?: number, members?: Array<{id: string, username: string, isSpeaking: boolean, isMuted: boolean, volume: number}> }
+        if (payload.groupId) {
+          // Calculate member count from members array if not provided
+          const memberCount = payload.memberCount ?? payload.members?.length ?? 0
+          console.log('[App] Updating group member count:', payload.groupId, memberCount)
+          // Update group member count in the groups list
+          setGroups(currentGroups =>
+            (currentGroups || []).map(g =>
+              g.id === payload.groupId
+                ? { ...g, memberCount }
+                : g
+            )
+          )
+          // Update the individual users if provided
+          if (payload.members && payload.members.length > 0) {
+            const updatedUsers = payload.members.map(m => ({
+              id: m.id,
+              name: m.username,
+              isSpeaking: m.isSpeaking,
+              isMuted: m.isMuted,
+              volume: m.volume,
+              groupId: payload.groupId
+            }))
+            console.log('[App] Updating group users:', updatedUsers)
+            setUsers(updatedUsers)
+          }
+        }
+      })
+
+      client.on('user_speaking_status', (data: unknown) => {
+        const payload = data as { userId?: string, isSpeaking?: boolean }
+        if (payload.userId) {
+          setUsers(currentUsers =>
+            currentUsers.map(u =>
+              u.id === payload.userId ? { ...u, isSpeaking: payload.isSpeaking || false } : u
+            )
+          )
+        }
+      })
+
+      client.on('latency', (data: unknown) => {
+        const payload = data as { latency?: number }
+        setConnectionState(currentState => ({
+          ...currentState,
+          latency: payload.latency
+        }))
+      })
+
+      client.on('connection_error', (error) => {
+        setConnectionState(currentState => ({
+          ...currentState,
+          status: 'error',
+          errorMessage: 'Connection failed: ' + (error instanceof Error ? error.message : 'Unknown error')
+        }))
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current)
+          pingIntervalRef.current = null
+        }
+        toast.error('Connection failed')
+      })
+
+      client.on('disconnected', () => {
+        setConnectionState(currentState => ({
+          ...currentState,
+          status: 'disconnected'
+        }))
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current)
+          pingIntervalRef.current = null
+        }
+      })
+      
+      eventListenersSetUpRef.current = true
+    } catch (error) {
+      setConnectionState(currentState => ({
+        serverUrl,
+        status: 'error',
+        latency: currentState?.latency,
+        errorMessage: error instanceof Error ? error.message : 'Connection failed'
+      }))
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current)
+        pingIntervalRef.current = null
+      }
+      toast.error('Failed to connect to server')
+    }
+  }, [])
+
+  const handleDisconnect = useCallback(() => {
+    const client = signalingClient.current
+    client.disconnect()
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current)
+      pingIntervalRef.current = null
+    }
+    eventListenersSetUpRef.current = false
+    setConnectionState(currentState => ({
+      serverUrl: currentState?.serverUrl || '',
+      status: 'disconnected',
+      latency: undefined,
+      errorMessage: undefined
+    }))
+    setCurrentGroupId(null)
+    setUsers([])
+    setGroups([])
+    toast.info('Disconnected from server')
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current)
+        pingIntervalRef.current = null
+      }
+      const client = signalingClient.current
+      if (client.isConnected()) {
+        client.disconnect()
+      }
+    }
+  }, [])
+
+  const handleAudioSettingsChange = useCallback((settings: AudioSettings) => {
+    setAudioSettings(settings)
+  }, [])
+
+  const handleToggleVAD = () => {
+    const newVadState = !vadEnabled
+    setVadEnabled(newVadState)
+    if (newVadState) {
+      toast.success('Voice detection enabled')
+    } else {
+      toast.info('Voice detection disabled')
+    }
+  }
+
+  const currentGroup = (groups || []).find(g => g.id === currentGroupId)
+  const currentUser = users.find(u => u.id === currentUserId)
+
+  useEffect(() => {
+    if (currentGroupId && activeTab === 'groups') {
+      setActiveTab('current-group')
+    } else if (!currentGroupId && activeTab === 'current-group') {
+      setActiveTab('groups')
+    }
+  }, [currentGroupId])
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <Toaster />
+      
+      {isMobile ? (
+        <div className="flex flex-col h-screen">
+          <header className="p-4 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-10">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight">Obsolete Voice Chat</h1>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button
+                  size="icon"
+                  variant={compactView ? "default" : "outline"}
+                  onClick={() => setCompactView(!compactView)}
+                  className={compactView ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
+                  title={compactView ? "Standard View" : "Compact View"}
+                >
+                  {compactView ? <SquaresFour size={18} weight="bold" /> : <Rows size={18} weight="bold" />}
+                </Button>
+
+                <Button
+                  size="icon"
+                  variant={vadEnabled ? "default" : "outline"}
+                  onClick={handleToggleVAD}
+                  className={vadEnabled ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
+                >
+                  <Waveform size={18} weight="bold" />
+                </Button>
+                
+                <Button
+                  size="icon"
+                  variant={mockMode ? "default" : "outline"}
+                  onClick={() => setMockMode(!mockMode)}
+                  className={mockMode ? "bg-secondary text-secondary-foreground hover:bg-secondary/90" : ""}
+                  title="Mock Mode: Simulates other users speaking"
+                >
+                  <UsersIcon size={18} weight="bold" />
+                </Button>
+                
+                {currentGroup && (
+                  <Badge 
+                    variant="secondary" 
+                    className="bg-accent/20 text-accent border-accent/30 px-3 py-1 text-xs"
+                  >
+                    <UsersIcon size={14} weight="fill" className="mr-1.5" />
+                    {currentGroup.name}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </header>
+
+          <div className="flex-1 overflow-auto">
+            <div className="p-4 space-y-4">
+              <ConnectionView
+                connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
+                audioSettings={audioSettings || {
+                  inputDevice: 'default',
+                  outputDevice: 'default',
+                  inputVolume: 80,
+                  outputVolume: 80,
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true
+                }}
+                onConnect={handleConnect}
+                onDisconnect={handleDisconnect}
+                onAudioSettingsChange={handleAudioSettingsChange}
+              />
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 h-auto">
+                      {currentGroup && (
+                        <TabsTrigger value="current-group" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">
+                          <UsersIcon size={12} weight="fill" className="mr-1" />
+                          Group
+                        </TabsTrigger>
+                      )}
+                      <TabsTrigger value="groups" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 1' }}>
+                        <Stack size={12} weight="fill" className="mr-1" />
+                        Groups
+                      </TabsTrigger>
+                      <TabsTrigger value="all-users" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 2' }}>
+                        <UserList size={12} weight="fill" className="mr-1" />
+                        All Users
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </CardHeader>
+
+                <CardContent className="pt-0">
+                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+                    {currentGroup && (
+                      <TabsContent value="current-group" className="mt-0 space-y-3">
+                        <div className="space-y-2 pt-2">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-bold">{currentGroup.name}</h3>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleLeaveGroup(currentGroup.id)}
+                            >
+                              <SignOut size={14} weight="fill" />
+                              Leave
+                            </Button>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <UsersIcon size={14} weight="fill" />
+                            <span className="font-mono text-xs">{currentGroup.memberCount} / {currentGroup.settings.maxMembers}</span>
+                          </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-2">
+                          <div className="relative">
+                            <MagnifyingGlass 
+                              size={14} 
+                              className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" 
+                            />
+                            <Input
+                              placeholder="Search group members..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="pl-7 h-8 text-xs"
+                            />
+                          </div>
+
+                          {groupUsers.length === 0 ? (
+                            <div className="text-center py-8">
+                              <UsersIcon size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
+                              <p className="text-xs text-muted-foreground">
+                                {searchQuery ? 'No users found' : 'No users in group yet'}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                              {compactView ? (
+                                <div className="grid grid-cols-1 gap-1.5">
+                                  {groupUsers.map(user => (
+                                    <UserCardCompact
+                                      key={user.id}
+                                      user={user}
+                                      onVolumeChange={handleVolumeChange}
+                                      onToggleMute={handleToggleMute}
+                                    />
+                                  ))}
+                                </div>
+                              ) : (
+                                groupUsers.map(user => (
+                                  <UserCard
+                                    key={user.id}
+                                    user={user}
+                                    onVolumeChange={handleVolumeChange}
+                                    onToggleMute={handleToggleMute}
+                                  />
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </TabsContent>
+                    )}
+
+                    <TabsContent value="groups" className="mt-0 space-y-3 pt-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-bold">Available Groups</h3>
+                        <Button
+                          onClick={() => setCreateDialogOpen(true)}
+                          size="sm"
+                          className="bg-accent text-accent-foreground hover:bg-accent/90"
+                        >
+                          <Plus size={14} weight="bold" />
+                          Create
+                        </Button>
+                      </div>
+
+                      {(groups || []).length === 0 ? (
+                        <div className="text-center py-8">
+                          <Stack size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
+                          <p className="text-xs text-muted-foreground mb-3">
+                            No groups available yet
+                          </p>
+                          <Button
+                            onClick={() => setCreateDialogOpen(true)}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Create First Group
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[450px] overflow-y-auto">
+                          {(groups || []).map(group => (
+                            <GroupCard
+                              key={group.id}
+                              group={group}
+                              isJoined={currentGroupId === group.id}
+                              onJoin={handleJoinGroup}
+                              onLeave={handleLeaveGroup}
+                              onSettings={handleOpenSettings}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="all-users" className="mt-0 space-y-3 pt-2">
+                      <h3 className="text-lg font-bold">All Users</h3>
+
+                      <div className="relative">
+                        <MagnifyingGlass 
+                          size={14} 
+                          className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" 
+                        />
+                        <Input
+                          placeholder="Search all users..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-7 h-8 text-xs"
+                        />
+                      </div>
+
+                      {filteredUsers.length === 0 ? (
+                        <div className="text-center py-8">
+                          <UserList size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
+                          <p className="text-xs text-muted-foreground">
+                            {searchQuery ? 'No users found' : 'No users available'}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                          {compactView ? (
+                            <div className="grid grid-cols-1 gap-1.5">
+                              {filteredUsers.map(user => (
+                                <UserCardCompact
+                                  key={user.id}
+                                  user={user}
+                                  onVolumeChange={handleVolumeChange}
+                                  onToggleMute={handleToggleMute}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            filteredUsers.map(user => (
+                              <UserCard
+                                key={user.id}
+                                user={user}
+                                onVolumeChange={handleVolumeChange}
+                                onToggleMute={handleToggleMute}
+                              />
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="container mx-auto p-6 max-w-[1600px]">
+          <header className="mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <img src={icon} alt="Obsolete Voice Chat" className="h-10 w-auto" />
+                <div>
+                  <h1 className="text-3xl font-bold tracking-tight">Obsolete Voice Chat</h1>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  size="default"
+                  variant={compactView ? "default" : "outline"}
+                  onClick={() => setCompactView(!compactView)}
+                  className={compactView ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
+                >
+                  {compactView ? <SquaresFour size={20} weight="bold" /> : <Rows size={20} weight="bold" />}
+                  {compactView ? 'Compact' : 'Standard'}
+                </Button>
+                <Button
+                  size="default"
+                  variant={vadEnabled ? "default" : "outline"}
+                  onClick={handleToggleVAD}
+                  className={vadEnabled ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
+                >
+                  <Waveform size={20} weight="bold" />
+                  Voice Detection {vadEnabled ? 'On' : 'Off'}
+                </Button>
+                <Button
+                  size="default"
+                  variant={mockMode ? "default" : "outline"}
+                  onClick={() => setMockMode(!mockMode)}
+                  className={mockMode ? "bg-secondary text-secondary-foreground hover:bg-secondary/90" : ""}
+                >
+                  <UsersIcon size={20} weight="bold" />
+                  Mock Users {mockMode ? 'On' : 'Off'}
+                </Button>
+              </div>
+            </div>
+          </header>
+
+          <div className="grid grid-cols-12 gap-6">
+            <div className="col-span-7">
+              <ConnectionView
+                connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
+                audioSettings={audioSettings || {
+                  inputDevice: 'default',
+                  outputDevice: 'default',
+                  inputVolume: 80,
+                  outputVolume: 80,
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true
+                }}
+                onConnect={handleConnect}
+                onDisconnect={handleDisconnect}
+                onAudioSettingsChange={handleAudioSettingsChange}
+              />
+            </div>
+
+            <div className="col-span-5 space-y-6">
+              <Card>
+                <CardHeader className="pb-3">
+                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 h-auto">
+                      {currentGroup && (
+                        <TabsTrigger value="current-group" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">
+                          <UsersIcon size={16} weight="fill" className="mr-1.5" />
+                          Current Group
+                        </TabsTrigger>
+                      )}
+                      <TabsTrigger value="groups" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 2' }}>
+                        <Stack size={16} weight="fill" className="mr-1.5" />
+                        Available Groups
+                      </TabsTrigger>
+                      <TabsTrigger value="all-users" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 1' }}>
+                        <UserList size={16} weight="fill" className="mr-1.5" />
+                        All Users
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </CardHeader>
+
+                <CardContent className="pt-0">
+                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+                    {currentGroup && (
+                      <TabsContent value="current-group" className="mt-0 space-y-3">
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <h3 className="text-xl font-bold mb-1">{currentGroup.name}</h3>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <UsersIcon size={16} weight="fill" />
+                                <span className="font-mono">{currentGroup.memberCount} / {currentGroup.settings.maxMembers}</span>
+                              </div>
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleLeaveGroup(currentGroup.id)}
+                            >
+                              <SignOut size={16} weight="fill" />
+                              Leave
+                            </Button>
+                          </div>
+                        </div>
+
+                        <Separator />
+
+                        <div className="space-y-3">
+                          <div className="relative">
+                            <MagnifyingGlass 
+                              size={16} 
+                              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" 
+                            />
+                            <Input
+                              placeholder="Search group members..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="pl-9 h-9"
+                            />
+                          </div>
+
+                          {groupUsers.length === 0 ? (
+                            <div className="text-center py-8">
+                              <UsersIcon size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
+                              <p className="text-sm text-muted-foreground">
+                                {searchQuery ? 'No users found' : 'No users in group yet'}
+                              </p>
+                            </div>
+                          ) : (
+                            <ScrollArea className="h-[450px]">
+                              <div className={compactView ? "grid grid-cols-1 gap-1.5 pr-4" : "space-y-2 pr-4"}>
+                                {groupUsers.map(user => (
+                                  compactView ? (
+                                    <UserCardCompact
+                                      key={user.id}
+                                      user={user}
+                                      onVolumeChange={handleVolumeChange}
+                                      onToggleMute={handleToggleMute}
+                                    />
+                                  ) : (
+                                    <UserCard
+                                      key={user.id}
+                                      user={user}
+                                      onVolumeChange={handleVolumeChange}
+                                      onToggleMute={handleToggleMute}
+                                    />
+                                  )
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          )}
+                        </div>
+                      </TabsContent>
+                    )}
+
+                    <TabsContent value="groups" className="mt-0 space-y-3 pt-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-xl font-bold">Available Groups</h3>
+                        <Button
+                          onClick={() => setCreateDialogOpen(true)}
+                          size="sm"
+                          className="bg-accent text-accent-foreground hover:bg-accent/90"
+                        >
+                          <Plus size={16} weight="bold" />
+                          Create
+                        </Button>
+                      </div>
+
+                      {(groups || []).length === 0 ? (
+                        <div className="text-center py-8">
+                          <Stack size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
+                          <p className="text-sm text-muted-foreground mb-4">
+                            No groups available yet
+                          </p>
+                          <Button
+                            onClick={() => setCreateDialogOpen(true)}
+                            variant="outline"
+                            size="sm"
+                          >
+                            Create First Group
+                          </Button>
+                        </div>
+                      ) : (
+                        <ScrollArea className="h-[500px]">
+                          <div className="space-y-2 pr-4">
+                            {(groups || []).map(group => (
+                              <GroupCard
+                                key={group.id}
+                                group={group}
+                                isJoined={currentGroupId === group.id}
+                                onJoin={handleJoinGroup}
+                                onLeave={handleLeaveGroup}
+                                onSettings={handleOpenSettings}
+                              />
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="all-users" className="mt-0 space-y-3 pt-2">
+                      <h3 className="text-xl font-bold">All Users</h3>
+
+                      <div className="relative">
+                        <MagnifyingGlass 
+                          size={16} 
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" 
+                        />
+                        <Input
+                          placeholder="Search all users..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="pl-9 h-9"
+                        />
+                      </div>
+
+                      {filteredUsers.length === 0 ? (
+                        <div className="text-center py-8">
+                          <UserList size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
+                          <p className="text-sm text-muted-foreground">
+                            {searchQuery ? 'No users found' : 'No users available'}
+                          </p>
+                        </div>
+                      ) : (
+                        <ScrollArea className="h-[450px]">
+                          <div className={compactView ? "grid grid-cols-1 gap-1.5 pr-4" : "space-y-2 pr-4"}>
+                            {filteredUsers.map(user => (
+                              compactView ? (
+                                <UserCardCompact
+                                  key={user.id}
+                                  user={user}
+                                  onVolumeChange={handleVolumeChange}
+                                  onToggleMute={handleToggleMute}
+                                />
+                              ) : (
+                                <UserCard
+                                  key={user.id}
+                                  user={user}
+                                  onVolumeChange={handleVolumeChange}
+                                  onToggleMute={handleToggleMute}
+                                />
+                              )
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <CreateGroupDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onCreate={handleCreateGroup}
+      />
+
+      <GroupSettingsDialog
+        group={selectedGroup}
+        open={settingsDialogOpen}
+        onOpenChange={setSettingsDialogOpen}
+        onSave={handleSaveSettings}
+      />
+    </div>
+  )
+}
+
+export default App

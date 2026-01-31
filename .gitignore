@@ -52,3 +52,9 @@ web-client/package-lock.json
 web-client/dist/
 web-client/server.key
 web-client/server.cert
+
+# React web client (webrt)
+webrt/node_modules/
+webrt/package-lock.json
+webrt/dist/
+webrt/.vite/

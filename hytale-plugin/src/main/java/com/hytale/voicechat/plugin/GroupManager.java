@@ -19,6 +19,33 @@ public class GroupManager {
 
     private final Map<UUID, Group> groups = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> playerGroupMapping = new ConcurrentHashMap<>(); // playerId -> groupId
+    
+    // Event listeners for group changes
+    public interface GroupEventListener {
+        void onGroupCreated(Group group, UUID creatorId);
+        void onPlayerJoinedGroup(UUID playerId, Group group);
+        void onPlayerLeftGroup(UUID playerId, Group group, boolean groupDeleted);
+        void onGroupDeleted(Group group);
+    }
+    
+    private final List<GroupEventListener> eventListeners = new ArrayList<>();
+    
+    /**
+     * Register a listener for group events
+     */
+    public void registerGroupEventListener(GroupEventListener listener) {
+        if (!eventListeners.contains(listener)) {
+            eventListeners.add(listener);
+            logger.atFine().log("Registered group event listener: " + listener.getClass().getSimpleName());
+        }
+    }
+    
+    /**
+     * Unregister a listener for group events
+     */
+    public void unregisterGroupEventListener(GroupEventListener listener) {
+        eventListeners.remove(listener);
+    }
 
     /**
      * Create a new voice group
@@ -59,6 +86,10 @@ public class GroupManager {
         groups.put(groupId, group);
         
         logger.atInfo().log("Created group: " + groupName + " (permanent=" + isPermanent + ", creator=" + creatorUuid + ", settings=" + settings + ")");
+        
+        // Notify listeners
+        eventListeners.forEach(listener -> listener.onGroupCreated(group, creatorUuid));
+        
         return group;
     }
 
@@ -82,17 +113,23 @@ public class GroupManager {
             // Re-entrant synchronized call: safe because Java intrinsic locks are reentrant
             leaveGroup(playerId);
             // Re-check if the target group still exists after leaving the previous group
-            group = groups.get(groupId);
-            if (group == null) {
+            final Group updatedGroup = groups.get(groupId);
+            if (updatedGroup == null) {
                 logger.atWarning().log("Group no longer exists: " + groupId);
                 return false;
             }
+            group = updatedGroup;
         }
 
-        group.addMember(playerId);
+        final Group finalGroup = group;
+        finalGroup.addMember(playerId);
         playerGroupMapping.put(playerId, groupId);
         
-        logger.atInfo().log("Player " + playerId + " joined group " + group.getName());
+        logger.atInfo().log("Player " + playerId + " joined group " + finalGroup.getName());
+        
+        // Notify listeners
+        eventListeners.forEach(listener -> listener.onPlayerJoinedGroup(playerId, finalGroup));
+        
         return true;
     }
 
@@ -131,9 +168,20 @@ public class GroupManager {
             logger.atInfo().log("Player " + playerId + " left group " + group.getName());
 
             // Auto-disband non-permanent empty groups
+            final boolean groupDeleted;
             if (group.isEmpty() && !group.isPermanent()) {
                 groups.remove(groupId);
                 logger.atInfo().log("Group auto-disbanded: " + group.getName());
+                groupDeleted = true;
+            } else {
+                groupDeleted = false;
+            }
+            
+            // Notify listeners
+            final Group finalGroup = group;
+            eventListeners.forEach(listener -> listener.onPlayerLeftGroup(playerId, finalGroup, groupDeleted));
+            if (groupDeleted) {
+                eventListeners.forEach(listener -> listener.onGroupDeleted(finalGroup));
             }
             
             return newOwner;

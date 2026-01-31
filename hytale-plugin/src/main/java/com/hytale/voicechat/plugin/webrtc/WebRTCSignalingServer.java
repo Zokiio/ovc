@@ -1,6 +1,7 @@
 package com.hytale.voicechat.plugin.webrtc;
 
 import com.google.gson.JsonObject;
+import com.hytale.voicechat.common.model.Group;
 import com.hytale.voicechat.common.model.GroupSettings;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
@@ -27,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * WebSocket server for WebRTC signaling between web clients and server
  */
-public class WebRTCSignalingServer {
+public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final AttributeKey<WebRTCClient> CLIENT_ATTR = AttributeKey.valueOf("webrtc_client");
     
@@ -67,7 +68,9 @@ public class WebRTCSignalingServer {
     
     public void setGroupManager(GroupManager groupManager) {
         this.groupManager = groupManager;
-        logger.atInfo().log("Group manager set for WebRTC signaling server");
+        // Register as event listener to receive group change notifications
+        groupManager.registerGroupEventListener(this);
+        logger.atInfo().log("Group manager set for WebRTC signaling server with event listener");
     }
     
     public void setGroupStateManager(GroupStateManager stateManager) {
@@ -176,6 +179,93 @@ public class WebRTCSignalingServer {
      */
     public Map<java.util.UUID, WebRTCClient> getClientMap() {
         return clients;
+    }
+    
+    // ========== GroupEventListener Implementation ==========
+    
+    /**
+     * Broadcast group creation to all connected web clients
+     */
+    @Override
+    public void onGroupCreated(Group group, UUID creatorId) {
+        logger.atFine().log("Broadcasting group_created event: " + group.getName());
+        
+        JsonObject broadcastData = new JsonObject();
+        broadcastData.addProperty("groupId", group.getGroupId().toString());
+        broadcastData.addProperty("groupName", group.getName());
+        broadcastData.addProperty("membersCount", 1); // Creator is automatically added
+        broadcastData.addProperty("maxMembers", group.getSettings().getMaxMembers());
+        broadcastData.addProperty("proximityRange", group.getSettings().getProximityRange());
+        
+        SignalingMessage broadcastMsg = new SignalingMessage("group_created", broadcastData);
+        broadcastToAll(broadcastMsg);
+        
+        // Refresh group list for all clients
+        broadcastGroupList();
+    }
+    
+    /**
+     * Broadcast player joining a group to all connected web clients
+     */
+    @Override
+    public void onPlayerJoinedGroup(UUID playerId, Group group) {
+        logger.atFine().log("Broadcasting player joined group: " + playerId + " joined " + group.getName());
+        broadcastGroupList();
+    }
+    
+    /**
+     * Broadcast player leaving a group to all connected web clients
+     */
+    @Override
+    public void onPlayerLeftGroup(UUID playerId, Group group, boolean groupDeleted) {
+        logger.atFine().log("Broadcasting player left group: " + playerId + " left " + group.getName());
+        broadcastGroupList(); // Always refresh full list
+    }
+    
+    /**
+     * Broadcast group deletion to all connected web clients
+     */
+    @Override
+    public void onGroupDeleted(Group group) {
+        logger.atFine().log("Broadcasting group deleted: " + group.getName());
+        broadcastGroupList(); // Refresh the full list
+    }
+    
+    /**
+     * Broadcast a message to all connected web clients
+     */
+    private void broadcastToAll(SignalingMessage message) {
+        for (WebRTCClient client : clients.values()) {
+            if (client != null && client.isConnected()) {
+                client.sendMessage(message.toJson());
+            }
+        }
+    }
+    
+    /**
+     * Broadcast current group list to all connected web clients
+     */
+    private void broadcastGroupList() {
+        if (groupManager == null) {
+            return;
+        }
+        
+        com.google.gson.JsonArray groupsArray = new com.google.gson.JsonArray();
+        for (Group group : groupManager.listGroups()) {
+            JsonObject groupObj = new JsonObject();
+            groupObj.addProperty("id", group.getGroupId().toString());
+            groupObj.addProperty("name", group.getName());
+            groupObj.addProperty("memberCount", group.getMemberCount());
+            groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
+            groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+            groupsArray.add(groupObj);
+        }
+        
+        JsonObject data = new JsonObject();
+        data.add("groups", groupsArray);
+        
+        SignalingMessage message = new SignalingMessage("group_list", data);
+        broadcastToAll(message);
     }
     
     private class WebSocketServerHandler extends SimpleChannelInboundHandler<Object> {
@@ -592,9 +682,13 @@ public class WebRTCSignalingServer {
             groupStateManager.removeClientFromAllGroups(client.getClientId());
             groupManager.leaveGroup(client.getClientId());
 
-            // Send success response
+            // Calculate remaining member count
+            int memberCount = groupManager.getGroupMembers(groupId).size();
+
+            // Send success response with updated member count
             JsonObject responseData = new JsonObject();
             responseData.addProperty("groupId", groupId.toString());
+            responseData.addProperty("memberCount", memberCount);
             SignalingMessage response = new SignalingMessage("group_left", responseData);
             sendMessage(ctx, response);
 
@@ -702,6 +796,7 @@ public class WebRTCSignalingServer {
             JsonObject broadcastData = new JsonObject();
             broadcastData.addProperty("groupId", groupId.toString());
             broadcastData.addProperty("groupName", group.getName());
+            broadcastData.addProperty("memberCount", membersArray.size());
             broadcastData.add("members", membersArray);
             
             SignalingMessage broadcastMsg = new SignalingMessage("group_members_updated", broadcastData);

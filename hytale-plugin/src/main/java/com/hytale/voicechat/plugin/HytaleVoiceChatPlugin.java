@@ -69,8 +69,16 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             // Initialize and start WebRTC signaling server
             signalingServer = new WebRTCSignalingServer(NetworkConfig.DEFAULT_SIGNALING_PORT);
             signalingServer.setPositionTracker(positionTracker);
+            
+            // Create and set group state manager for group operations
+            com.hytale.voicechat.plugin.webrtc.GroupStateManager groupStateManager = new com.hytale.voicechat.plugin.webrtc.GroupStateManager();
+            signalingServer.setGroupStateManager(groupStateManager);
+            signalingServer.setGroupManager(groupManager);
+            
             webRtcAudioBridge = new WebRTCAudioBridge(null, positionTracker, signalingServer.getClientMap());
             webRtcAudioBridge.setProximityDistance(proximityDistance);
+            webRtcAudioBridge.setGroupManager(groupManager);
+            webRtcAudioBridge.setGroupStateManager(groupStateManager);
             signalingServer.setAudioBridge(webRtcAudioBridge);
             DataChannelAudioHandler dataChannelAudioHandler = new DataChannelAudioHandler(webRtcAudioBridge);
             IceServerConfig iceServerConfig = IceServerConfig.defaults();
