@@ -10,6 +10,7 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
     super()
     this.isActive = false
     this.frameCount = 0
+    this.totalFrames = 0
     
     // Listen for messages from main thread
     this.port.onmessage = (event) => {
@@ -30,6 +31,16 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
 
   process(inputs, outputs, parameters) {
     const input = inputs[0]
+    this.totalFrames++
+    
+    // Log every 500 frames to confirm process() is being called
+    if (this.totalFrames % 500 === 0) {
+      const hasInput = input && input.length > 0 && input[0] && input[0].length > 0
+      this.port.postMessage({
+        type: 'status',
+        message: `Process running: frame ${this.totalFrames}, hasInput: ${hasInput}, isActive: ${this.isActive}`
+      })
+    }
     
     // Capture audio when active and we have input
     if (input && input.length > 0 && input[0].length > 0 && this.isActive) {
@@ -41,7 +52,7 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
       if (this.frameCount % 100 === 0) {
         this.port.postMessage({
           type: 'status',
-          message: `Captured ${this.frameCount} frames`
+          message: `Captured ${this.frameCount} frames, samples: ${audioData.length}`
         })
       }
       

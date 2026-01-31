@@ -186,7 +186,7 @@ export function useVoiceActivity({
         workletNodeRef.current = workletNode
         console.log('[VAD] AudioWorklet node created')
         
-        // Handle audio data from worklet
+        // Handle audio data from worklet - MUST be set up immediately after node creation
         workletNode.port.onmessage = (event) => {
           if (event.data.type === 'audioData' && onAudioDataRef.current) {
             const float32Data = new Float32Array(event.data.data)
@@ -198,6 +198,9 @@ export function useVoiceActivity({
             console.log('[AudioCapture] Processor ready')
           }
         }
+        
+        // Start the port to receive messages (required for MessagePort)
+        workletNode.port.start()
         
         // Connect: microphone → workletNode
         microphone.connect(workletNode)
