@@ -169,6 +169,7 @@ export function useVoiceActivity({
 
       // Set up audio capture for transmission if enabled
       if (enableAudioCapture) {
+        console.log('[VAD] Setting up audio capture for transmission')
         // Use ScriptProcessorNode (deprecated but widely supported)
         // Buffer size of 4096 samples at 48kHz = ~85ms per buffer
         const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1)
@@ -181,6 +182,7 @@ export function useVoiceActivity({
             if (isSpeakingRef.current) {
               const inputData = event.inputBuffer.getChannelData(0)
               const audioData = float32ToBase64(inputData)
+              console.log('[VAD] Capturing audio frame, length:', audioData.length)
               onAudioDataRef.current(audioData)
             }
           }
@@ -309,6 +311,19 @@ export function useVoiceActivity({
       stopListening()
     }
   }, [enabled, isInitialized])
+
+  // Restart when enableAudioCapture changes (need to re-setup the audio pipeline)
+  useEffect(() => {
+    if (enabled && isInitialized && enableAudioCapture) {
+      // Need to restart to add the script processor
+      if (!scriptProcessorRef.current) {
+        console.log('[VAD] Audio capture enabled, restarting to setup capture pipeline')
+        stopListening()
+        // Defer restart slightly to allow cleanup
+        setTimeout(() => startListening(), 100)
+      }
+    }
+  }, [enableAudioCapture])
 
   useEffect(() => {
     return () => {
