@@ -22,10 +22,15 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.websocketx.*;
+import io.netty.handler.ssl.SslContext;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.util.SelfSignedCertificate;
 import io.netty.util.AttributeKey;
 
+import javax.net.ssl.SSLException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.security.cert.CertificateException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +55,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private EventLoopGroup bossGroup;
     private EventLoopGroup workerGroup;
     private Channel serverChannel;
+    private SslContext sslContext;
     private java.util.concurrent.ScheduledExecutorService positionBroadcastScheduler;
     private static final long POSITION_BROADCAST_INTERVAL_MS = 100; // 10 Hz
     
@@ -107,11 +113,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         logger.atInfo().log("WebRTC client listener set");
     }
     
-    public void start() throws InterruptedException {
+    public void start() throws InterruptedException, CertificateException, SSLException {
         bossGroup = new MultiThreadIoEventLoopGroup(1, NioIoHandler.newFactory());
         workerGroup = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
         
         try {
+            // Create SSL context with self-signed certificate
+            this.sslContext = createSSLContext();
+            
             ServerBootstrap bootstrap = new ServerBootstrap();
             bootstrap.group(bossGroup, workerGroup)
                     .channel(NioServerSocketChannel.class)
@@ -119,6 +128,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         @Override
                         protected void initChannel(SocketChannel ch) {
                             ChannelPipeline pipeline = ch.pipeline();
+                            
+                            // Add SSL handler for wss:// support
+                            if (sslContext != null) {
+                                pipeline.addLast(sslContext.newHandler(ch.alloc()));
+                            }
+                            
                             pipeline.addLast(new HttpServerCodec());
                             pipeline.addLast(new HttpObjectAggregator(65536));
                             pipeline.addLast(new WebSocketServerHandler());
@@ -126,7 +141,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     });
             
             serverChannel = bootstrap.bind(port).sync().channel();
-            logger.atInfo().log("WebRTC signaling server started on port " + port);
+            logger.atInfo().log("WebRTC signaling server started on port " + port + " (wss:// supported)");
             
             // Start audio bridge if available
             if (audioBridge != null && !audioBridge.isRunning()) {
@@ -141,6 +156,24 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         } catch (Exception e) {
             logger.atSevere().log("Failed to start WebRTC signaling server", e);
             shutdown();
+            throw e;
+        }
+    }
+    
+    /**
+     * Create an SSL context with a self-signed certificate for wss:// support
+     */
+    private SslContext createSSLContext() throws CertificateException, SSLException {
+        try {
+            logger.atInfo().log("Creating self-signed certificate for wss:// WebSocket support");
+            SelfSignedCertificate ssc = new SelfSignedCertificate();
+            SslContext context = SslContextBuilder
+                    .forServer(ssc.certificate(), ssc.privateKey())
+                    .build();
+            logger.atInfo().log("SSL context created successfully");
+            return context;
+        } catch (CertificateException e) {
+            logger.atSevere().log("Failed to create self-signed certificate", e);
             throw e;
         }
     }
@@ -979,7 +1012,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         private String getWebSocketLocation(FullHttpRequest req) {
             String location = req.headers().get(HttpHeaderNames.HOST) + "/voice";
-            return "ws://" + location;
+            return "wss://" + location;
         }
         
         private void sendHttpResponse(ChannelHandlerContext ctx, FullHttpRequest req, FullHttpResponse res) {
