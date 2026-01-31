@@ -481,6 +481,8 @@ export function ConnectionView({
         </Card>
       </Collapsible>
 
+      {/* Always render VoiceActivityMonitor so the hook runs for audio capture */}
+      {/* UI visibility controlled separately */}
       {!vadOpen ? (
         <Card className="cursor-pointer hover:bg-accent/5 transition-colors" onClick={() => setVadOpen(true)}>
           <CardHeader className="py-4">
@@ -493,28 +495,28 @@ export function ConnectionView({
             </div>
           </CardHeader>
         </Card>
-      ) : (
-        <div className="relative">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setVadOpen(false)}
-            className="absolute top-4 right-4 z-10 h-8 w-8 hover:bg-accent/10"
-          >
-            <CaretDownIcon 
-              size={16} 
-              weight="bold" 
-              className="rotate-180"
-            />
-          </Button>
-          <VoiceActivityMonitor 
-            audioSettings={audioSettings} 
-            onSpeakingChange={onSpeakingChange}
-            enableAudioCapture={enableAudioCapture}
-            onAudioData={onAudioData}
+      ) : null}
+      
+      <div className={vadOpen ? "relative" : "hidden"}>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setVadOpen(false)}
+          className="absolute top-4 right-4 z-10 h-8 w-8 hover:bg-accent/10"
+        >
+          <CaretDownIcon 
+            size={16} 
+            weight="bold" 
+            className="rotate-180"
           />
-        </div>
-      )}
+        </Button>
+        <VoiceActivityMonitor 
+          audioSettings={audioSettings} 
+          onSpeakingChange={onSpeakingChange}
+          enableAudioCapture={enableAudioCapture}
+          onAudioData={onAudioData}
+        />
+      </div>
 
       <Collapsible open={micSettingsOpen} onOpenChange={setMicSettingsOpen}>
         <Card>

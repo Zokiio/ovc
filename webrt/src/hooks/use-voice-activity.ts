@@ -137,8 +137,10 @@ export function useVoiceActivity({
   }, [])
 
   const startListening = useCallback(async () => {
+    console.log('[VAD] startListening called, isInitializing:', isInitializingRef.current, 'hasContext:', !!audioContextRef.current)
     if (isInitializingRef.current || audioContextRef.current) return
     
+    console.log('[VAD] Starting microphone access...')
     isInitializingRef.current = true
 
     try {
@@ -312,7 +314,9 @@ export function useVoiceActivity({
   ])
 
   useEffect(() => {
+    console.log('[VAD] Effect running: enabled=', enabled, 'isInitialized=', isInitialized)
     if (enabled && !isInitialized) {
+      console.log('[VAD] Triggering startListening from effect')
       startListening()
     } else if (!enabled && isInitialized) {
       stopListening()

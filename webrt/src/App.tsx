@@ -389,6 +389,7 @@ function App() {
       client.on('group_members_updated', (data: unknown) => {
         // Update users with new group members
         const payload = data as { groupId?: string, memberCount?: number, members?: Array<{id: string, username: string, isSpeaking: boolean, isMuted: boolean, volume: number}> }
+        console.log('[App] group_members_updated received:', JSON.stringify(payload, null, 2))
         if (payload.groupId) {
           // Calculate member count from members array if not provided
           const memberCount = payload.memberCount ?? payload.members?.length ?? 0
@@ -406,15 +407,18 @@ function App() {
             console.log('[App] Updating group users:', payload.members)
             setUsers(currentUsers => {
               const newUsers = new Map(currentUsers)
+              console.log('[App] Current users before update:', Array.from(newUsers.keys()))
               // First, remove users who were in this group but are no longer members
               const memberIds = new Set(payload.members!.map(m => m.id))
               newUsers.forEach((user, id) => {
                 if (user.groupId === payload.groupId && !memberIds.has(id)) {
+                  console.log('[App] Removing user no longer in group:', id)
                   newUsers.delete(id)
                 }
               })
               // Then add/update the current members
               payload.members!.forEach(m => {
+                console.log('[App] Adding/updating user:', m.id, m.username)
                 newUsers.set(m.id, {
                   id: m.id,
                   name: m.username,
@@ -424,6 +428,7 @@ function App() {
                   groupId: payload.groupId
                 })
               })
+              console.log('[App] Users after update:', Array.from(newUsers.keys()))
               return newUsers
             })
           }
