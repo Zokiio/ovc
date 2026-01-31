@@ -8,6 +8,8 @@ interface VoiceActivityOptions {
   smoothingTimeConstant?: number
   minSpeechDuration?: number
   minSilenceDuration?: number
+  enableAudioCapture?: boolean  // Enable PCM capture for transmission
+  onAudioData?: (audioData: string) => void  // Callback for captured audio (base64)
 }
 
 interface VoiceActivityResult {
@@ -19,13 +21,37 @@ interface VoiceActivityResult {
   stopListening: () => void
 }
 
+/**
+ * Convert Float32 PCM samples to base64-encoded Int16 PCM
+ */
+function float32ToBase64(float32Array: Float32Array): string {
+  const int16Array = new Int16Array(float32Array.length)
+  
+  for (let i = 0; i < float32Array.length; i++) {
+    // Clamp and convert float [-1, 1] to int16 [-32768, 32767]
+    const s = Math.max(-1, Math.min(1, float32Array[i]))
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+  }
+  
+  // Convert Int16Array to binary string
+  const bytes = new Uint8Array(int16Array.buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  
+  return btoa(binary)
+}
+
 export function useVoiceActivity({
   enabled,
   audioSettings,
   threshold = 0.15,
   smoothingTimeConstant = 0.8,
   minSpeechDuration = 100,
-  minSilenceDuration = 300
+  minSilenceDuration = 300,
+  enableAudioCapture = false,
+  onAudioData
 }: VoiceActivityOptions): VoiceActivityResult {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
@@ -44,6 +70,20 @@ export function useVoiceActivity({
   const isInitializingRef = useRef(false)
   const lastLevelUpdateRef = useRef<number>(0)
   const lastReportedLevelRef = useRef<number>(0)
+  
+  // Audio capture refs
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null)
+  const isSpeakingRef = useRef(false)  // Non-reactive ref for use in processor callback
+  const onAudioDataRef = useRef(onAudioData)  // Keep callback ref updated
+  
+  // Update refs when props change
+  useEffect(() => {
+    onAudioDataRef.current = onAudioData
+  }, [onAudioData])
+  
+  useEffect(() => {
+    isSpeakingRef.current = isSpeaking
+  }, [isSpeaking])
 
   const stopListening = useCallback(() => {
     if (animationFrameRef.current) {
@@ -59,6 +99,12 @@ export function useVoiceActivity({
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current)
       silenceTimeoutRef.current = null
+    }
+
+    // Clean up script processor for audio capture
+    if (scriptProcessorRef.current) {
+      scriptProcessorRef.current.disconnect()
+      scriptProcessorRef.current = null
     }
 
     if (streamRef.current) {
@@ -120,6 +166,27 @@ export function useVoiceActivity({
       const microphone = audioContext.createMediaStreamSource(stream)
       microphoneRef.current = microphone
       microphone.connect(analyser)
+
+      // Set up audio capture for transmission if enabled
+      if (enableAudioCapture) {
+        // Use ScriptProcessorNode (deprecated but widely supported)
+        // Buffer size of 4096 samples at 48kHz = ~85ms per buffer
+        const scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1)
+        scriptProcessorRef.current = scriptProcessor
+        
+        scriptProcessor.onaudioprocess = (event) => {
+          // Only capture and send audio when speaking
+          if (isSpeakingRef.current && onAudioDataRef.current) {
+            const inputData = event.inputBuffer.getChannelData(0)
+            const audioData = float32ToBase64(inputData)
+            onAudioDataRef.current(audioData)
+          }
+        }
+        
+        // Connect: microphone → scriptProcessor → destination (silent output)
+        microphone.connect(scriptProcessor)
+        scriptProcessor.connect(audioContext.destination)
+      }
 
       setIsInitialized(true)
       isInitializingRef.current = false
@@ -228,6 +295,7 @@ export function useVoiceActivity({
     smoothingTimeConstant,
     minSpeechDuration,
     minSilenceDuration,
+    enableAudioCapture,
     stopListening
   ])
 

@@ -16,6 +16,7 @@ import { GroupSettingsDialog } from '@/components/GroupSettingsDialog'
 import { ConnectionView } from '@/components/ConnectionView'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { useAudioTransmission } from '@/hooks/use-audio-transmission'
 import { getSignalingClient } from '@/lib/signaling'
 import { getAudioPlaybackManager } from '@/lib/audio-playback'
 import icon from '@/assets/images/icon.png'
@@ -60,6 +61,12 @@ function App() {
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [activeTab, setActiveTab] = useState<'current-group' | 'groups' | 'all-users'>('groups')
+
+  // Audio transmission hook - captures and sends audio when speaking
+  const { onAudioData } = useAudioTransmission({
+    enabled: vadEnabled,
+    connected: connectionState.status === 'connected'
+  })
 
   // Flush batched updates at 10Hz (every 100ms)
   const flushUpdates = useCallback(() => {
@@ -622,6 +629,8 @@ function App() {
                 onDisconnect={handleDisconnect}
                 onAudioSettingsChange={handleAudioSettingsChange}
                 onSpeakingChange={handleSpeakingChange}
+                enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
+                onAudioData={onAudioData}
               />
 
               <Card>
@@ -833,6 +842,8 @@ function App() {
                 onDisconnect={handleDisconnect}
                 onAudioSettingsChange={handleAudioSettingsChange}
                 onSpeakingChange={handleSpeakingChange}
+                enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
+                onAudioData={onAudioData}
               />
             </div>
 

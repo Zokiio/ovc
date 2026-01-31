@@ -36,6 +36,8 @@ interface ConnectionViewProps {
   onDisconnect: () => void
   onAudioSettingsChange: (settings: AudioSettings) => void
   onSpeakingChange?: (isSpeaking: boolean) => void
+  enableAudioCapture?: boolean
+  onAudioData?: (audioData: string) => void
 }
 
 export function ConnectionView({
@@ -44,7 +46,9 @@ export function ConnectionView({
   onConnect,
   onDisconnect,
   onAudioSettingsChange,
-  onSpeakingChange
+  onSpeakingChange,
+  enableAudioCapture = false,
+  onAudioData
 }: ConnectionViewProps) {
   const [serverUrl, setServerUrl] = useState(connectionState.serverUrl)
   const [username, setUsername] = useState('')
@@ -503,7 +507,12 @@ export function ConnectionView({
               className="rotate-180"
             />
           </Button>
-          <VoiceActivityMonitor audioSettings={audioSettings} onSpeakingChange={onSpeakingChange} />
+          <VoiceActivityMonitor 
+            audioSettings={audioSettings} 
+            onSpeakingChange={onSpeakingChange}
+            enableAudioCapture={enableAudioCapture}
+            onAudioData={onAudioData}
+          />
         </div>
       )}
 

@@ -15,6 +15,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 interface VoiceActivityMonitorProps {
   audioSettings: AudioSettings
   onSpeakingChange?: (isSpeaking: boolean) => void
+  enableAudioCapture?: boolean
+  onAudioData?: (audioData: string) => void
 }
 
 type EnvironmentPreset = {
@@ -60,7 +62,7 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
   }
 ]
 
-export function VoiceActivityMonitor({ audioSettings, onSpeakingChange }: VoiceActivityMonitorProps) {
+export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAudioCapture = false, onAudioData }: VoiceActivityMonitorProps) {
   const [vadEnabled, setVadEnabled] = useState(true)
   const [vadSettings, setVadSettings] = useState<VADSettings>({
     threshold: 0.15,
@@ -89,7 +91,9 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange }: VoiceA
     threshold,
     minSpeechDuration,
     minSilenceDuration,
-    smoothingTimeConstant
+    smoothingTimeConstant,
+    enableAudioCapture,
+    onAudioData
   })
 
   // Notify parent of speaking status changes
@@ -180,7 +184,6 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange }: VoiceA
             </CardTitle>
             <CardDescription>Real-time speech monitoring for optimal voice transmission</CardDescription>
           </div>
-         
         </div>
       </CardHeader>
 
