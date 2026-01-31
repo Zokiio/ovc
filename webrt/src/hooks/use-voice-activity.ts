@@ -202,9 +202,16 @@ export function useVoiceActivity({
         // Start the port to receive messages (required for MessagePort)
         workletNode.port.start()
         
-        // Connect: microphone → workletNode
+        // Connect: microphone → workletNode → silentGain → destination
+        // The worklet MUST be connected to destination for process() to be called!
         microphone.connect(workletNode)
-        console.log('[VAD] Microphone connected to worklet')
+        
+        // Create a silent gain node to sink the audio (required for worklet to process)
+        const silentGain = audioContext.createGain()
+        silentGain.gain.value = 0 // Silent output
+        workletNode.connect(silentGain)
+        silentGain.connect(audioContext.destination)
+        console.log('[VAD] Microphone -> worklet -> destination connected')
         
         // Set initial active state
         console.log('[VAD] Setting initial active state:', enableAudioCaptureRef.current)
