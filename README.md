@@ -126,7 +126,45 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 
 ---
 
-## 📚 Documentation
+## ⚙️ Configuration
+
+The plugin uses **Hytale's standard configuration system** with fallback support for legacy JSON format.
+
+### Configuration File
+
+Place configuration in one of these locations:
+
+- **Hytale Standard**: `ovc.conf` in the same directory as the plugin JAR
+- **Custom path**: Specify with `-Dvoice.config.file=/path/to/ovc.conf`
+
+### Configuration Properties
+
+```hocon
+# WebSocket signaling server port (default: 24455)
+SignalingPort = 24455
+
+# Enable SSL (false for reverse proxy, true for direct SSL) (default: false)
+EnableSSL = false
+
+# SSL certificate path (PEM format) (default: /etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem)
+SSLCertPath = "/etc/letsencrypt/live/example.com/fullchain.pem"
+
+# SSL private key path (PEM format) (default: /etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem)
+SSLKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem"
+
+# Comma-separated list of allowed origins for WebSocket connections
+AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173"
+```
+
+### Configuration Priority
+
+1. Configuration file (`ovc.conf`)
+2. System properties (`-Dvoice.signaling.port=24455`)
+3. Default values (hardcoded)
+
+**📖 Full configuration guide:** [HYTALE_CONFIGURATION.md](HYTALE_CONFIGURATION.md)
+
+---
 
 - **Web Client**: See [`web-client/README.md`](web-client/README.md)
 - **Hytale Plugin**: See [`hytale-plugin/docs/`](hytale-plugin/docs/) directory for detailed guides:
