@@ -557,6 +557,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     case "list_groups":
                         handleListGroups(ctx, message);
                         break;
+                    case "list_players":
+                        handleListPlayers(ctx, message);
+                        break;
                     case "get_group_members":
                         handleGetGroupMembers(ctx, message);
                         break;
@@ -971,6 +974,33 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             JsonObject responseData = new JsonObject();
             responseData.add("groups", groupsArray);
             SignalingMessage response = new SignalingMessage("group_list", responseData);
+            sendMessage(ctx, response);
+        }
+
+        private void handleListPlayers(ChannelHandlerContext ctx, SignalingMessage message) {
+            // Return all connected web clients as players
+            com.google.gson.JsonArray playersArray = new com.google.gson.JsonArray();
+            
+            for (WebRTCClient client : clients.values()) {
+                if (client != null && client.isConnected()) {
+                    JsonObject playerObj = new JsonObject();
+                    playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
+                    playerObj.addProperty("username", client.getUsername());
+                    playerObj.addProperty("isSpeaking", client.isSpeaking());
+                    
+                    // Include group info if player is in a group
+                    UUID groupId = groupStateManager.getClientGroup(client.getClientId());
+                    if (groupId != null) {
+                        playerObj.addProperty("groupId", groupId.toString());
+                    }
+                    
+                    playersArray.add(playerObj);
+                }
+            }
+            
+            JsonObject responseData = new JsonObject();
+            responseData.add("players", playersArray);
+            SignalingMessage response = new SignalingMessage("player_list", responseData);
             sendMessage(ctx, response);
         }
 

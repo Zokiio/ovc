@@ -80,6 +80,9 @@ function App() {
     positions: Map<string, PlayerPosition & { username: string }>
     speaking: Map<string, boolean>
   }>({ positions: new Map(), speaking: new Map() })
+  
+  // Track speaking timeouts for clearing isSpeaking after audio stops
+  const speakingTimeoutsRef = useRef<Map<string, number>>(new Map())
   const flushTimeoutRef = useRef<number | null>(null)
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null)
   const [username, setUsername] = useState<string>('')
@@ -309,10 +312,29 @@ function App() {
       // Set up audio playback callback for incoming audio
       client.setAudioPlaybackCallback((userId: string, audioData: string) => {
         audioPlayback.current.playUserAudio(userId, audioData)
+        
+        // Mark user as speaking when receiving audio
+        updateQueueRef.current.speaking.set(userId, true)
+        scheduleFlush()
+        
+        // Clear any existing timeout for this user
+        const existingTimeout = speakingTimeoutsRef.current.get(userId)
+        if (existingTimeout) {
+          clearTimeout(existingTimeout)
+        }
+        
+        // Schedule timeout to mark user as not speaking after audio stops
+        const timeout = window.setTimeout(() => {
+          updateQueueRef.current.speaking.set(userId, false)
+          scheduleFlush()
+          speakingTimeoutsRef.current.delete(userId)
+        }, 400) // 400ms after last audio packet
+        speakingTimeoutsRef.current.set(userId, timeout)
       })
       
-      // Request group list
+      // Request group list and player list
       client.listGroups()
+      client.listPlayers()
       
       // Start ping for latency monitoring
       pingIntervalRef.current = setInterval(() => {
@@ -350,7 +372,7 @@ function App() {
         // but remove groups that are now empty
         setGroups(groupsList.filter(g => g.memberCount > 0))
 
-        // Populate users list from group members so "All Users" is always accurate
+        // Update group membership info for users (don't delete users not in groups)
         const membersFromGroups = groupsList.flatMap(group =>
           (group.members || []).map(member => ({ ...member, groupId: group.id }))
         )
@@ -358,10 +380,8 @@ function App() {
         if (membersFromGroups.length > 0) {
           setUsers(currentUsers => {
             const newUsers = new Map(currentUsers)
-            const memberIds = new Set<string>()
 
             membersFromGroups.forEach(member => {
-              memberIds.add(member.id)
               const existing = newUsers.get(member.id)
               newUsers.set(member.id, {
                 id: member.id,
@@ -374,16 +394,43 @@ function App() {
               })
             })
 
-            // Remove users that are no longer in any group list
-            newUsers.forEach((user, id) => {
-              if (!memberIds.has(id)) {
-                newUsers.delete(id)
-              }
-            })
-
             return newUsers
           })
         }
+      })
+      
+      // Handle player list (all connected players, independent of groups)
+      client.on('player_list', (data: unknown) => {
+        const payload = data as { players?: Array<{id: string, username: string, isSpeaking?: boolean, groupId?: string}> }
+        const players = payload.players || []
+        
+        setUsers(currentUsers => {
+          const newUsers = new Map(currentUsers)
+          const playerIds = new Set<string>()
+          
+          players.forEach(player => {
+            playerIds.add(player.id)
+            const existing = newUsers.get(player.id)
+            newUsers.set(player.id, {
+              id: player.id,
+              name: player.username,
+              groupId: player.groupId,
+              isSpeaking: player.isSpeaking ?? existing?.isSpeaking ?? false,
+              isMuted: existing?.isMuted ?? false,
+              volume: existing?.volume ?? 100,
+              position: existing?.position
+            })
+          })
+          
+          // Remove users that are no longer connected
+          newUsers.forEach((_, id) => {
+            if (!playerIds.has(id)) {
+              newUsers.delete(id)
+            }
+          })
+          
+          return newUsers
+        })
       })
 
       client.on('group_created', (data: unknown) => {

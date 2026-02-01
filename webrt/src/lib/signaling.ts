@@ -28,6 +28,7 @@ export class SignalingClient {
     this.onMessage('group_list', (data) => this.handleGroupList(data))
     this.onMessage('group_members_updated', (data) => this.handleGroupMembersUpdated(data))
     this.onMessage('user_speaking_status', (data) => this.handleUserSpeakingStatus(data))
+    this.onMessage('player_list', (data) => this.handlePlayerList(data))
     this.onMessage('auth_success', (data) => this.handleAuthSuccess(data))
     this.onMessage('pong', (data) => this.handlePong(data))
     this.onMessage('audio', (data) => this.handleAudio(data))
@@ -177,6 +178,10 @@ export class SignalingClient {
     this.emit('user_speaking_status', data)
   }
 
+  private handlePlayerList(data: Record<string, unknown>): void {
+    this.emit('player_list', data)
+  }
+
   private handlePong(data: Record<string, unknown>): void {
     const timestamp = Number(data.timestamp || 0)
     const latency = Date.now() - timestamp
@@ -248,6 +253,16 @@ export class SignalingClient {
   public listGroups(): void {
     this.send({
       type: 'list_groups',
+      data: {},
+    })
+  }
+
+  /**
+   * List all connected players
+   */
+  public listPlayers(): void {
+    this.send({
+      type: 'list_players',
       data: {},
     })
   }
