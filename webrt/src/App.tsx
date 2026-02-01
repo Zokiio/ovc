@@ -1063,7 +1063,7 @@ function App() {
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Use the sidebar to connect →
+                    ← Use the sidebar to connect
                   </p>
                 </div>
               ) : (
