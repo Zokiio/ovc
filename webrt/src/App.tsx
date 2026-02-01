@@ -716,13 +716,25 @@ function App() {
     </div>
   )
 
+  // Derive ConnectionView props once to maintain stable reference across layout changes
+  const connectionViewProps = {
+    connectionState: connectionState || { status: 'disconnected', serverUrl: '' },
+    audioSettings,
+    onConnect: handleConnect,
+    onDisconnect: handleDisconnect,
+    onAudioSettingsChange: handleAudioSettingsChange,
+    onSpeakingChange: isMuted ? undefined : handleSpeakingChange,
+    enableAudioCapture: !isMuted && connectionState.status === 'connected',
+    onAudioData,
+  };
+
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans selection:bg-accent/30">
       <Toaster />
       
       {isMobile ? (
         /* --- MOBILE LAYOUT --- */
-        <div className="flex flex-col h-screen w-full min-w-0 overflow-hidden">
+        <div key="layout" className="flex flex-col h-screen w-full min-w-0 overflow-hidden">
           {/* Mobile Header */}
           <header className="h-14 border-b border-border bg-card/80 backdrop-blur flex items-center justify-between px-4 shrink-0 w-full min-w-0">
             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -761,35 +773,27 @@ function App() {
 
           {/* Mobile Content */}
           <div className="flex-1 overflow-y-auto overflow-x-hidden px-1 py-4 space-y-3 min-w-0 w-full">
-            {audioMenuOpen && (
-              <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm">
-                <div className="absolute inset-x-0 top-0 bottom-0 bg-card border-b border-border">
-                  <div className="h-14 border-b border-border flex items-center justify-between px-3">
-                    <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Audio Settings</h2>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setAudioMenuOpen(false)}
-                      className="h-6 px-2 text-[9px]"
-                    >
-                      Close
-                    </Button>
-                  </div>
-                  <div className="absolute inset-x-0 top-14 bottom-0 overflow-y-auto px-3 py-3">
-                    <ConnectionView
-                      connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
-                      audioSettings={audioSettings}
-                      onConnect={handleConnect}
-                      onDisconnect={handleDisconnect}
-                      onAudioSettingsChange={handleAudioSettingsChange}
-                      onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
-                      enableAudioCapture={!isMuted && connectionState.status === 'connected'}
-                      onAudioData={onAudioData}
-                    />
-                  </div>
+            {/* Audio Settings Menu - Fixed overlay, visibility controlled by audioMenuOpen */}
+            <div className={`fixed inset-0 z-40 transition-all ${audioMenuOpen ? 'visible opacity-100' : 'invisible opacity-0 pointer-events-none'}`}>
+              <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={() => setAudioMenuOpen(false)} />
+              <div className="absolute inset-x-0 top-0 bottom-0 bg-card border-b border-border">
+                <div className="h-14 border-b border-border flex items-center justify-between px-3">
+                  <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Audio Settings</h2>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAudioMenuOpen(false)}
+                    className="h-6 px-2 text-[9px]"
+                  >
+                    Close
+                  </Button>
+                </div>
+                <div className="absolute inset-x-0 top-14 bottom-0 overflow-y-auto px-3 py-3">
+                  {/* ConnectionView stays mounted - audio never stops */}
+                  <ConnectionView {...connectionViewProps} />
                 </div>
               </div>
-            )}
+            </div>
 
             {/* Tabs Navigation */}
             <div className="bg-card border border-border rounded-lg overflow-hidden w-full">
@@ -946,8 +950,8 @@ function App() {
           </div>
         </div>
       ) : (
-        /* --- DESKTOP LAYOUT (VOX_COMM Style) --- */
-        <div className="flex h-screen w-full">
+        /* --- DESKTOP LAYOUT --- */
+        <div key="layout" className="flex h-screen w-full">
           {/* --- SIDEBAR --- */}
           <aside className="hidden lg:flex flex-col w-96 bg-card border-r border-border p-5 space-y-6 overflow-y-auto">
             {/* Logo */}
@@ -967,16 +971,7 @@ function App() {
                 )}
               </div>
 
-              <ConnectionView
-                connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
-                audioSettings={audioSettings}
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
-                onAudioSettingsChange={handleAudioSettingsChange}
-                onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
-                enableAudioCapture={!isMuted && connectionState.status === 'connected'}
-                onAudioData={onAudioData}
-              />
+              <ConnectionView {...connectionViewProps} />
             </div>
 
             {/* Microphone Mute Toggle */}
@@ -1274,6 +1269,4 @@ function App() {
       />
     </div>
   )
-}
-
-export default App
+}export default App
