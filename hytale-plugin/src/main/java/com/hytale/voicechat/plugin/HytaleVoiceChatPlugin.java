@@ -41,7 +41,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private PlayerEventListener eventListener;
     private GroupManager groupManager;
     private AuthCodeStore authCodeStore;
-    private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
+    private double proximityDistance = NetworkConfig.getDefaultProximityDistance();
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);

@@ -12,7 +12,7 @@ public class GroupSettings {
 
     // Default values
     public static final int DEFAULT_VOLUME = 100;
-    public static final double DEFAULT_PROXIMITY_RANGE = 30.0;
+    public static final double DEFAULT_PROXIMITY_RANGE = com.hytale.voicechat.common.network.NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
     public static final boolean DEFAULT_ALLOW_INVITES = true;
     public static final int DEFAULT_MAX_MEMBERS = 50;
 

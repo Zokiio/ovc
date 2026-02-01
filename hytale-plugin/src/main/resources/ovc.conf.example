@@ -32,15 +32,18 @@ AllowedOrigins = "https://hytale.techynoodle.com,https://voice.techynoodle.com,h
 # Default proximity range for voice chat (in blocks/meters)
 # This is the maximum hearing distance when a player is NOT in a group
 # Groups can have their own proximity range configured separately
+# Audio at full volume up to 70% of this range, then fades to silence
+# Example: At 50.0, full volume 0-35m, fades 35-50m (controlled by PROXIMITY_FADE_START_RATIO)
 # Range: 5.0 - 100.0
-# Default: 30.0
-DefaultProximityRange = 30.0
+# Default: 50.0
+DefaultProximityRange = 50.0
 
 # Distance where volume fade begins (in blocks/meters)
-# Audio at full volume up to this distance, then fades to silence at DefaultProximityRange
-# Should be less than DefaultProximityRange
-# Default: 20.0
-ProximityFadeStart = 20.0
+# NOTE: This is now calculated automatically as 70% of DefaultProximityRange (PROXIMITY_FADE_START_RATIO)
+# This setting is kept for backward compatibility but will be overridden in code
+# The fade ratio ensures consistent behavior across all proximity settings
+# Default: 35.0 (70% of 50.0)
+ProximityFadeStart = 35.0
 
 # Volume rolloff factor - controls how quickly volume decreases with distance
 # 1.0 = linear decrease (gradual fade)
@@ -66,21 +69,25 @@ VolumeProcessingMode = "server"
 
 # Group voice is global: group members can always hear each other regardless of distance
 # When true: Group members hear each other across any distance
+#            - Within proximity range: spatial audio with volume scaling (minimum volume floor)
+#            - Outside proximity range: full volume (always audible)
 # When false: Group members only hear each other within the group's proximity range
-# Spatial volume is still applied (closer = louder) when GroupSpatialAudio is enabled
 # Default: true
 GroupGlobalVoice = true
 
 # Apply spatial volume to group voice: volume scales with distance even for groups
-# When true: Group members further away sound quieter (realistic spatial audio)
+# When true AND within proximity range: Group members further away sound quieter (realistic spatial audio)
+#          Volume never drops below GroupMinVolume to keep group members audible
+# When true AND outside proximity range: Full volume (global voice)
 # When false: Group members are always at full volume regardless of distance
 # Only applies when GroupGlobalVoice is true
 # Default: true
 GroupSpatialAudio = true
 
-# Minimum volume for global group voice (when GroupSpatialAudio is enabled)
-# Even at maximum distance, group members won't go below this volume level
-# This ensures group members are always audible regardless of distance
+# Minimum volume for group voice within proximity range (when GroupSpatialAudio is enabled)
+# Prevents group members from fading to silence within the proximity range
+# This ensures group members are always clearly audible even at max proximity distance
+# Outside proximity range, full volume is used (global voice)
 # Range: 0.0 (silent) to 1.0 (full volume)
-# Default: 0.1 (10% volume)
-GroupMinVolume = 0.1
+# Default: 0.3 (30% volume minimum within proximity, full volume outside proximity)
+GroupMinVolume = 0.3

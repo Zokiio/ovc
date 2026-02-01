@@ -220,11 +220,16 @@ public class WebRTCAudioBridge {
             if (isGlobalVoice) {
                 // Global voice: always send to all group members
                 if (isSpatialAudio) {
-                    // Apply spatial volume based on distance
-                    // Use max voice distance for scaling so volume fades over longer distance
-                    double maxRange = NetworkConfig.getMaxVoiceDistance();
-                    logger.atFine().log("Sending audio to group member (global+spatial): " + client.getUsername() + " (distance: " + distance + ")");
-                    routeAudioToWebRTCWithMinVolume(senderId, client.getClientId(), audioData, distance, maxRange);
+                    // Within proximity range: apply spatial volume with minimum floor
+                    // Outside proximity range: use full volume (global voice)
+                    if (distance <= proximityRange) {
+                        logger.atFine().log("Sending audio to group member (proximity+spatial): " + client.getUsername() + " (distance: " + distance + ")");
+                        routeAudioToWebRTCWithMinVolume(senderId, client.getClientId(), audioData, distance, proximityRange);
+                    } else {
+                        // Outside proximity: full volume for global group voice
+                        logger.atFine().log("Sending audio to group member (global): " + client.getUsername() + " (distance: " + distance + ")");
+                        routeAudioToWebRTCFullVolume(senderId, client.getClientId(), audioData);
+                    }
                 } else {
                     // Full volume, no spatial audio
                     logger.atFine().log("Sending audio to group member (global): " + client.getUsername() + " (distance: " + distance + ")");
@@ -370,14 +375,20 @@ public class WebRTCAudioBridge {
     
     /**
      * Calculate volume multiplier based on distance
+     * Scales proportionally with maxRange parameter to ensure consistent behavior
+     * regardless of proximity settings (30m, 50m, 100m, etc.)
      * 
      * @param distance Current distance to the listener
      * @param maxRange Maximum hearing range
      * @return Volume multiplier between 0.0 and 1.0
      */
     private double calculateVolumeMultiplier(double distance, double maxRange) {
+        // Scale fade start proportionally to max range using configured ratio
+        // Default: 0.7 means fade starts at 70% of max range (e.g., 35m for 50m range)
+        double scaledFadeStart = maxRange * NetworkConfig.PROXIMITY_FADE_START_RATIO;
+        
         // Within fade start distance = full volume
-        if (distance <= fadeStartDistance) {
+        if (distance <= scaledFadeStart) {
             return 1.0;
         }
         
@@ -386,17 +397,17 @@ public class WebRTCAudioBridge {
             return 0.0;
         }
         
-        // Calculate fade zone (from fadeStartDistance to maxRange)
-        double fadeZone = maxRange - fadeStartDistance;
-        double positionInFadeZone = distance - fadeStartDistance;
+        // Calculate fade zone (from scaledFadeStart to maxRange)
+        double fadeZone = maxRange - scaledFadeStart;
+        double positionInFadeZone = distance - scaledFadeStart;
         
         // Normalized position in fade zone (0.0 at start, 1.0 at end)
         double normalizedPosition = positionInFadeZone / fadeZone;
         
-        // Apply rolloff curve
-        // rolloffFactor = 1.0 -> linear
+        // Apply rolloff curve (use instance variable for consistency)
+        // rolloffFactor = 1.0 -> linear fade
+        // rolloffFactor = 1.5 -> moderate curve (default)
         // rolloffFactor = 2.0 -> quadratic (faster falloff)
-        // rolloffFactor = 0.5 -> square root (slower falloff)
         double volumeMultiplier = 1.0 - Math.pow(normalizedPosition, rolloffFactor);
         
         // Clamp to valid range

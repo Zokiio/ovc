@@ -5,7 +5,40 @@ package com.hytale.voicechat.common.network;
  * Values can be set via Hytale config system or legacy VoiceConfig fallback
  */
 public class NetworkConfig {
-    // Signaling server port (configurable)
+    // ============================================================================
+    // CONSTANTS - Default/fallback values and limits (defined first)
+    // These are public static final and cannot be changed at runtime
+    // ============================================================================
+    
+    // Audio processing constants
+    public static final int DEFAULT_SAMPLE_RATE = 48000;
+    public static final int FRAME_DURATION_MS = 20;
+    public static final int FRAME_SIZE = 960; // 20ms at 48kHz
+    public static final int[] SUPPORTED_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000};
+    public static final int MAX_PACKET_SIZE = 1024;
+    
+    // Voice chat proximity defaults
+    public static final double DEFAULT_PROXIMITY_DISTANCE = 50.0;
+    public static final double PROXIMITY_FADE_START = 35.0;        // 70% of default proximity
+    public static final double PROXIMITY_ROLLOFF_FACTOR = 1.5;
+    public static final double PROXIMITY_FADE_START_RATIO = 0.7;   // Fade starts at 70% of max range
+    public static final double MAX_VOICE_DISTANCE = 100.0;
+    
+    // Group management limits
+    public static final int MAX_GROUP_NAME_LENGTH = 32;
+    public static final int MAX_GROUP_MEMBER_COUNT = 200;
+    public static final int MAX_GROUP_COUNT = 100;
+    
+    // Group behavior defaults
+    public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
+    public static final double DEFAULT_GROUP_MIN_VOLUME = 0.3;  // 30% minimum volume within proximity
+    
+    // ============================================================================
+    // CONFIGURABLE RUNTIME VALUES (initialized from constants above)
+    // These can be overridden by config files
+    // ============================================================================
+    
+    // Signaling server configuration
     private static int signalingPort = 24455;
     
     // SSL/TLS configuration
@@ -16,19 +49,19 @@ public class NetworkConfig {
     // CORS allowed origins
     private static String allowedOrigins = "https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173";
     
-    // Voice chat proximity settings (in blocks) - configurable
-    private static double defaultProximityDistance = 50.0;  // Max hearing distance when not in a group
-    private static double proximityFadeStart = 30.0;        // Distance where volume fade begins
-    private static double proximityRolloffFactor = 1.5;     // Volume decrease rate (1.0=linear, 2.0=quadratic)
-    private static double maxVoiceDistance = 100.0;         // Absolute max voice transmission distance
+    // Voice chat proximity settings - initialized from constants
+    private static double defaultProximityDistance = DEFAULT_PROXIMITY_DISTANCE;
+    private static double proximityFadeStart = PROXIMITY_FADE_START;
+    private static double proximityRolloffFactor = PROXIMITY_ROLLOFF_FACTOR;
+    private static double maxVoiceDistance = MAX_VOICE_DISTANCE;
     
     // Volume processing mode: "server", "client", or "both"
     private static String volumeProcessingMode = "server";
     
-    // Group voice settings
-    private static boolean groupGlobalVoice = true;    // Groups can hear each other globally
-    private static boolean groupSpatialAudio = true;   // Apply spatial volume to groups
-    private static double groupMinVolume = 0.1;        // Minimum volume for global groups (10%)
+    // Group voice settings - initialized from constants
+    private static boolean groupGlobalVoice = true;
+    private static boolean groupSpatialAudio = true;
+    private static double groupMinVolume = DEFAULT_GROUP_MIN_VOLUME;
     
     // Legacy fallback to custom VoiceConfig for backward compatibility
     static {
@@ -66,26 +99,6 @@ public class NetworkConfig {
             System.err.println("[NetworkConfig] Failed to load VoiceConfig: " + e.getMessage());
         }
     }
-    
-    public static final int DEFAULT_SAMPLE_RATE = 48000;
-    public static final int FRAME_DURATION_MS = 20;
-    public static final int FRAME_SIZE = 960; // 20ms at 48kHz
-    public static final int[] SUPPORTED_SAMPLE_RATES = {8000, 12000, 16000, 24000, 48000};
-    public static final int MAX_PACKET_SIZE = 1024;
-    
-    // Voice chat proximity settings (in blocks) - constants for reference
-    public static final double DEFAULT_PROXIMITY_DISTANCE = 30.0;  // Fallback if config not loaded
-    public static final double PROXIMITY_FADE_START = 20.0;        // Distance where volume fade begins
-    public static final double PROXIMITY_ROLLOFF_FACTOR = 1.5;     // Volume decrease rate (1.0=linear, 2.0=quadratic)
-    public static final double MAX_VOICE_DISTANCE = 100.0;
-    
-    // Group management limits
-    public static final int MAX_GROUP_NAME_LENGTH = 32;
-    public static final int MAX_GROUP_MEMBER_COUNT = 200;
-    public static final int MAX_GROUP_COUNT = 100;
-    
-    // Group isolation mode default
-    public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
 
     private NetworkConfig() {
         // Utility class
