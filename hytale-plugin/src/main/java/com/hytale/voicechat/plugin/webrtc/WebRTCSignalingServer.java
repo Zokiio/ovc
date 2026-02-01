@@ -962,7 +962,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
                 
                 // Include members list
-                com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients);
+                com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
                 groupObj.add("members", membersArray);
                 
                 groupsArray.add(groupObj);
@@ -991,7 +991,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 return;
             }
 
-            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients);
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
             
             JsonObject responseData = new JsonObject();
             responseData.add("members", membersArray);
@@ -1043,7 +1043,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 return;
             }
 
-            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients);
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
             JsonObject broadcastData = new JsonObject();
             broadcastData.addProperty("groupId", groupId.toString());
             broadcastData.addProperty("groupName", group.getName());

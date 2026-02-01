@@ -148,14 +148,20 @@ public class GroupStateManager {
 
     /**
      * Get member list for a group as JSON array (for group_members_updated message)
+     * @param groupId The group ID
+     * @param allClients Map of all clients (unused but kept for API compatibility)
+     * @param clientIdMapper Optional mapper to obfuscate client IDs (if null, uses raw UUIDs)
      */
-    public JsonArray getGroupMembersJson(UUID groupId, Map<UUID, WebRTCClient> allClients) {
+    public JsonArray getGroupMembersJson(UUID groupId, Map<UUID, WebRTCClient> allClients, ClientIdMapper clientIdMapper) {
         JsonArray members = new JsonArray();
         List<WebRTCClient> groupClients = getGroupClients(groupId);
         
         for (WebRTCClient client : groupClients) {
             JsonObject memberObj = new JsonObject();
-            memberObj.addProperty("id", client.getClientId().toString());
+            String id = clientIdMapper != null 
+                ? clientIdMapper.getObfuscatedId(client.getClientId())
+                : client.getClientId().toString();
+            memberObj.addProperty("id", id);
             memberObj.addProperty("username", client.getUsername());
             memberObj.addProperty("isSpeaking", client.isSpeaking());
             memberObj.addProperty("isMuted", client.isMuted());
@@ -165,6 +171,15 @@ public class GroupStateManager {
         }
         
         return members;
+    }
+    
+    /**
+     * Get member list for a group as JSON array (for group_members_updated message)
+     * @deprecated Use {@link #getGroupMembersJson(UUID, Map, ClientIdMapper)} instead
+     */
+    @Deprecated
+    public JsonArray getGroupMembersJson(UUID groupId, Map<UUID, WebRTCClient> allClients) {
+        return getGroupMembersJson(groupId, allClients, null);
     }
 
     /**
