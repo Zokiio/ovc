@@ -717,21 +717,20 @@ function App() {
   )
 
   return (
-    <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans selection:bg-accent/30">
+    <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans selection:bg-accent/30">
       <Toaster />
       
       {isMobile ? (
         /* --- MOBILE LAYOUT --- */
-        <div className="flex flex-col h-screen w-full">
+        <div className="flex flex-col h-screen w-full min-w-0 overflow-hidden">
           {/* Mobile Header */}
-          <header className="h-14 border-b border-border bg-card/80 backdrop-blur flex items-center justify-between px-4 shrink-0">
-            <div className="flex items-center gap-2">
-              <img src={icon} alt="OVC" className="h-6 w-6 shadow-accent/20" />
-              <h1 className="text-base font-black tracking-tighter italic">OVC</h1>
+          <header className="h-14 border-b border-border bg-card/80 backdrop-blur flex items-center justify-between px-4 shrink-0 w-full min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <img src={icon} alt="OVC" className="h-6 w-6 shadow-accent/20 shrink-0" />
+              <h1 className="text-base font-black tracking-tighter italic truncate">OVC</h1>
             </div>
-            <div className="flex items-center gap-2">
-              {connectionState.status === 'connected' && (
-                <div className="flex items-center gap-1.5 text-[10px] text-green-400 status-live font-bold">
+            <div className="flex items-center gap-2 shrink-0">{connectionState.status === 'connected' && (
+                <div className="flex items-center gap-1.5 text-[10px] text-green-400 status-live font-bold whitespace-nowrap">
                   <div className="w-1.5 h-1.5 rounded-full bg-green-400" /> LIVE
                 </div>
               )}
@@ -761,7 +760,7 @@ function App() {
           </header>
 
           {/* Mobile Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 min-w-0">
             {audioMenuOpen && (
               <div className="bg-card border border-border rounded-xl p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -1040,12 +1039,12 @@ function App() {
                 ))}
               </div>
 
-              <div className="relative w-48 sm:w-64">
+              <div className="relative w-full max-w-[16rem] sm:max-w-xs">
                 <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
                 <Input 
                   type="text" 
                   placeholder="Search users..." 
-                  className="bg-card border-border rounded-full pl-10 pr-4 py-1.5 text-xs focus:ring-1 ring-accent"
+                  className="bg-card border-border rounded-full pl-10 pr-4 py-1.5 text-xs focus:ring-1 ring-accent w-full"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                 />
