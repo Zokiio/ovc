@@ -90,6 +90,7 @@ function App() {
   })
   const [isMuted, setIsMuted] = useState<boolean>(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const currentUserIdRef = useRef<string | null>(null)
   
   const [searchQuery, setSearchQuery] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -325,6 +326,7 @@ function App() {
         const payload = data as { clientId?: string }
         if (payload.clientId) {
           setCurrentUserId(payload.clientId)
+          currentUserIdRef.current = payload.clientId
         }
         toast.success('Connected to server')
       })
@@ -406,7 +408,7 @@ function App() {
             return [...(currentGroups || []), newGroup]
           })
           // Auto-join only if this client is the creator
-          if (payload.creatorClientId === currentUserId) {
+          if (payload.creatorClientId === currentUserIdRef.current) {
             // Actually join the group on the server
             client.joinGroup(payload.groupId)
             toast.success(`Group "${payload.groupName}" created`)
@@ -590,6 +592,7 @@ function App() {
     }))
     setCurrentGroupId(null)
     setCurrentUserId(null)
+    currentUserIdRef.current = null
     setUsers(new Map())
     setGroups([])
     // Clear any pending flush
