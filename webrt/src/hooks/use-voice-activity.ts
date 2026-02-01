@@ -195,15 +195,17 @@ export function useVoiceActivity({
         // Start the port to receive messages (required for MessagePort)
         workletNode.port.start()
         
-        // Connect: microphone → workletNode → silentGain → destination
-        // The worklet MUST be connected to destination for process() to be called!
+        // Connect: microphone → workletNode → silentGain → MediaStreamDestination
+        // The worklet MUST be connected to a destination for process() to be called,
+        // but we avoid routing to speakers to prevent OS audio ducking.
         microphone.connect(workletNode)
         
         // Create a silent gain node to sink the audio (required for worklet to process)
         const silentGain = audioContext.createGain()
         silentGain.gain.value = 0 // Silent output
         workletNode.connect(silentGain)
-        silentGain.connect(audioContext.destination)
+        const sink = audioContext.createMediaStreamDestination()
+        silentGain.connect(sink)
         
         // Set initial active state
         workletNode.port.postMessage({ type: 'active', value: enableAudioCaptureRef.current })
