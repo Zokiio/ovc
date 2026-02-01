@@ -407,8 +407,8 @@ function App() {
           })
           // Auto-join only if this client is the creator
           if (payload.creatorClientId === currentUserId) {
-            setCurrentGroupId(payload.groupId)
-            setActiveTab('current-group') // Auto-switch to the group tab
+            // Actually join the group on the server
+            client.joinGroup(payload.groupId)
             toast.success(`Group "${payload.groupName}" created`)
           }
         }

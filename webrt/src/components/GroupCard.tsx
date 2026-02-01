@@ -102,7 +102,7 @@ export function GroupCard({ group, isJoined, onJoin, onLeave, onSettings }: Grou
               onClick={() => onJoin(group.id)}
               disabled={isFull}
             >
-              {isFull ? 'Squad Maxed' : 'Sync Frequency'}
+              {isFull ? 'Squad Maxed' : 'Join'}
             </Button>
           )}
         </div>
