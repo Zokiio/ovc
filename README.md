@@ -128,7 +128,7 @@ See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed in
 
 ## ⚙️ Configuration
 
-The plugin uses **Hytale's standard configuration system** with fallback support for legacy JSON format.
+The plugin uses **Hytale's standard configuration system** with HOCON-style `ovc.conf` format.
 
 ### Configuration File
 

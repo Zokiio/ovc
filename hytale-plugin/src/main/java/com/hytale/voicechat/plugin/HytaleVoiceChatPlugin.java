@@ -65,8 +65,8 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         
         try {
             // Voice configuration is loaded automatically via VoiceConfig static initialization
-            // Config file: voice-chat.json (or path specified by -Dvoice.config.file)
-            logger.atInfo().log("Voice Chat Configuration loaded from: voice-chat.json or system properties");
+            // Config file: ovc.conf (or path specified by -Dvoice.config.file)
+            logger.atInfo().log("Voice Chat Configuration loaded from: ovc.conf or system properties");
             
             // Get data directory for persistent storage
             Path dataDir = Path.of("plugins", "voicechat");

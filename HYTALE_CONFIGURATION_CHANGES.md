@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Hytale Voice Chat plugin now follows **Hytale's standard configuration system** with full backward compatibility for legacy JSON format.
+The Hytale Voice Chat plugin now follows **Hytale's standard configuration system** using HOCON-style `ovc.conf` format.
 
 ## Changes Made
 
@@ -30,13 +30,13 @@ public static void updateFromHytaleConfig(...)
 
 ### 2. VoiceConfig.java (common/config/)
 
-**Unchanged** - Still supports:
-- JSON file format (`voice-chat.json`)
+**Changed** - Now supports HOCON-style `ovc.conf` format:
+- HOCON file format (`ovc.conf`)
 - System properties fallback (`-Dvoice.property=value`)
 - Default hardcoded values
-- Custom config file path via `-Dvoice.config.file=/path/to/config.json`
+- Custom config file path via `-Dvoice.config.file=/path/to/ovc.conf`
 
-This maintains backward compatibility while we wait for Hytale's Config API to stabilize.
+JSON format (`voice-chat.json`) is no longer supported.
 
 ### 3. WebRTCSignalingServer.java (plugin/webrtc/)
 
@@ -72,7 +72,7 @@ protected void setup() {
     
     try {
         // Configuration loaded automatically via VoiceConfig static init
-        logger.atInfo().log("Voice Chat Configuration loaded from: voice-chat.json or system properties");
+        logger.atInfo().log("Voice Chat Configuration loaded from: ovc.conf or system properties");
         
         // Data directory setup
         Path dataDir = Path.of("plugins", "voicechat");
@@ -98,7 +98,7 @@ protected void setup() {
 
 **HYTALE_CONFIGURATION.md** (new file)
 - Comprehensive configuration guide
-- Examples in both HOCON and JSON formats
+- Examples in HOCON format
 - Troubleshooting section
 - Environment-specific configurations
 
@@ -130,14 +130,14 @@ AllowedOrigins = "https://example.com,https://voice.example.com"
 
 ### For Existing Deployments
 
-No action required - existing `voice-chat.json` files continue to work.
+**Note**: JSON format is no longer supported. Migrate to `ovc.conf` format.
 
-### To Migrate to Hytale Standard
+### To Migrate to ovc.conf
 
 1. Copy `ovc.conf.example` to `ovc.conf`
-2. Edit values to match your current `voice-chat.json`
+2. Edit values to match your current configuration
 3. Test with `ovc.conf`
-4. Remove `voice-chat.json` once verified
+4. Remove old configuration files once verified
 
 ## Build Status
 
@@ -152,10 +152,10 @@ No action required - existing `voice-chat.json` files continue to work.
 
 - [x] Code compiles without errors
 - [x] NetworkConfig getters work correctly
-- [x] VoiceConfig still loads JSON files
+- [x] VoiceConfig loads HOCON files
 - [x] WebRTCSignalingServer uses new getter methods
 - [x] Plugin setup initializes configuration
-- [x] Both HOCON and JSON formats documented
+- [x] HOCON format documented
 
 ## Future Roadmap
 
