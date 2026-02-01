@@ -29,6 +29,13 @@ class AnimationTicker {
     return id
   }
 
+  updateInterval(id: number, interval: number): void {
+    const subscription = this.subscribers.get(id)
+    if (subscription) {
+      subscription.interval = interval
+    }
+  }
+
   unsubscribe(id: number): void {
     this.subscribers.delete(id)
 
@@ -57,7 +64,7 @@ class AnimationTicker {
       const timeSinceLastCall = time - subscription.lastCallTime
 
       if (timeSinceLastCall >= subscription.interval) {
-        subscription.callback(time, deltaTime)
+        subscription.callback(time, timeSinceLastCall)
         subscription.lastCallTime = time
       }
     })
@@ -79,11 +86,19 @@ export function useAnimationTicker(
   interval: number = 0
 ): void {
   const callbackRef = useRef(callback)
+  const subscriptionIdRef = useRef<number | null>(null)
 
   // Keep callback ref up to date
   useEffect(() => {
     callbackRef.current = callback
   }, [callback])
+
+  // Update interval when it changes
+  useEffect(() => {
+    if (subscriptionIdRef.current !== null) {
+      globalTicker.updateInterval(subscriptionIdRef.current, interval)
+    }
+  }, [interval])
 
   useEffect(() => {
     // Create a stable wrapper that always calls the latest callback
@@ -92,9 +107,12 @@ export function useAnimationTicker(
     }
 
     const subscriptionId = globalTicker.subscribe(wrappedCallback, interval)
+    subscriptionIdRef.current = subscriptionId
 
     return () => {
       globalTicker.unsubscribe(subscriptionId)
+      subscriptionIdRef.current = null
     }
-  }, [interval])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 }
