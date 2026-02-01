@@ -17,8 +17,8 @@ public class NetworkConfig {
     private static String allowedOrigins = "https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173";
     
     // Voice chat proximity settings (in blocks) - configurable
-    private static double defaultProximityDistance = 30.0;  // Max hearing distance when not in a group
-    private static double proximityFadeStart = 20.0;        // Distance where volume fade begins
+    private static double defaultProximityDistance = 50.0;  // Max hearing distance when not in a group
+    private static double proximityFadeStart = 30.0;        // Distance where volume fade begins
     private static double proximityRolloffFactor = 1.5;     // Volume decrease rate (1.0=linear, 2.0=quadratic)
     private static double maxVoiceDistance = 100.0;         // Absolute max voice transmission distance
     
