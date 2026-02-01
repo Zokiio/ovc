@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { WaveformIcon, XCircleIcon, SunDimIcon, BuildingsIcon, WindIcon, LightningIcon, MicrophoneStageIcon, InfoIcon } from '@phosphor-icons/react'
+import { WaveformIcon, XCircleIcon, SunDimIcon, BuildingsIcon, WindIcon, LightningIcon, MicrophoneStageIcon, InfoIcon, ChartBarIcon } from '@phosphor-icons/react'
 import { AudioSettings, VADSettings } from '@/lib/types'
 import { useVoiceActivity } from '@/hooks/use-voice-activity'
 import { cn } from '@/lib/utils'
@@ -38,6 +36,9 @@ interface VoiceActivityMonitorProps {
   onSpeakingChange?: (isSpeaking: boolean) => void
   enableAudioCapture?: boolean
   onAudioData?: (audioData: string) => void
+  variant?: 'full' | 'compact'
+  enabled?: boolean
+  onEnabledChange?: (enabled: boolean) => void
 }
 
 type EnvironmentPreset = {
@@ -83,8 +84,16 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
   }
 ]
 
-export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAudioCapture = false, onAudioData }: VoiceActivityMonitorProps) {
-  const [vadEnabled, setVadEnabled] = useState(true)
+export function VoiceActivityMonitor({
+  audioSettings,
+  onSpeakingChange,
+  enableAudioCapture = false,
+  onAudioData,
+  variant = 'full',
+  enabled,
+  onEnabledChange
+}: VoiceActivityMonitorProps) {
+  const [vadEnabled, setVadEnabled] = useState(enabled ?? true)
   const [vadSettings, setVadSettings] = useState<VADSettings>(() => loadVADSettings())
   
   const [threshold, setThreshold] = useState(vadSettings.threshold)
@@ -97,6 +106,8 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
   const thresholdIndicatorRef = useRef<HTMLDivElement>(null)
   const levelTextRef = useRef<HTMLSpanElement>(null)
 
+  const effectiveEnabled = enabled ?? vadEnabled
+
   const {
     isSpeaking,
     audioLevelRef,
@@ -105,7 +116,7 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
     startListening,
     stopListening
   } = useVoiceActivity({
-    enabled: vadEnabled,
+    enabled: effectiveEnabled,
     audioSettings,
     threshold,
     minSpeechDuration,
@@ -114,6 +125,12 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
     enableAudioCapture,
     onAudioData
   })
+
+  useEffect(() => {
+    if (enabled !== undefined) {
+      setVadEnabled(enabled)
+    }
+  }, [enabled])
 
   // Notify parent of speaking status changes
   useEffect(() => {
@@ -184,11 +201,19 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
   }, [vadSettings])
 
   const handleToggleVAD = async () => {
-    if (vadEnabled) {
+    if (effectiveEnabled) {
       stopListening()
-      setVadEnabled(false)
+      if (onEnabledChange) {
+        onEnabledChange(false)
+      } else {
+        setVadEnabled(false)
+      }
     } else {
-      setVadEnabled(true)
+      if (onEnabledChange) {
+        onEnabledChange(true)
+      } else {
+        setVadEnabled(true)
+      }
       await startListening()
     }
   }
@@ -217,35 +242,94 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
 
   useEffect(() => {
     return () => {
-      if (vadEnabled && stopListening) {
+      if (effectiveEnabled && stopListening) {
         stopListening()
       }
     }
-  }, [])
+  }, [effectiveEnabled, stopListening])
+
+  if (variant === 'compact') {
+    if (error) {
+      return (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-[10px] text-red-200">
+          {error}
+        </div>
+      )
+    }
+
+    if (!isInitialized) {
+      return (
+        <div className="rounded-lg bg-slate-950/40 border border-slate-800/50 p-3 text-[10px] text-slate-500">
+          Initializing voice detection…
+        </div>
+      )
+    }
+
+    const thresholdPercent = Math.round(threshold * 100)
+    const isActive = effectiveEnabled && isSpeaking
+
+    return (
+      <div className="space-y-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800/50">
+        <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+          <span className="flex items-center gap-1.5">
+            <ChartBarIcon size={12} weight="bold" /> VAD Threshold
+          </span>
+          <span className={isActive ? "text-emerald-400" : "text-slate-500"}>
+            {thresholdPercent}%
+          </span>
+        </div>
+
+        <div className="relative h-4 bg-slate-900 rounded-md overflow-hidden border border-slate-800">
+          <div
+            ref={displayLevelRef}
+            className={isActive ? 'h-full transition-all duration-75 bg-emerald-500/40' : 'h-full transition-all duration-75 bg-indigo-500/20'}
+            style={{ width: '0%' }}
+          />
+          <div
+            ref={thresholdIndicatorRef}
+            className="absolute inset-y-0 w-0.5 bg-red-500 z-10 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
+            style={{ left: `${Math.min(100, thresholdPercent)}%` }}
+          />
+        </div>
+
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={thresholdPercent}
+          onChange={(event) => setThreshold(parseInt(event.target.value, 10) / 100)}
+          className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+        />
+        <p className="text-[9px] text-slate-600 italic">Adjust red line to set voice trigger sensitivity.</p>
+      </div>
+    )
+  }
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-4">
+    <div className="space-y-4">
+      <div className="pb-2 px-0">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            <CardTitle className="flex items-center gap-3 mb-2">
+            <h3 className="flex items-center gap-2 text-xs uppercase tracking-wider font-black text-muted-foreground">
               <div className={cn(
-                "p-2 rounded-lg transition-all",
-                vadEnabled && isInitialized 
+                "p-1.5 rounded-md transition-all",
+                effectiveEnabled && isInitialized 
                   ? "bg-accent/20 text-accent" 
                   : "bg-muted text-muted-foreground"
               )}>
-                <WaveformIcon size={20} weight="bold" />
+                <WaveformIcon size={14} weight="bold" />
               </div>
               Voice Activity Detection
-            </CardTitle>
-            <CardDescription>Real-time speech monitoring for optimal voice transmission</CardDescription>
+            </h3>
+            <p className="text-[10px] text-muted-foreground">
+              Real-time speech monitoring for optimal voice transmission
+            </p>
           </div>
         </div>
-      </CardHeader>
+      </div>
 
-      <CardContent className="space-y-5">
-        {!vadEnabled ? (
+      <div className="space-y-5">
+        {!effectiveEnabled ? (
           <div className="space-y-4">
             <div className="rounded-xl bg-gradient-to-br from-accent/10 via-accent/5 to-transparent border-2 border-accent/20 p-8 text-center space-y-4">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-accent/20 mb-2">
@@ -299,101 +383,70 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
 
             {isInitialized && (
               <>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-base font-semibold">Live Audio Monitor</Label>
-                  </div>
-
-                  <div className="relative rounded-xl overflow-hidden border-2 border-border bg-card p-5">
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-muted-foreground font-mono">
-                          Level: <span className="font-bold text-foreground"><span ref={levelTextRef}>0</span>%</span>
-                        </span>
-                      </div>
-
-                      <div className="relative">
-                        <div className="h-12 rounded-lg overflow-hidden bg-muted/50 border border-border">
-                          <div 
-                            ref={displayLevelRef}
-                            className="h-full transition-all duration-100 bg-muted-foreground/60"
-                            style={{ width: '0%' }}
-                          />
-                        </div>
-                        
-                        <div 
-                          ref={thresholdIndicatorRef}
-                          className="absolute inset-y-0 w-0.5 bg-destructive/70 z-10 transition-all"
-                          style={{ left: `${Math.min(100, threshold * 100)}%` }}
-                        >
-                          <div className="absolute -top-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-mono text-destructive">
-                            Threshold
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-sm font-semibold mb-3 block">Quick Environment Presets</Label>
-                    <div className="grid grid-cols-3 gap-2">
-                      {ENVIRONMENT_PRESETS.map((preset) => {
-                        const Icon = preset.icon
-                        const isActive = 
-                          Math.abs(threshold - preset.settings.threshold) < 0.01 &&
-                          Math.abs(minSpeechDuration - preset.settings.minSpeechDuration) < 10 &&
-                          Math.abs(minSilenceDuration - preset.settings.minSilenceDuration) < 10
-                        
-                        return (
-                          <Button
-                            key={preset.name}
-                            variant={isActive ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => applyPreset(preset)}
-                            className={cn(
-                              "h-auto flex-col gap-2 py-3 transition-all",
-                              isActive && "bg-accent text-accent-foreground hover:bg-accent/90 shadow-lg shadow-accent/20 scale-105"
-                            )}
-                          >
-                            <Icon size={22} weight={isActive ? "fill" : "duotone"} />
-                            <span className="text-xs font-bold">{preset.name}</span>
-                          </Button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="vad-threshold" className="text-sm font-semibold">Detection Threshold</Label>
-                    <Badge 
-                      variant="outline"
-                      className="font-mono text-xs"
-                    >
+                <div className="space-y-3 bg-secondary/40 p-3 rounded-xl border border-border/50">
+                  <div className="flex justify-between items-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                    <span className="flex items-center gap-1.5">
+                      <ChartBarIcon size={12} weight="bold" /> VAD Threshold
+                    </span>
+                    <span className={isSpeaking ? "text-emerald-400" : "text-muted-foreground"}>
                       {(threshold * 100).toFixed(0)}%
-                    </Badge>
+                    </span>
                   </div>
-                  
-                  <Slider
-                    id="vad-threshold"
-                    value={[threshold * 100]}
-                    onValueChange={([value]) => setThreshold(value / 100)}
+
+                  <div className="relative h-4 bg-background rounded-md overflow-hidden border border-border">
+                    <div 
+                      ref={displayLevelRef}
+                      className="h-full transition-all duration-100 bg-muted-foreground/60"
+                      style={{ width: '0%' }}
+                    />
+                    <div 
+                      ref={thresholdIndicatorRef}
+                      className="absolute inset-y-0 w-0.5 bg-destructive z-10 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
+                      style={{ left: `${Math.min(100, threshold * 100)}%` }}
+                    />
+                  </div>
+
+                  <input 
+                    type="range" 
                     min={3}
                     max={50}
-                    step={1}
-                    className="w-full"
+                    value={(threshold * 100).toFixed(0)}
+                    onChange={(event) => setThreshold(parseInt(event.target.value, 10) / 100)}
+                    className="w-full h-1 bg-muted rounded-lg appearance-none cursor-pointer accent-destructive" 
                   />
-                  
-                  <div className="flex items-center justify-between text-[10px] text-muted-foreground px-1">
-                    <span>More Sensitive</span>
-                    <span>Less Sensitive</span>
+                  <p className="text-[9px] text-muted-foreground italic">
+                    Adjust red line to set voice trigger sensitivity.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <Label className="text-[10px] uppercase font-black text-muted-foreground tracking-widest">
+                    Quick Environment Presets
+                  </Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {ENVIRONMENT_PRESETS.map((preset) => {
+                      const Icon = preset.icon
+                      const isActive = 
+                        Math.abs(threshold - preset.settings.threshold) < 0.01 &&
+                        Math.abs(minSpeechDuration - preset.settings.minSpeechDuration) < 10 &&
+                        Math.abs(minSilenceDuration - preset.settings.minSilenceDuration) < 10
+                      
+                      return (
+                        <Button
+                          key={preset.name}
+                          variant={isActive ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => applyPreset(preset)}
+                          className={cn(
+                            "h-auto flex-col gap-1.5 py-2 text-[9px] font-black uppercase",
+                            isActive && "bg-accent/10 text-accent hover:bg-accent/20 border-accent/50"
+                          )}
+                        >
+                          <Icon size={16} weight={isActive ? "fill" : "duotone"} />
+                          <span>{preset.name}</span>
+                        </Button>
+                      )
+                    })}
                   </div>
                 </div>
 
@@ -485,12 +538,12 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
                   </CollapsibleContent>
                 </Collapsible>
 
-                <div className="flex items-center justify-center pt-2">
+                <div className="flex items-center justify-center pt-1">
                   <Button 
                     onClick={handleToggleVAD}
                     variant="outline"
                     size="sm"
-                    className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/10"
+                    className="gap-2 border-destructive/50 text-destructive hover:bg-destructive/10 text-[10px]"
                   >
                     <XCircleIcon size={16} weight="fill" />
                     Stop Voice Detection
@@ -509,7 +562,7 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
             )}
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   )
 }

@@ -7,9 +7,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Toaster } from '@/components/ui/sonner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { MagnifyingGlassIcon, PlusIcon, UsersIcon, SignOutIcon, UserListIcon, StackIcon, WaveformIcon } from '@phosphor-icons/react'
+import { 
+  MagnifyingGlassIcon, 
+  PlusIcon, 
+  UsersIcon, 
+  SignOutIcon, 
+  UserListIcon, 
+  StackIcon, 
+  WaveformIcon,
+  HashIcon,
+  BroadcastIcon,
+  ShieldIcon,
+  WifiHighIcon,
+  GearIcon,
+  PowerIcon,
+  ActivityIcon,
+  WarningCircleIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon
+} from '@phosphor-icons/react'
 import { User, Group, GroupSettings, AudioSettings, ConnectionState, PlayerPosition } from '@/lib/types'
 import { UserCard } from '@/components/UserCard'
+import { UserCardCompact } from '@/components/UserCardCompact'
 import { GroupCard } from '@/components/GroupCard'
 import { CreateGroupDialog } from '@/components/CreateGroupDialog'
 import { GroupSettingsDialog } from '@/components/GroupSettingsDialog'
@@ -675,269 +694,248 @@ function App() {
     }
   }, [currentGroupId])
 
+  // Status card component for sidebar diagnostics
+  const StatusCard = ({ label, value, icon: Icon, colorClass = "text-accent" }: { 
+    label: string
+    value: string
+    icon: React.ComponentType<{ size: number }>
+    colorClass?: string 
+  }) => (
+    <div className="bg-background/50 border border-border p-3 rounded-lg flex items-center gap-3">
+      <div className={`p-2 rounded-md bg-secondary ${colorClass}`}>
+        <Icon size={16} />
+      </div>
+      <div>
+        <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-widest">{label}</p>
+        <p className="text-sm font-mono text-foreground">{value}</p>
+      </div>
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="flex h-screen bg-background text-foreground overflow-hidden font-sans selection:bg-accent/30">
       <Toaster />
       
       {isMobile ? (
-        <div className="flex flex-col h-screen">
-          <header className="p-4 border-b border-border bg-card/50 backdrop-blur sticky top-0 z-10">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div>
-                  <h1 className="text-xl font-bold tracking-tight">Obsolete Voice Chat</h1>
+        /* --- MOBILE LAYOUT --- */
+        <div className="flex flex-col h-screen w-full">
+          {/* Mobile Header */}
+          <header className="h-14 border-b border-border bg-card/80 backdrop-blur flex items-center justify-between px-4 shrink-0">
+            <div className="flex items-center gap-2">
+              <img src={icon} alt="OVC" className="h-6 w-auto" />
+              <h1 className="text-base font-black tracking-tighter italic">OVC</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              {connectionState.status === 'connected' && (
+                <div className="flex items-center gap-1.5 text-[10px] text-green-400 status-live font-bold">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-400" /> LIVE
                 </div>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <Button
-                  size="icon"
-                  variant={vadEnabled ? "default" : "outline"}
-                  onClick={handleToggleVAD}
-                  className={vadEnabled ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
-                >
-                  <WaveformIcon size={18} weight="bold" />
-                </Button>
-                
-                {currentGroup && (
-                  <Badge 
-                    variant="secondary" 
-                    className="bg-accent/20 text-accent border-accent/30 px-3 py-1 text-xs"
-                  >
-                    <UsersIcon size={14} weight="fill" className="mr-1.5" />
-                    {currentGroup.name}
-                  </Badge>
-                )}
-              </div>
+              )}
+              <Button
+                size="icon"
+                variant={vadEnabled ? "default" : "outline"}
+                onClick={handleToggleVAD}
+                className={`h-8 w-8 ${vadEnabled ? "bg-accent text-accent-foreground" : ""}`}
+              >
+                <WaveformIcon size={16} weight="bold" />
+              </Button>
             </div>
           </header>
 
-          <div className="flex-1 overflow-auto">
-            <div className="p-4 space-y-4">
-              <ConnectionView
-                connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
-                audioSettings={audioSettings || {
-                  inputDevice: 'default',
-                  outputDevice: 'default',
-                  inputVolume: 80,
-                  outputVolume: 80,
-                  echoCancellation: true,
-                  noiseSuppression: true,
-                  autoGainControl: true
-                }}
-                onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
-                onAudioSettingsChange={handleAudioSettingsChange}
-                onSpeakingChange={handleSpeakingChange}
-                enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
-                onAudioData={onAudioData}
-              />
+          {/* Mobile Content */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <ConnectionView
+              connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
+              audioSettings={audioSettings}
+              onConnect={handleConnect}
+              onDisconnect={handleDisconnect}
+              onAudioSettingsChange={handleAudioSettingsChange}
+              onSpeakingChange={handleSpeakingChange}
+              enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
+              onAudioData={onAudioData}
+            />
 
-              <Card>
-                <CardHeader className="pb-3">
-                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-                    <TabsList className="grid w-full grid-cols-3 h-auto">
-                      {currentGroup && (
-                        <TabsTrigger value="current-group" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">
-                          <UsersIcon size={12} weight="fill" className="mr-1" />
-                          Group
-                        </TabsTrigger>
-                      )}
-                      <TabsTrigger value="groups" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 1' }}>
-                        <StackIcon size={12} weight="fill" className="mr-1" />
-                        Groups
-                      </TabsTrigger>
-                      <TabsTrigger value="all-users" className="text-[10px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 2' }}>
-                        <UserListIcon size={12} weight="fill" className="mr-1" />
-                        All Users
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </CardHeader>
+            {/* Tabs Navigation */}
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
+                <TabsList className="w-full grid grid-cols-3 h-auto bg-secondary/50 p-1 rounded-none">
+                  {currentGroup && (
+                    <TabsTrigger 
+                      value="current-group" 
+                      className="text-[10px] px-2 py-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-md"
+                    >
+                      <HashIcon size={12} weight="bold" className="mr-1" />
+                      Group
+                    </TabsTrigger>
+                  )}
+                  <TabsTrigger 
+                    value="groups" 
+                    className="text-[10px] px-2 py-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-md"
+                    style={currentGroup ? {} : { gridColumn: 'span 2' }}
+                  >
+                    <BroadcastIcon size={12} weight="bold" className="mr-1" />
+                    Groups
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="all-users" 
+                    className="text-[10px] px-2 py-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-md"
+                    style={currentGroup ? {} : { gridColumn: 'span 1' }}
+                  >
+                    <UsersIcon size={12} weight="bold" className="mr-1" />
+                    Users
+                  </TabsTrigger>
+                </TabsList>
 
-                <CardContent className="pt-0">
-                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-                    {currentGroup && (
-                      <TabsContent value="current-group" className="mt-0 space-y-3">
-                        <div className="space-y-2 pt-2">
-                          <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-bold">{currentGroup.name}</h3>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleLeaveGroup(currentGroup.id)}
-                            >
-                              <SignOutIcon size={14} weight="fill" />
-                              Leave
-                            </Button>
-                          </div>
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <UsersIcon size={14} weight="fill" />
-                            <span className="font-mono text-xs">{currentGroup.memberCount} / {currentGroup.settings.maxMembers}</span>
-                          </div>
-                        </div>
-
-                        <Separator />
-
-                        <div className="space-y-2">
-                          <div className="relative">
-                            <MagnifyingGlassIcon 
-                              size={14} 
-                              className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" 
-                            />
-                            <Input
-                              placeholder="Search group members..."
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                              className="pl-7 h-8 text-xs"
-                            />
-                          </div>
-
-                          {groupUsers.length === 0 ? (
-                            <div className="text-center py-8">
-                              <UsersIcon size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
-                              <p className="text-xs text-muted-foreground">
-                                {searchQuery ? 'No users found' : 'No users in group yet'}
-                              </p>
-                            </div>
-                          ) : (
-                            <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                              {groupUsers.map(user => (
-                                <UserCard
-                                  key={user.id}
-                                  user={user}
-                                  onVolumeChange={handleVolumeChange}
-                                  onToggleMute={handleToggleMute}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </TabsContent>
-                    )}
-
-                    <TabsContent value="groups" className="mt-0 space-y-3 pt-2">
+                <div className="p-4">
+                  {currentGroup && (
+                    <TabsContent value="current-group" className="mt-0 space-y-3">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-bold">Available Groups</h3>
+                        <div>
+                          <h3 className="text-lg font-black">{currentGroup.name}</h3>
+                          <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
+                            {currentGroup.memberCount}/{currentGroup.settings.maxMembers} pilots
+                          </p>
+                        </div>
                         <Button
-                          onClick={() => setCreateDialogOpen(true)}
+                          variant="outline"
                           size="sm"
-                          className="bg-accent text-accent-foreground hover:bg-accent/90"
+                          onClick={() => handleLeaveGroup(currentGroup.id)}
+                          className="text-destructive border-destructive/50 hover:bg-destructive/10"
                         >
-                          <PlusIcon size={14} weight="bold" />
-                          Create
+                          <SignOutIcon size={14} weight="bold" />
+                          Exit
                         </Button>
                       </div>
 
-                      {(groups || []).length === 0 ? (
-                        <div className="text-center py-8">
-                          <StackIcon size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
-                          <p className="text-xs text-muted-foreground mb-3">
-                            No groups available yet
-                          </p>
-                          <Button
-                            onClick={() => setCreateDialogOpen(true)}
-                            variant="outline"
-                            size="sm"
-                          >
-                            Create First Group
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2 max-h-[450px] overflow-y-auto">
-                          {(groups || []).map(group => (
-                            <GroupCard
-                              key={group.id}
-                              group={group}
-                              isJoined={currentGroupId === group.id}
-                              onJoin={handleJoinGroup}
-                              onLeave={handleLeaveGroup}
-                              onSettings={handleOpenSettings}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="all-users" className="mt-0 space-y-3 pt-2">
-                      <h3 className="text-lg font-bold">All Users</h3>
-
                       <div className="relative">
-                        <MagnifyingGlassIcon 
-                          size={14} 
-                          className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" 
-                        />
+                        <MagnifyingGlassIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <Input
-                          placeholder="Search all users..."
+                          placeholder="Search..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          className="pl-7 h-8 text-xs"
+                          className="pl-9 h-8 text-xs bg-background"
                         />
                       </div>
 
-                      {filteredUsers.length === 0 ? (
-                        <div className="text-center py-8">
-                          <UserListIcon size={32} className="mx-auto mb-2 text-muted-foreground" weight="thin" />
-                          <p className="text-xs text-muted-foreground">
-                            {searchQuery ? 'No users found' : 'No users available'}
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="space-y-2 max-h-[400px] overflow-y-auto">
-                          {filteredUsers.map(user => (
-                            <UserCard
+                      <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                        {groupUsers.length === 0 ? (
+                          <div className="text-center py-8 opacity-50">
+                            <WarningCircleIcon size={32} className="mx-auto mb-2" />
+                            <p className="text-xs font-bold">No pilots found</p>
+                          </div>
+                        ) : (
+                          groupUsers.map(user => (
+                            <UserCardCompact
                               key={user.id}
                               user={user}
                               onVolumeChange={handleVolumeChange}
                               onToggleMute={handleToggleMute}
                             />
-                          ))}
-                        </div>
-                      )}
+                          ))
+                        )}
+                      </div>
                     </TabsContent>
-                  </Tabs>
-                </CardContent>
-              </Card>
+                  )}
+
+                  <TabsContent value="groups" className="mt-0 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-black">Available Groups</h3>
+                      <Button
+                        onClick={() => setCreateDialogOpen(true)}
+                        size="sm"
+                        className="bg-accent text-accent-foreground hover:bg-accent/90"
+                      >
+                        <PlusIcon size={14} weight="bold" />
+                        Create
+                      </Button>
+                    </div>
+
+                    {(groups || []).length === 0 ? (
+                      <div className="text-center py-8 opacity-50">
+                        <BroadcastIcon size={32} className="mx-auto mb-2" />
+                        <p className="text-xs font-bold mb-3">No groups available</p>
+                        <Button onClick={() => setCreateDialogOpen(true)} variant="outline" size="sm">
+                          Create First Group
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                        {(groups || []).map(group => (
+                          <GroupCard
+                            key={group.id}
+                            group={group}
+                            isJoined={currentGroupId === group.id}
+                            onJoin={handleJoinGroup}
+                            onLeave={handleLeaveGroup}
+                            onSettings={handleOpenSettings}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="all-users" className="mt-0 space-y-3">
+                    <h3 className="text-lg font-black">All Users</h3>
+                    <div className="relative">
+                      <MagnifyingGlassIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        placeholder="Search users..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-9 h-8 text-xs bg-background"
+                      />
+                    </div>
+
+                    {filteredUsers.length === 0 ? (
+                      <div className="text-center py-8 opacity-50">
+                        <UsersIcon size={32} className="mx-auto mb-2" />
+                        <p className="text-xs font-bold">{searchQuery ? 'No users found' : 'No users online'}</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                        {filteredUsers.map(user => (
+                          <UserCardCompact
+                            key={user.id}
+                            user={user}
+                            onVolumeChange={handleVolumeChange}
+                            onToggleMute={handleToggleMute}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </TabsContent>
+                </div>
+              </Tabs>
             </div>
           </div>
         </div>
       ) : (
-        <div className="container mx-auto p-6 max-w-[1600px]">
-          <header className="mb-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <img src={icon} alt="Obsolete Voice Chat" className="h-10 w-auto" />
-                <div>
-                  <h1 className="text-3xl font-bold tracking-tight">Obsolete Voice Chat</h1>
-                </div>
+        /* --- DESKTOP LAYOUT (VOX_COMM Style) --- */
+        <div className="flex h-screen w-full">
+          {/* --- SIDEBAR --- */}
+          <aside className="hidden lg:flex flex-col w-96 bg-card border-r border-border p-5 space-y-6 overflow-y-auto">
+            {/* Logo */}
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shadow-lg shadow-accent/20">
+                <ActivityIcon size={18} className="text-accent-foreground" />
               </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  size="default"
-                  variant={vadEnabled ? "default" : "outline"}
-                  onClick={handleToggleVAD}
-                  className={vadEnabled ? "bg-accent text-accent-foreground hover:bg-accent/90" : ""}
-                >
-                  <WaveformIcon size={20} weight="bold" />
-                  Voice Detection {vadEnabled ? 'On' : 'Off'}
-                </Button>
-              </div>
+              <h1 className="text-xl font-black tracking-tighter italic">OVC</h1>
             </div>
-          </header>
 
-          <div className="grid grid-cols-12 gap-6">
-            <div className="col-span-7">
+            {/* Connection Status */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="tech-label">Server Hub</h2>
+                {connectionState.status === 'connected' && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-green-400 status-live font-bold">
+                    <div className="w-1.5 h-1.5 rounded-full bg-green-400" /> LIVE
+                  </div>
+                )}
+              </div>
+
               <ConnectionView
                 connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
-                audioSettings={audioSettings || {
-                  inputDevice: 'default',
-                  outputDevice: 'default',
-                  inputVolume: 80,
-                  outputVolume: 80,
-                  echoCancellation: true,
-                  noiseSuppression: true,
-                  autoGainControl: true
-                }}
+                audioSettings={audioSettings}
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
                 onAudioSettingsChange={handleAudioSettingsChange}
@@ -947,181 +945,279 @@ function App() {
               />
             </div>
 
-            <div className="col-span-5 space-y-6">
-              <Card>
-                <CardHeader className="pb-3">
-                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-                    <TabsList className="grid w-full grid-cols-3 h-auto">
-                      {currentGroup && (
-                        <TabsTrigger value="current-group" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground">
-                          <UsersIcon size={16} weight="fill" className="mr-1.5" />
-                          Current Group
-                        </TabsTrigger>
-                      )}
-                      <TabsTrigger value="groups" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 2' }}>
-                        <StackIcon size={16} weight="fill" className="mr-1.5" />
-                        Available Groups
-                      </TabsTrigger>
-                      <TabsTrigger value="all-users" className="text-xs data-[state=active]:bg-accent data-[state=active]:text-accent-foreground" style={currentGroup ? {} : { gridColumn: 'span 1' }}>
-                        <UserListIcon size={16} weight="fill" className="mr-1.5" />
-                        All Users
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </CardHeader>
+            {/* Voice Detection Toggle */}
+            <div className="space-y-3">
+              <h2 className="tech-label">Voice Engine</h2>
+              <Button
+                onClick={handleToggleVAD}
+                className={`w-full py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 ${
+                  vadEnabled 
+                    ? 'bg-accent text-accent-foreground shadow-lg shadow-accent/20' 
+                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                }`}
+              >
+                <WaveformIcon size={16} weight="bold" />
+                {vadEnabled ? 'Voice Detection Active' : 'Voice Detection Off'}
+              </Button>
+            </div>
 
-                <CardContent className="pt-0">
-                  <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-                    {currentGroup && (
-                      <TabsContent value="current-group" className="mt-0 space-y-3">
-                        <div className="space-y-3 pt-2">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h3 className="text-xl font-bold mb-1">{currentGroup.name}</h3>
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <UsersIcon size={16} weight="fill" />
-                                <span className="font-mono">{currentGroup.memberCount} / {currentGroup.settings.maxMembers}</span>
-                              </div>
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleLeaveGroup(currentGroup.id)}
-                            >
-                              <SignOutIcon size={16} weight="fill" />
-                              Leave
-                            </Button>
+            {/* Diagnostic Stats - shown when connected */}
+            {connectionState.status === 'connected' && (
+              <div className="mt-auto grid grid-cols-2 gap-2">
+                <StatusCard 
+                  label="Latency" 
+                  value={`${connectionState.latency ?? '--'}ms`} 
+                  icon={WifiHighIcon} 
+                  colorClass={(connectionState.latency ?? 0) > 100 ? "text-yellow-400" : "text-green-400"} 
+                />
+                <StatusCard 
+                  label="Status" 
+                  value="Online" 
+                  icon={ActivityIcon}
+                  colorClass="text-green-400"
+                />
+              </div>
+            )}
+          </aside>
+
+          {/* --- MAIN STAGE --- */}
+          <main className="flex-1 flex flex-col bg-background">
+            {/* Navigation Bar */}
+            <header className="h-16 border-b border-border bg-card/30 flex items-center justify-between px-6 shrink-0">
+              <div className="flex gap-8 items-center h-full">
+                {[
+                  ...(currentGroup ? [{ id: 'current-group', label: 'Active Group', icon: HashIcon }] : []),
+                  { id: 'groups', label: 'Explore Groups', icon: BroadcastIcon },
+                  { id: 'all-users', label: 'Directory', icon: UsersIcon }
+                ].map(tab => (
+                  <button 
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                    className={`flex items-center gap-2 h-full border-b-2 text-sm font-bold transition-all ${
+                      activeTab === tab.id 
+                        ? 'border-accent text-accent bg-accent/5 px-2' 
+                        : 'border-transparent text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    <tab.icon size={16} weight={activeTab === tab.id ? "fill" : "regular"} />
+                    <span className="hidden sm:inline">{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-48 sm:w-64">
+                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+                <Input 
+                  type="text" 
+                  placeholder="Search users..." 
+                  className="bg-card border-border rounded-full pl-10 pr-4 py-1.5 text-xs focus:ring-1 ring-accent"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
+              </div>
+            </header>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+              {connectionState.status !== 'connected' ? (
+                /* Disconnected State */
+                <div className="h-full flex flex-col items-center justify-center space-y-6 text-center">
+                  <div className="w-24 h-24 bg-card rounded-3xl flex items-center justify-center border border-border shadow-2xl">
+                    <ShieldIcon size={48} className="text-muted-foreground" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-black italic tracking-tight">LINK OFFLINE</h3>
+                    <p className="text-muted-foreground max-w-sm mx-auto text-sm leading-relaxed">
+                      Authentication required to join the voice grid. Use the command panel to establish a secure connection.
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Use the sidebar to connect →
+                  </p>
+                </div>
+              ) : (
+                /* Connected Content */
+                <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  {/* Current Group Tab */}
+                  {activeTab === 'current-group' && currentGroup && (
+                    <div className="space-y-6">
+                      {/* Group Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 bg-card/40 p-6 rounded-2xl border border-border">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 text-accent font-bold text-xs uppercase tracking-widest">
+                            <HashIcon size={12} weight="bold" /> Live Transmission
                           </div>
+                          <h2 className="text-3xl font-black text-foreground italic">{currentGroup.name.toUpperCase().replace(/ /g, '_')}</h2>
+                          <p className="text-muted-foreground text-sm font-medium flex items-center gap-4">
+                            <span className="flex items-center gap-1.5 font-mono">
+                              <UsersIcon size={14} weight="fill" /> {currentGroup.memberCount}/{currentGroup.settings.maxMembers} PILOTS
+                            </span>
+                            <span className="flex items-center gap-1.5 font-mono">
+                              <ActivityIcon size={14} /> RANGE: {currentGroup.settings.proximityRange}m
+                            </span>
+                          </p>
                         </div>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="secondary"
+                            onClick={() => handleOpenSettings(currentGroup.id)}
+                            className="flex-1 sm:flex-none"
+                          >
+                            <GearIcon size={16} weight="bold" /> Config
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => handleLeaveGroup(currentGroup.id)}
+                            className="flex-1 sm:flex-none text-destructive border-destructive/30 hover:bg-destructive/10"
+                          >
+                            <SignOutIcon size={16} weight="bold" /> Exit
+                          </Button>
+                        </div>
+                      </div>
 
-                        <Separator />
-
-                        <div className="space-y-3">
-                          <div className="relative">
-                            <MagnifyingGlassIcon 
-                              size={16} 
-                              className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" 
-                            />
-                            <Input
-                              placeholder="Search group members..."
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                              className="pl-9 h-9"
-                            />
+                      {/* User List */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {groupUsers.map(user => (
+                          <UserCard
+                            key={user.id}
+                            user={user}
+                            onVolumeChange={handleVolumeChange}
+                            onToggleMute={handleToggleMute}
+                          />
+                        ))}
+                        {groupUsers.length === 0 && (
+                          <div className="col-span-full py-20 text-center space-y-3 opacity-50">
+                            <WarningCircleIcon size={40} className="mx-auto" />
+                            <p className="font-bold">
+                              {searchQuery ? `No pilots found matching "${searchQuery}"` : 'No pilots in group yet'}
+                            </p>
                           </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-                          {groupUsers.length === 0 ? (
-                            <div className="text-center py-8">
-                              <UsersIcon size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
-                              <p className="text-sm text-muted-foreground">
-                                {searchQuery ? 'No users found' : 'No users in group yet'}
-                              </p>
-                            </div>
-                          ) : (
-                            <ScrollArea className="h-[450px]">
-                              <div className="space-y-2 pr-4">
-                                {groupUsers.map(user => (
-                                  <UserCard
-                                    key={user.id}
-                                    user={user}
-                                    onVolumeChange={handleVolumeChange}
-                                    onToggleMute={handleToggleMute}
-                                  />
-                                ))}
-                              </div>
-                            </ScrollArea>
-                          )}
-                        </div>
-                      </TabsContent>
-                    )}
-
-                    <TabsContent value="groups" className="mt-0 space-y-3 pt-2">
+                  {/* Groups Tab */}
+                  {activeTab === 'groups' && (
+                    <div className="space-y-6">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-xl font-bold">Available Groups</h3>
+                        <h2 className="text-2xl font-black">Explore Groups</h2>
                         <Button
                           onClick={() => setCreateDialogOpen(true)}
-                          size="sm"
                           className="bg-accent text-accent-foreground hover:bg-accent/90"
                         >
                           <PlusIcon size={16} weight="bold" />
-                          Create
+                          New Group
                         </Button>
                       </div>
 
-                      {(groups || []).length === 0 ? (
-                        <div className="text-center py-8">
-                          <StackIcon size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
-                          <p className="text-sm text-muted-foreground mb-4">
-                            No groups available yet
-                          </p>
-                          <Button
-                            onClick={() => setCreateDialogOpen(true)}
-                            variant="outline"
-                            size="sm"
-                          >
-                            Create First Group
-                          </Button>
-                        </div>
-                      ) : (
-                        <ScrollArea className="h-[500px]">
-                          <div className="space-y-2 pr-4">
-                            {(groups || []).map(group => (
-                              <GroupCard
-                                key={group.id}
-                                group={group}
-                                isJoined={currentGroupId === group.id}
-                                onJoin={handleJoinGroup}
-                                onLeave={handleLeaveGroup}
-                                onSettings={handleOpenSettings}
-                              />
-                            ))}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {(groups || []).map(group => (
+                          <GroupCard
+                            key={group.id}
+                            group={group}
+                            isJoined={currentGroupId === group.id}
+                            onJoin={handleJoinGroup}
+                            onLeave={handleLeaveGroup}
+                            onSettings={handleOpenSettings}
+                          />
+                        ))}
+                        
+                        {/* Create New Group Card */}
+                        <button 
+                          onClick={() => setCreateDialogOpen(true)}
+                          className="bg-background border-2 border-dashed border-border p-5 rounded-2xl flex flex-col items-center justify-center gap-3 text-muted-foreground hover:border-accent/50 hover:text-accent transition-all group min-h-[160px]"
+                        >
+                          <div className="w-12 h-12 rounded-full bg-card flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <PlusIcon size={24} weight="bold" />
                           </div>
-                        </ScrollArea>
-                      )}
-                    </TabsContent>
-
-                    <TabsContent value="all-users" className="mt-0 space-y-3 pt-2">
-                      <h3 className="text-xl font-bold">All Users</h3>
-
-                      <div className="relative">
-                        <MagnifyingGlassIcon 
-                          size={16} 
-                          className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" 
-                        />
-                        <Input
-                          placeholder="Search all users..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="pl-9 h-9"
-                        />
+                          <span className="font-bold text-sm">New Group Link</span>
+                        </button>
                       </div>
 
-                      {filteredUsers.length === 0 ? (
-                        <div className="text-center py-8">
-                          <UserListIcon size={40} className="mx-auto mb-3 text-muted-foreground" weight="thin" />
-                          <p className="text-sm text-muted-foreground">
-                            {searchQuery ? 'No users found' : 'No users available'}
-                          </p>
-                        </div>
-                      ) : (
-                        <ScrollArea className="h-[450px]">
-                          <div className="space-y-2 pr-4">
-                            {filteredUsers.map(user => (
-                              <UserCard
-                                key={user.id}
-                                user={user}
-                                onVolumeChange={handleVolumeChange}
-                                onToggleMute={handleToggleMute}
-                              />
-                            ))}
+                      {(groups || []).length === 0 && (
+                        <div className="text-center py-12 space-y-4">
+                          <BroadcastIcon size={48} className="mx-auto text-muted-foreground" />
+                          <div>
+                            <h3 className="text-lg font-bold">No Groups Available</h3>
+                            <p className="text-sm text-muted-foreground">Create the first group to start communicating</p>
                           </div>
-                        </ScrollArea>
+                        </div>
                       )}
-                    </TabsContent>
-                  </Tabs>
-                </CardContent>
-              </Card>
+                    </div>
+                  )}
+
+                  {/* All Users Tab */}
+                  {activeTab === 'all-users' && (
+                    <div className="bg-card/30 rounded-2xl border border-border overflow-hidden">
+                      <div className="p-4 bg-card/50 border-b border-border flex items-center justify-between">
+                        <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                          <UsersIcon size={14} weight="fill" /> Global Registry
+                        </span>
+                        <span className="text-[10px] font-mono text-muted-foreground/70">
+                          Total Online: {filteredUsers.length}
+                        </span>
+                      </div>
+                      <div className="divide-y divide-border/50">
+                        {filteredUsers.length === 0 ? (
+                          <div className="py-20 text-center space-y-3 opacity-50">
+                            <UsersIcon size={40} className="mx-auto" />
+                            <p className="font-bold">
+                              {searchQuery ? `No users found matching "${searchQuery}"` : 'No users online'}
+                            </p>
+                          </div>
+                        ) : (
+                          filteredUsers.map((user) => (
+                            <div key={user.id} className="flex items-center justify-between p-4 hover:bg-card/30 transition-colors">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-lg bg-secondary flex items-center justify-center text-xs font-bold ${
+                                  user.isSpeaking ? 'ring-2 ring-accent' : ''
+                                }`}>
+                                  {user.name[0].toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold">{user.name}</p>
+                                  <p className="text-[10px] text-muted-foreground font-mono">ID: {user.id.slice(0, 8)}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <div className="hidden sm:block text-right">
+                                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest">Status</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {user.isSpeaking ? (
+                                      <span className="text-accent">Speaking</span>
+                                    ) : (
+                                      'Idle'
+                                    )}
+                                  </p>
+                                </div>
+                                <Button
+                                  variant={user.isMuted ? "destructive" : "ghost"}
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => handleToggleMute(user.id)}
+                                >
+                                  {user.isMuted ? (
+                                    <SpeakerSlashIcon size={16} weight="fill" />
+                                  ) : (
+                                    <SpeakerHighIcon size={16} weight="fill" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+          </main>
+
+          {/* Mobile sidebar toggle (for tablets) */}
+          <div className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-accent p-4 rounded-full shadow-2xl shadow-accent/40 text-accent-foreground active:scale-95 transition-transform z-40">
+            <UsersIcon size={24} weight="bold" />
           </div>
         </div>
       )}

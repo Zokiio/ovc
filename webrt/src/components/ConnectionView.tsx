@@ -1,28 +1,14 @@
 import { useState, useEffect, useMemo, memo } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Slider } from '@/components/ui/slider'
-import { Switch } from '@/components/ui/switch'
-import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { 
   MicrophoneIcon, 
   SpeakerHighIcon, 
-  WifiHighIcon, 
-  WifiSlashIcon, 
-  PlugsIcon,
-  CircleNotchIcon,
-  CheckCircleIcon,
-  WarningCircleIcon,
   FloppyDiskIcon,
   TrashIcon,
   PencilSimpleIcon,
-  CaretDownIcon,
-  WaveformIcon
+  PowerIcon
 } from '@phosphor-icons/react'
 import { ConnectionState, AudioSettings } from '@/lib/types'
 import { toast } from 'sonner'
@@ -60,12 +46,7 @@ export function ConnectionView({
     inputDevices: [],
     outputDevices: []
   })
-  const [micLevel, setMicLevel] = useState(0)
-  const [isTesting, setIsTesting] = useState(false)
-  const [micSettingsOpen, setMicSettingsOpen] = useState(false)
-  const [outputSettingsOpen, setOutputSettingsOpen] = useState(false)
-  const [vadOpen, setVadOpen] = useState(false)
-  const [connectionOpen, setConnectionOpen] = useState(true)
+  const [voiceDetectionEnabled, setVoiceDetectionEnabled] = useState(true)
   
   const { servers, addServer, updateServer, removeServer, markUsed } = useSavedServers()
 
@@ -217,520 +198,314 @@ export function ConnectionView({
     onConnect(serverUrl, username, authCode)
   }
 
-  const testMicrophone = async () => {
-    setIsTesting(true)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          deviceId: audioSettings.inputDevice ? { exact: audioSettings.inputDevice } : undefined,
-          echoCancellation: audioSettings.echoCancellation,
-          noiseSuppression: audioSettings.noiseSuppression,
-          autoGainControl: audioSettings.autoGainControl
-        } 
-      })
-      
-      const audioContext = new AudioContext()
-      const analyser = audioContext.createAnalyser()
-      const microphone = audioContext.createMediaStreamSource(stream)
-      microphone.connect(analyser)
-      analyser.fftSize = 256
-      
-      const dataArray = new Uint8Array(analyser.frequencyBinCount)
-      
-      const updateLevel = () => {
-        analyser.getByteFrequencyData(dataArray)
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length
-        setMicLevel(Math.min(100, (average / 128) * 100))
-        
-        if (isTesting) {
-          requestAnimationFrame(updateLevel)
-        }
-      }
-      
-      updateLevel()
-      
-      setTimeout(() => {
-        setIsTesting(false)
-        setMicLevel(0)
-        stream.getTracks().forEach(track => track.stop())
-        audioContext.close()
-      }, 5000)
-    } catch (err) {
-      toast.error('Failed to access microphone')
-      setIsTesting(false)
-    }
-  }
-
-  const getStatusIcon = () => {
-    switch (connectionState.status) {
-      case 'connected':
-        return <CheckCircleIcon size={20} weight="fill" className="text-accent" />
-      case 'connecting':
-        return <CircleNotchIcon size={20} weight="bold" className="text-muted-foreground animate-spin" />
-      case 'error':
-        return <WarningCircleIcon size={20} weight="fill" className="text-destructive" />
-      default:
-        return <WifiSlashIcon size={20} weight="bold" className="text-muted-foreground" />
-    }
-  }
-
-  const getStatusBadge = () => {
-    const variants: Record<ConnectionState['status'], { variant: 'default' | 'secondary' | 'destructive' | 'outline', text: string }> = {
-      connected: { variant: 'default', text: 'Connected' },
-      connecting: { variant: 'secondary', text: 'Connecting...' },
-      disconnected: { variant: 'outline', text: 'Disconnected' },
-      error: { variant: 'destructive', text: 'Connection Error' }
-    }
-    
-    const { variant, text } = variants[connectionState.status]
-    return (
-      <Badge variant={variant} className="gap-2">
-        {getStatusIcon()}
-        {text}
-      </Badge>
-    )
-  }
 
   return (
     <div className="space-y-6">
-      <Collapsible open={connectionOpen} onOpenChange={setConnectionOpen}>
-        <Card>
-          <CardHeader>
-            <CollapsibleTrigger asChild>
-              <div className="flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity">
-                <div className="flex-1">
-                  <CardTitle className="flex items-center gap-3">
-                    <PlugsIcon size={24} weight="bold" />
-                    Server Connection
-                  </CardTitle>
-                  <CardDescription>Connect to a WebRTC SFU server</CardDescription>
-                </div>
-                <div className="flex items-center gap-3">
-                  {getStatusBadge()}
-                  {connectionState.status === 'connected' && (
-                    <CaretDownIcon 
-                      size={20} 
-                      weight="bold"
-                      className={`transition-transform duration-200 ${connectionOpen ? '' : '-rotate-90'}`}
-                    />
-                  )}
-                </div>
-              </div>
-            </CollapsibleTrigger>
-          </CardHeader>
-          {(connectionState.status !== 'connected' || connectionOpen) && (
-            <CollapsibleContent>
-              <CardContent className="space-y-4">
-                {/* Saved Servers */}
-          <div className="space-y-2">
-            <Label htmlFor="saved-servers">Saved Servers</Label>
-            <div className="flex gap-2">
-              <Select 
-                value={selectedServerId || 'new'} 
-                onValueChange={handleSelectServer}
+      {/* Connection Panel - VOX_COMM Style */}
+      <div className="space-y-3 bg-secondary/40 p-4 rounded-xl border border-border/50 shadow-inner">
+        {/* Saved Servers Dropdown */}
+        <div className="space-y-1">
+          <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Saved Servers</label>
+          <div className="flex gap-2">
+            <Select 
+              value={selectedServerId || 'new'} 
+              onValueChange={handleSelectServer}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+            >
+              <SelectTrigger className="flex-1 bg-background border-border text-xs h-9">
+                <SelectValue placeholder="Select a saved server" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="new">New Connection...</SelectItem>
+                {serverOptions.map(server => (
+                  <SelectItem key={server.id} value={server.id}>
+                    {server.nickname}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            
+            {/* Action buttons */}
+            {!selectedServerId ? (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={handleSaveServer}
                 disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                title="Save as new server"
+                className="h-9 w-9 shrink-0"
               >
-                <SelectTrigger id="saved-servers" className="flex-1">
-                  <SelectValue placeholder="Select a saved server" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="new">New Connection...</SelectItem>
-                  {serverOptions.map(server => (
-                    <SelectItem key={server.id} value={server.id}>
-                      {server.nickname}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              
-              {/* Action buttons based on state */}
-              {!selectedServerId ? (
-                // New connection - show save button
+                <FloppyDiskIcon size={16} weight="bold" />
+              </Button>
+            ) : isEditing ? (
+              <>
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={handleSaveServer}
+                  onClick={handleUpdateServer}
                   disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
-                  title="Save as new server"
+                  title="Save changes"
+                  className="h-9 w-9 shrink-0 text-accent"
                 >
-                  <FloppyDiskIcon size={20} weight="bold" />
+                  <FloppyDiskIcon size={16} weight="bold" />
                 </Button>
-              ) : isEditing ? (
-                // Editing existing - show save/cancel
-                <>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleUpdateServer}
-                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
-                    title="Save changes"
-                    className="text-accent"
-                  >
-                    <FloppyDiskIcon size={20} weight="bold" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleCancelEdit}
-                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
-                    title="Cancel editing"
-                  >
-                    ✕
-                  </Button>
-                </>
-              ) : (
-                // Selected but not editing - show edit/delete
-                <>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleStartEdit}
-                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
-                    title="Edit server"
-                  >
-                    <PencilSimpleIcon size={20} weight="bold" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={handleDeleteServer}
-                    disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
-                    title="Delete server"
-                  >
-                    <TrashIcon size={20} weight="bold" className="text-destructive" />
-                  </Button>
-                </>
-              )}
-            </div>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleCancelEdit}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  title="Cancel editing"
+                  className="h-9 w-9 shrink-0"
+                >
+                  ✕
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleStartEdit}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  title="Edit server"
+                  className="h-9 w-9 shrink-0"
+                >
+                  <PencilSimpleIcon size={16} weight="bold" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={handleDeleteServer}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  title="Delete server"
+                  className="h-9 w-9 shrink-0"
+                >
+                  <TrashIcon size={16} weight="bold" className="text-destructive" />
+                </Button>
+              </>
+            )}
           </div>
+        </div>
 
-          {/* Server Nickname - show when new or editing */}
-          {(!selectedServerId || isEditing) && (
-            <div className="space-y-2">
-              <Label htmlFor="server-nickname">Server Nickname {selectedServerId ? '' : '(optional)'}</Label>
-              <Input
-                id="server-nickname"
-                type="text"
-                placeholder="My Server"
-                value={serverNickname}
-                onChange={(e) => setServerNickname(e.target.value)}
-                disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
-              />
-            </div>
-          )}
-
-          <Separator />
-
-          <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
-            <Input
-              id="username"
+        {/* Server Nickname - show when new or editing */}
+        {(!selectedServerId || isEditing) && (
+          <div className="space-y-1">
+            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
+              Nickname {selectedServerId ? '' : '(optional)'}
+            </label>
+            <input
               type="text"
-              placeholder="Your in-game username"
+              placeholder="My Server"
+              value={serverNickname}
+              onChange={(e) => setServerNickname(e.target.value)}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
+            />
+          </div>
+        )}
+
+        {/* Host Address */}
+        <div className="space-y-1">
+          <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Host Address</label>
+          <input
+            type="text"
+            placeholder="localhost:24455"
+            value={serverUrl}
+            onChange={(e) => setServerUrl(e.target.value)}
+            disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
+          />
+        </div>
+
+        {/* Username and Auth Code side by side */}
+        <div className="flex gap-2">
+          <div className="flex-1 space-y-1">
+            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Username</label>
+            <input
+              type="text"
+              placeholder="Your username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
             />
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="auth-code">Auth Code</Label>
-            <Input
-              id="auth-code"
+          <div className="w-24 space-y-1">
+            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Auth</label>
+            <input
               type="text"
-              placeholder="Use /vc login in-game to get your code"
+              placeholder="CODE"
               value={authCode}
               onChange={(e) => setAuthCode(e.target.value.toUpperCase())}
               disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
               maxLength={6}
-              className="font-mono uppercase tracking-widest"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono uppercase tracking-widest focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
             />
-            <p className="text-xs text-muted-foreground">Type /vc login in Hytale to get your permanent auth code</p>
           </div>
+        </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="server-url">Server URL</Label>
-            <div className="flex gap-2">
-              <Input
-                id="server-url"
-                type="text"
-                placeholder="localhost:24455"
-                value={serverUrl}
-                onChange={(e) => setServerUrl(e.target.value)}
-                disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
-              />
-              {connectionState.status === 'connected' ? (
-                <Button 
-                  onClick={onDisconnect}
-                  variant="destructive"
-                  className="min-w-[120px]"
-                >
-                  <WifiSlashIcon size={20} weight="bold" />
-                  Disconnect
-                </Button>
-              ) : (
-                <Button 
-                  onClick={handleConnect}
-                  disabled={connectionState.status === 'connecting'}
-                  className="min-w-[120px] bg-accent text-accent-foreground hover:bg-accent/90"
-                >
-                  <WifiHighIcon size={20} weight="bold" />
-                  Connect
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {connectionState.status === 'connected' && connectionState.latency !== undefined && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>Latency:</span>
-              <Badge variant="secondary" className="font-mono">
-                {connectionState.latency}ms
-              </Badge>
-            </div>
-          )}
-
-          {connectionState.status === 'error' && connectionState.errorMessage && (
-            <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
-              {connectionState.errorMessage}
-            </div>
-          )}
-              </CardContent>
-            </CollapsibleContent>
-          )}
-        </Card>
-      </Collapsible>
-
-      {/* Always render VoiceActivityMonitor so the hook runs for audio capture */}
-      {/* UI visibility controlled separately */}
-      {!vadOpen ? (
-        <Card className="cursor-pointer hover:bg-accent/5 transition-colors" onClick={() => setVadOpen(true)}>
-          <CardHeader className="py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <WaveformIcon size={24} weight="bold" />
-                <CardTitle>Voice Activity Detection</CardTitle>
-              </div>
-              <CaretDownIcon size={20} weight="bold" />
-            </div>
-          </CardHeader>
-        </Card>
-      ) : null}
-
-      {/* VAD section - always render VoiceActivityMonitor for audio capture */}
-      <div className={vadOpen ? "relative" : "hidden"}>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setVadOpen(false)}
-          className="absolute top-4 right-4 z-10 h-8 w-8 hover:bg-accent/10"
+        {/* Connect/Disconnect Button */}
+        <button 
+          onClick={connectionState.status === 'connected' ? onDisconnect : handleConnect}
+          disabled={connectionState.status === 'connecting'}
+          className={`w-full py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 ${
+            connectionState.status === 'connected' 
+              ? 'bg-destructive/10 text-destructive border border-destructive/50 hover:bg-destructive/20' 
+              : 'bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg shadow-accent/20'
+          }`}
         >
-          <CaretDownIcon 
-            size={16} 
-            weight="bold" 
-            className="rotate-180"
-          />
-        </Button>
-        <VoiceActivityMonitor 
-          audioSettings={audioSettings} 
-          onSpeakingChange={onSpeakingChange}
-          enableAudioCapture={enableAudioCapture}
-          onAudioData={onAudioData}
-        />
+          {connectionState.status === 'connecting' ? (
+            <div className="w-4 h-4 border-2 border-accent-foreground/30 border-t-accent-foreground rounded-full animate-spin" />
+          ) : (
+            <PowerIcon size={14} weight="bold" />
+          )}
+          {connectionState.status === 'connected' ? 'Terminate Session' : 'Establish Link'}
+        </button>
+
+        {/* Error message */}
+        {connectionState.status === 'error' && connectionState.errorMessage && (
+          <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-2 text-[10px] text-destructive">
+            {connectionState.errorMessage}
+          </div>
+        )}
       </div>
 
-      <Collapsible open={micSettingsOpen} onOpenChange={setMicSettingsOpen}>
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer hover:bg-accent/5 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-3">
-                    <MicrophoneIcon size={24} weight="bold" />
-                    Microphone Settings
-                  </CardTitle>
-                  <CardDescription>Configure your input device and audio processing</CardDescription>
-                </div>
-                <CaretDownIcon 
-                  size={20} 
-                  weight="bold" 
-                  className={`transition-transform duration-200 ${micSettingsOpen ? 'rotate-180' : ''}`}
-                />
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="input-device">Input Device</Label>
-            <Select 
-              value={audioSettings.inputDevice} 
-              onValueChange={(value) => onAudioSettingsChange({ ...audioSettings, inputDevice: value })}
-            >
-              <SelectTrigger id="input-device">
-                <SelectValue placeholder="Select microphone" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default Microphone</SelectItem>
-                {audioDevices.inputDevices.map(device => (
-                  <SelectItem key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+      <div className="space-y-4">
+        <h2 className="text-[10px] uppercase font-black text-muted-foreground tracking-widest">
+          Hardware Engine
+        </h2>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="input-volume">Input Volume</Label>
-              <span className="text-sm text-muted-foreground font-mono">
-                {audioSettings.inputVolume}%
-              </span>
-            </div>
-            <Slider
-              id="input-volume"
-              value={[audioSettings.inputVolume]}
-              onValueChange={([value]) => onAudioSettingsChange({ ...audioSettings, inputVolume: value })}
-              min={0}
-              max={100}
-              step={1}
-              className="w-full"
-            />
-          </div>
-
+        <div className="space-y-5 p-1">
           <div className="space-y-3">
-            <Button 
-              onClick={testMicrophone} 
-              disabled={isTesting}
-              variant="outline"
-              className="w-full"
-            >
-              {isTesting ? 'Testing...' : 'Test Microphone'}
-            </Button>
-            
-            {isTesting && (
-              <div className="space-y-2">
-                <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-accent transition-all duration-100"
-                    style={{ width: `${micLevel}%` }}
-                  />
-                </div>
-                <p className="text-xs text-center text-muted-foreground">
-                  Speak into your microphone
-                </p>
-              </div>
-            )}
-          </div>
-
-          <Separator />
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="echo-cancel">Echo Cancellation</Label>
-                <p className="text-sm text-muted-foreground">Reduces echo feedback</p>
-              </div>
-              <Switch
-                id="echo-cancel"
-                checked={audioSettings.echoCancellation}
-                onCheckedChange={(checked) => onAudioSettingsChange({ ...audioSettings, echoCancellation: checked })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="noise-suppress">Noise Suppression</Label>
-                <p className="text-sm text-muted-foreground">Filters background noise</p>
-              </div>
-              <Switch
-                id="noise-suppress"
-                checked={audioSettings.noiseSuppression}
-                onCheckedChange={(checked) => onAudioSettingsChange({ ...audioSettings, noiseSuppression: checked })}
-              />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label htmlFor="auto-gain">Auto Gain Control</Label>
-                <p className="text-sm text-muted-foreground">Normalizes volume levels</p>
-              </div>
-              <Switch
-                id="auto-gain"
-                checked={audioSettings.autoGainControl}
-                onCheckedChange={(checked) => onAudioSettingsChange({ ...audioSettings, autoGainControl: checked })}
-              />
-            </div>
-          </div>
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
-
-      <Collapsible open={outputSettingsOpen} onOpenChange={setOutputSettingsOpen}>
-        <Card>
-          <CollapsibleTrigger asChild>
-            <CardHeader className="cursor-pointer hover:bg-accent/5 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-3">
-                    <SpeakerHighIcon size={24} weight="bold" />
-                    Audio Output Settings
-                  </CardTitle>
-                  <CardDescription>Configure your output device and volume</CardDescription>
-                </div>
-                <CaretDownIcon 
-                  size={20} 
-                  weight="bold" 
-                  className={`transition-transform duration-200 ${outputSettingsOpen ? 'rotate-180' : ''}`}
-                />
-              </div>
-            </CardHeader>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="output-device">Output Device</Label>
-            <Select 
-              value={audioSettings.outputDevice} 
-              onValueChange={(value) => onAudioSettingsChange({ ...audioSettings, outputDevice: value })}
-            >
-              <SelectTrigger id="output-device">
-                <SelectValue placeholder="Select speakers/headphones" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">Default Output</SelectItem>
-                {audioDevices.outputDevices.map(device => (
-                  <SelectItem key={device.deviceId} value={device.deviceId}>
-                    {device.label || `Output ${device.deviceId.slice(0, 8)}`}
-                  </SelectItem>
+            <div className="space-y-1">
+              <Label htmlFor="input-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
+                Input Device
+              </Label>
+              <select
+                id="input-device"
+                value={audioSettings.inputDevice}
+                onChange={(event) => onAudioSettingsChange({ ...audioSettings, inputDevice: event.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+              >
+                <option value="default">Default - System Mic</option>
+                {audioDevices.inputDevices.map(device => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
+                  </option>
                 ))}
-              </SelectContent>
-            </Select>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="output-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
+                Output Device
+              </Label>
+              <select
+                id="output-device"
+                value={audioSettings.outputDevice}
+                onChange={(event) => onAudioSettingsChange({ ...audioSettings, outputDevice: event.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+              >
+                <option value="default">Default - System Speakers</option>
+                {audioDevices.outputDevices.map(device => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Output ${device.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="output-volume">Output Volume</Label>
-              <span className="text-sm text-muted-foreground font-mono">
-                {audioSettings.outputVolume}%
+            <div className="flex justify-between text-[10px] font-bold text-slate-400">
+              <span className="flex items-center gap-1.5 uppercase tracking-tighter">
+                <MicrophoneIcon size={12} weight="bold" /> Mic Sensitivity
               </span>
+              <span>{audioSettings.inputVolume}%</span>
             </div>
-            <Slider
-              id="output-volume"
-              value={[audioSettings.outputVolume]}
-              onValueChange={([value]) => onAudioSettingsChange({ ...audioSettings, outputVolume: value })}
-              min={0}
-              max={100}
-              step={1}
-              className="w-full"
+            <input
+              id="input-volume"
+              type="range"
+              value={audioSettings.inputVolume}
+              onChange={(event) => onAudioSettingsChange({ ...audioSettings, inputVolume: Number(event.target.value) })}
+              className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
             />
           </div>
-              </CardContent>
-            </CollapsibleContent>
-          </Card>
-        </Collapsible>
+
+          <div className="space-y-2">
+            <div className="flex justify-between text-[10px] font-bold text-slate-400">
+              <span className="flex items-center gap-1.5 uppercase tracking-tighter">
+                <SpeakerHighIcon size={12} weight="bold" /> Master Output
+              </span>
+              <span>{audioSettings.outputVolume}%</span>
+            </div>
+            <input
+              id="output-volume"
+              type="range"
+              value={audioSettings.outputVolume}
+              onChange={(event) => onAudioSettingsChange({ ...audioSettings, outputVolume: Number(event.target.value) })}
+              className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+            />
+          </div>
+
+          <VoiceActivityMonitor
+            variant="compact"
+            audioSettings={audioSettings}
+            enabled={voiceDetectionEnabled}
+            onEnabledChange={setVoiceDetectionEnabled}
+            onSpeakingChange={onSpeakingChange}
+            enableAudioCapture={enableAudioCapture}
+            onAudioData={onAudioData}
+          />
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => onAudioSettingsChange({ ...audioSettings, echoCancellation: !audioSettings.echoCancellation })}
+              className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+                audioSettings.echoCancellation
+                  ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+                  : 'bg-slate-950 border-slate-800 text-slate-600'
+              }`}
+            >
+              Echo Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onAudioSettingsChange({ ...audioSettings, noiseSuppression: !audioSettings.noiseSuppression })}
+              className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+                audioSettings.noiseSuppression
+                  ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+                  : 'bg-slate-950 border-slate-800 text-slate-600'
+              }`}
+            >
+              Noise Supp
+            </button>
+            <button
+              type="button"
+              onClick={() => onAudioSettingsChange({ ...audioSettings, autoGainControl: !audioSettings.autoGainControl })}
+              className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+                audioSettings.autoGainControl
+                  ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+                  : 'bg-slate-950 border-slate-800 text-slate-600'
+              }`}
+            >
+              Auto Gain
+            </button>
+            <button
+              type="button"
+              onClick={() => setVoiceDetectionEnabled((prev) => !prev)}
+              className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+                voiceDetectionEnabled
+                  ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+                  : 'bg-slate-950 border-slate-800 text-slate-600'
+              }`}
+            >
+              Voice Det
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
