@@ -138,4 +138,4 @@ function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) 
   )
 }
 
-export default memo(UserCardCompact)const UserCardCompact = memo(UserCardCompactComponen
+export const UserCardCompact = memo(UserCardCompactComponent)
