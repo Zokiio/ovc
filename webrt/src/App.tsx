@@ -14,7 +14,6 @@ import {
   SignOutIcon, 
   UserListIcon, 
   StackIcon, 
-  WaveformIcon,
   HashIcon,
   BroadcastIcon,
   ShieldIcon,
@@ -89,7 +88,7 @@ function App() {
     status: 'disconnected',
     serverUrl: ''
   })
-  const [vadEnabled, setVadEnabled] = useState<boolean>(true)
+  const [isMuted, setIsMuted] = useState<boolean>(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   
   const [searchQuery, setSearchQuery] = useState('')
@@ -101,7 +100,7 @@ function App() {
 
   // Audio transmission hook - captures and sends audio when speaking
   const { onAudioData } = useAudioTransmission({
-    enabled: vadEnabled,
+    enabled: !isMuted,
     connected: connectionState.status === 'connected'
   })
 
@@ -196,7 +195,7 @@ function App() {
     audioPlayback.current.setUserVolume(userId, volume)
   }, [])
 
-  const handleToggleMute = useCallback((userId: string) => {
+  const handleToggleUserMute = useCallback((userId: string) => {
     setUsers(currentUsers => {
       const newUsers = new Map(currentUsers)
       const user = newUsers.get(userId)
@@ -674,13 +673,13 @@ function App() {
     setAudioSettings(settings)
   }, [])
 
-  const handleToggleVAD = () => {
-    const newVadState = !vadEnabled
-    setVadEnabled(newVadState)
-    if (newVadState) {
-      toast.success('Voice detection enabled')
+  const handleToggleMute = () => {
+    const nextMuted = !isMuted
+    setIsMuted(nextMuted)
+    if (nextMuted) {
+      toast.info('Microphone muted')
     } else {
-      toast.info('Voice detection disabled')
+      toast.success('Microphone unmuted')
     }
   }
 
@@ -723,7 +722,7 @@ function App() {
           {/* Mobile Header */}
           <header className="h-14 border-b border-border bg-card/80 backdrop-blur flex items-center justify-between px-4 shrink-0">
             <div className="flex items-center gap-2">
-              <img src={icon} alt="OVC" className="h-6 w-auto" />
+              <img src={icon} alt="OVC" className="h-6 w-6 shadow-accent/20" />
               <h1 className="text-base font-black tracking-tighter italic">OVC</h1>
             </div>
             <div className="flex items-center gap-2">
@@ -743,11 +742,16 @@ function App() {
               </Button>
               <Button
                 size="icon"
-                variant={vadEnabled ? "default" : "outline"}
-                onClick={handleToggleVAD}
-                className={`h-8 w-8 ${vadEnabled ? "bg-accent text-accent-foreground" : ""}`}
+                variant={isMuted ? "outline" : "default"}
+                onClick={handleToggleMute}
+                className={`h-8 w-8 ${isMuted ? "" : "bg-accent text-accent-foreground"}`}
+                aria-label={isMuted ? "Unmute microphone" : "Mute microphone"}
               >
-                <WaveformIcon size={16} weight="bold" />
+                {isMuted ? (
+                  <SpeakerSlashIcon size={16} weight="bold" />
+                ) : (
+                  <SpeakerHighIcon size={16} weight="bold" />
+                )}
               </Button>
             </div>
           </header>
@@ -773,8 +777,8 @@ function App() {
                   onConnect={handleConnect}
                   onDisconnect={handleDisconnect}
                   onAudioSettingsChange={handleAudioSettingsChange}
-                  onSpeakingChange={handleSpeakingChange}
-                  enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
+                  onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
+                  enableAudioCapture={!isMuted && connectionState.status === 'connected'}
                   onAudioData={onAudioData}
                 />
               </div>
@@ -854,7 +858,7 @@ function App() {
                               key={user.id}
                               user={user}
                               onVolumeChange={handleVolumeChange}
-                              onToggleMute={handleToggleMute}
+                              onToggleMute={handleToggleUserMute}
                             />
                           ))
                         )}
@@ -923,7 +927,7 @@ function App() {
                             key={user.id}
                             user={user}
                             onVolumeChange={handleVolumeChange}
-                            onToggleMute={handleToggleMute}
+                            onToggleMute={handleToggleUserMute}
                           />
                         ))}
                       </div>
@@ -941,9 +945,7 @@ function App() {
           <aside className="hidden lg:flex flex-col w-96 bg-card border-r border-border p-5 space-y-6 overflow-y-auto">
             {/* Logo */}
             <div className="flex items-center gap-3 mb-2">
-              <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center shadow-lg shadow-accent/20">
-                <ActivityIcon size={18} className="text-accent-foreground" />
-              </div>
+              <img src={icon} alt="OVC" className="h-8 w-8 shadow-accent/20" />
               <h1 className="text-xl font-black tracking-tighter italic">OVC</h1>
             </div>
 
@@ -964,25 +966,29 @@ function App() {
                 onConnect={handleConnect}
                 onDisconnect={handleDisconnect}
                 onAudioSettingsChange={handleAudioSettingsChange}
-                onSpeakingChange={handleSpeakingChange}
-                enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
+                onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
+                enableAudioCapture={!isMuted && connectionState.status === 'connected'}
                 onAudioData={onAudioData}
               />
             </div>
 
-            {/* Voice Detection Toggle */}
+            {/* Microphone Mute Toggle */}
             <div className="space-y-3">
-              <h2 className="tech-label">Voice Engine</h2>
+              <h2 className="tech-label">Microphone</h2>
               <Button
-                onClick={handleToggleVAD}
+                onClick={handleToggleMute}
                 className={`w-full py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 ${
-                  vadEnabled 
-                    ? 'bg-accent text-accent-foreground shadow-lg shadow-accent/20' 
-                    : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                  isMuted 
+                    ? 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+                    : 'bg-accent text-accent-foreground shadow-lg shadow-accent/20'
                 }`}
               >
-                <WaveformIcon size={16} weight="bold" />
-                {vadEnabled ? 'Voice Detection Active' : 'Voice Detection Off'}
+                {isMuted ? (
+                  <SpeakerSlashIcon size={16} weight="bold" />
+                ) : (
+                  <SpeakerHighIcon size={16} weight="bold" />
+                )}
+                {isMuted ? 'Microphone Muted' : 'Microphone Live'}
               </Button>
             </div>
 
@@ -1220,7 +1226,7 @@ function App() {
                                   variant={user.isMuted ? "destructive" : "ghost"}
                                   size="icon"
                                   className="h-8 w-8"
-                                  onClick={() => handleToggleMute(user.id)}
+                                  onClick={() => handleToggleUserMute(user.id)}
                                 >
                                   {user.isMuted ? (
                                     <SpeakerSlashIcon size={16} weight="fill" />
