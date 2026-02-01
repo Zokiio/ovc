@@ -161,13 +161,11 @@ export function useVoiceActivity({
       // Only add deviceId if not default
       if (audioSettings.inputDevice !== 'default') {
         audioConstraints.deviceId = { ideal: audioSettings.inputDevice }
-        console.log('[VAD] Using specific device:', audioSettings.inputDevice)
       }
       
       // ONLY apply processing constraints on initial setup, not on device changes
       // This prevents OS from applying audio constraints system-wide on every device change
       if (!constraintsAppliedRef.current && (audioSettings.echoCancellation || audioSettings.noiseSuppression || audioSettings.autoGainControl)) {
-        console.log('[VAD] Applying processing constraints (first time only)')
         if (audioSettings.echoCancellation) {
           audioConstraints.echoCancellation = true
         }
@@ -184,9 +182,7 @@ export function useVoiceActivity({
         audio: audioConstraints
       }
 
-      console.log('[VAD] Requesting audio stream with constraints:', JSON.stringify(audioConstraints, null, 2))
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
-      console.log('[VAD] Audio stream acquired successfully')
       streamRef.current = stream
 
       // Force 48kHz to match server sample rate
@@ -363,7 +359,6 @@ export function useVoiceActivity({
   // Restart audio when input device changes (while enabled)
   useEffect(() => {
     if (enabled && isInitialized) {
-      console.log('[VAD] Input device changed, restarting audio...')
       stopListening()
       // Small delay to ensure cleanup completes before restart
       const timer = setTimeout(() => {

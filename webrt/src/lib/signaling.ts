@@ -56,7 +56,6 @@ export class SignalingClient {
         this.username = username
 
         this.ws.onopen = () => {
-          console.log('Connected to signaling server:', url)
           this.authenticate(username, authCode)
           resolve()
         }
@@ -77,7 +76,6 @@ export class SignalingClient {
         }
 
         this.ws.onclose = () => {
-          console.log('Disconnected from signaling server')
           this.emit('disconnected', null)
         }
       } catch (error) {
@@ -131,7 +129,6 @@ export class SignalingClient {
       })()
     
     if (shouldLog) {
-      console.log('Received message:', message.type, message.data)
     }
 
     const handler = this.messageHandlers.get(message.type)
@@ -160,18 +157,15 @@ export class SignalingClient {
   private handleGroupJoined(data: Record<string, unknown>): void {
     const groupId = String(data.groupId || '')
     this.currentGroupId = groupId
-    console.log('[Signaling] Group joined:', groupId, data)
     this.emit('group_joined', data)
   }
 
   private handleGroupLeft(data: Record<string, unknown>): void {
     this.currentGroupId = null
-    console.log('[Signaling] Group left:', data)
     this.emit('group_left', data)
   }
 
   private handleGroupList(data: Record<string, unknown>): void {
-    console.log('[Signaling] Group list received:', data)
     this.emit('group_list', data)
   }
 
@@ -193,7 +187,6 @@ export class SignalingClient {
     const userId = String(data.userId || data.senderId || '')
     const audioData = String(data.audioData || '')
     
-    console.log('[Signaling] Received audio from:', userId, 'data length:', audioData.length)
     
     if (userId && audioData && this.audioPlaybackCallback) {
       this.audioPlaybackCallback(userId, audioData)
@@ -220,7 +213,6 @@ export class SignalingClient {
       maxMembers: settings?.maxMembers ?? 50,
     }
 
-    console.log('[Signaling] Creating group:', groupName, groupSettings)
     this.send({
       type: 'create_group',
       data: {
@@ -234,7 +226,6 @@ export class SignalingClient {
    * Join an existing group
    */
   public joinGroup(groupId: string): void {
-    console.log('[Signaling] Joining group:', groupId)
     this.send({
       type: 'join_group',
       data: { groupId },
@@ -245,7 +236,6 @@ export class SignalingClient {
    * Leave current group
    */
   public leaveGroup(): void {
-    console.log('[Signaling] Leaving group')
     this.send({
       type: 'leave_group',
       data: {},
@@ -256,7 +246,6 @@ export class SignalingClient {
    * List all available groups
    */
   public listGroups(): void {
-    console.log('[Signaling] Listing groups')
     this.send({
       type: 'list_groups',
       data: {},

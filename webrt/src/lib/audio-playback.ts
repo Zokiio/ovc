@@ -47,13 +47,11 @@ export class AudioPlaybackManager {
     if (this.outputDeviceId !== 'default' && 'setSinkId' in this.audioContext) {
       try {
         await (this.audioContext as any).setSinkId(this.outputDeviceId)
-        console.log('[AudioPlayback] Applied output device on initialization:', this.outputDeviceId)
       } catch (err) {
         console.warn('[AudioPlayback] Failed to apply output device on init:', err)
       }
     }
     
-    console.log('[AudioPlayback] Initialized AudioContext')
   }
 
   /**
@@ -99,7 +97,6 @@ export class AudioPlaybackManager {
     const state = this.getOrCreateUserState(userId)
     state.volume = clampedVolume
     this.updateUserGain(userId)
-    console.log(`[AudioPlayback] User ${userId} volume set to ${clampedVolume}%`)
   }
 
   /**
@@ -116,7 +113,6 @@ export class AudioPlaybackManager {
     const state = this.getOrCreateUserState(userId)
     state.isMuted = muted
     this.updateUserGain(userId)
-    console.log(`[AudioPlayback] User ${userId} muted: ${muted}`)
   }
 
   /**
@@ -126,7 +122,6 @@ export class AudioPlaybackManager {
     const state = this.getOrCreateUserState(userId)
     state.isMuted = !state.isMuted
     this.updateUserGain(userId)
-    console.log(`[AudioPlayback] User ${userId} mute toggled: ${state.isMuted}`)
     return state.isMuted
   }
 
@@ -143,7 +138,6 @@ export class AudioPlaybackManager {
   public setMasterVolume(volume: number): void {
     this.masterVolume = Math.max(0, Math.min(100, volume))
     this.updateMasterGain()
-    console.log(`[AudioPlayback] Master volume set to ${this.masterVolume}`)
   }
 
   /**
@@ -152,7 +146,6 @@ export class AudioPlaybackManager {
   public setMasterMuted(muted: boolean): void {
     this.masterMuted = muted
     this.updateMasterGain()
-    console.log(`[AudioPlayback] Master muted: ${muted}`)
   }
 
   /**
@@ -174,7 +167,6 @@ export class AudioPlaybackManager {
     if (this.audioContext && this.supportsOutputDeviceSelection()) {
       try {
         await (this.audioContext as any).setSinkId(deviceId)
-        console.log(`[AudioPlayback] Set output device on AudioContext: ${deviceId}`)
       } catch (err) {
         console.warn(`[AudioPlayback] Failed to set AudioContext output device:`, err)
       }
@@ -187,7 +179,6 @@ export class AudioPlaybackManager {
       if (state.audioElement && 'setSinkId' in state.audioElement) {
         try {
           await (state.audioElement as any).setSinkId(deviceId)
-          console.log(`[AudioPlayback] Set output device for user ${userId}`)
         } catch (err) {
           console.warn(`[AudioPlayback] Failed to set output device for user ${userId}:`, err)
         }
@@ -207,7 +198,6 @@ export class AudioPlaybackManager {
    * Reset AudioContext to use system default output device
    */
   private async resetAudioContextToDefault(): Promise<void> {
-    console.log('[AudioPlayback] Resetting AudioContext to default output')
 
     for (const state of this.userAudioStates.values()) {
       if (state.playbackProcessor) {
@@ -275,7 +265,6 @@ export class AudioPlaybackManager {
       }
       this.writeToPlaybackBuffer(userId, float32Array)
       
-      console.log(`[AudioPlayback] Buffered audio from ${userId}, samples: ${int16Array.length}`)
     } catch (err) {
       console.error('[AudioPlayback] Error playing audio:', err)
     }
@@ -290,7 +279,6 @@ export class AudioPlaybackManager {
       return
     }
 
-    console.log(`[AudioPlayback] Initializing continuous playback for user ${userId}`)
 
     // Create gain node if not exists
     if (!state.gainNode) {
@@ -314,7 +302,6 @@ export class AudioPlaybackManager {
         playbackNode.connect(state.gainNode)
         state.playbackProcessor = playbackNode
         state.isPlaybackInitialized = true
-        console.log(`[AudioPlayback] Worklet playback initialized for user ${userId}`)
         return
       } catch (err) {
         console.warn('[AudioPlayback] Falling back to ScriptProcessorNode:', err)
@@ -349,7 +336,6 @@ export class AudioPlaybackManager {
     state.playbackProcessor = processor
     state.isPlaybackInitialized = true
     
-    console.log(`[AudioPlayback] Continuous playback initialized for user ${userId}`)
   }
 
   /**
@@ -405,7 +391,6 @@ export class AudioPlaybackManager {
     const source = this.audioContext.createMediaStreamSource(stream)
     source.connect(state.gainNode)
     
-    console.log(`[AudioPlayback] Connected stream for user ${userId}`)
   }
 
   /**
@@ -430,7 +415,6 @@ export class AudioPlaybackManager {
       state.playbackBuffer = null
       state.isPlaybackInitialized = false
       this.userAudioStates.delete(userId)
-      console.log(`[AudioPlayback] Disconnected user ${userId}`)
     }
   }
 
@@ -504,7 +488,6 @@ export class AudioPlaybackManager {
       this.audioContext = null
     }
     
-    console.log('[AudioPlayback] Disposed')
   }
 }
 

@@ -210,23 +210,19 @@ function App() {
   }, [])
 
   const handleCreateGroup = useCallback((name: string, settings: GroupSettings) => {
-    console.log('[App] handleCreateGroup called:', name, settings)
     const client = signalingClient.current
     if (!client.isConnected()) {
       toast.error('Not connected to server')
       return
     }
 
-    console.log('[App] Connected, sending create_group message')
     client.createGroup(name, settings)
   }, [])
 
   const handleJoinGroup = useCallback((groupId: string) => {
-    console.log('[App] handleJoinGroup called:', groupId)
     const client = signalingClient.current
     const group = (groups || []).find(g => g.id === groupId)
     if (!group) {
-      console.warn('[App] Group not found:', groupId)
       return
     }
 
@@ -240,16 +236,13 @@ function App() {
       return
     }
 
-    console.log('[App] Connected, sending join_group message')
     client.joinGroup(groupId)
   }, [groups])
 
   const handleLeaveGroup = useCallback((groupId: string) => {
-    console.log('[App] handleLeaveGroup called:', groupId)
     const client = signalingClient.current
     const group = (groups || []).find(g => g.id === groupId)
     if (!group) {
-      console.warn('[App] Group not found:', groupId)
       return
     }
 
@@ -258,7 +251,6 @@ function App() {
       return
     }
 
-    console.log('[App] Connected, sending leave_group message')
     client.leaveGroup()
   }, [groups])
 
@@ -352,7 +344,6 @@ function App() {
             maxMembers: g.maxMembers || 50
           }
         }))
-        console.log('[App] Received group list:', groupsList)
         // Merge with existing groups to preserve any groups not in the list
         // but remove groups that are now empty
         setGroups(groupsList.filter(g => g.memberCount > 0))
@@ -394,7 +385,6 @@ function App() {
       })
 
       client.on('group_created', (data: unknown) => {
-        console.log('[App] Received group_created:', data)
         const payload = data as { groupId?: string, groupName?: string, membersCount?: number, creatorClientId?: string }
         if (payload.groupId && payload.groupName) {
           // Add new group to list
@@ -409,18 +399,18 @@ function App() {
               maxMembers: 50
             }
           }
-          console.log('[App] Adding group to list:', newGroup)
-          setGroups(currentGroups => [...(currentGroups || []), newGroup])
+          setGroups(currentGroups => {
+            // Check if group already exists to prevent duplication
+            const exists = (currentGroups || []).some(g => g.id === payload.groupId)
+            if (exists) return currentGroups || []
+            return [...(currentGroups || []), newGroup]
+          })
           // Auto-join only if this client is the creator
           if (payload.creatorClientId === currentUserId) {
-            console.log('[App] Auto-joining created group (creator):', payload.groupId)
             setCurrentGroupId(payload.groupId)
+            setActiveTab('current-group') // Auto-switch to the group tab
             toast.success(`Group "${payload.groupName}" created`)
-          } else {
-            console.log('[App] Group created by another client:', payload.groupId, 'creator:', payload.creatorClientId, 'current user:', currentUserId)
           }
-        } else {
-          console.warn('[App] Invalid group_created payload:', payload)
         }
       })
 
@@ -428,26 +418,22 @@ function App() {
         const payload = data as { groupId?: string, groupName?: string }
         if (payload.groupId) {
           setCurrentGroupId(payload.groupId)
+          setActiveTab('current-group') // Auto-switch to the group tab
           toast.success(`Joined "${payload.groupName || 'group'}"`)
-          // Refresh group list to get updated member counts
-          client.listGroups()
         }
       })
 
       client.on('group_left', (data: unknown) => {
         const payload = data as { groupId?: string, memberCount?: number }
-        console.log('[App] Left group:', payload)
         setCurrentGroupId(null)
         // If the group is now empty, remove it from the list
         if (payload.groupId && payload.memberCount === 0) {
-          console.log('[App] Removing empty group:', payload.groupId)
           setGroups(currentGroups =>
             (currentGroups || []).filter(g => g.id !== payload.groupId)
           )
         } else if (payload.groupId && typeof payload.memberCount === 'number') {
           // Update the member count if provided
           const memberCount = payload.memberCount
-          console.log('[App] Updating group member count after leave:', payload.groupId, memberCount)
           setGroups(currentGroups =>
             (currentGroups || []).map(g =>
               g.id === payload.groupId
@@ -457,18 +443,14 @@ function App() {
           )
         }
         toast.info('Left group')
-        // Refresh group list
-        client.listGroups()
       })
 
       client.on('group_members_updated', (data: unknown) => {
         // Update users with new group members
         const payload = data as { groupId?: string, memberCount?: number, members?: Array<{id: string, username: string, isSpeaking: boolean, isMuted: boolean, volume: number}> }
-        console.log('[App] group_members_updated received:', JSON.stringify(payload, null, 2))
         if (payload.groupId) {
           // Calculate member count from members array if not provided
           const memberCount = payload.memberCount ?? payload.members?.length ?? 0
-          console.log('[App] Updating group member count:', payload.groupId, memberCount)
           // Update group member count in the groups list
           setGroups(currentGroups =>
             (currentGroups || []).map(g =>
@@ -479,21 +461,17 @@ function App() {
           )
           // Update the individual users if provided - MERGE with existing users, don't replace
           if (payload.members && payload.members.length > 0) {
-            console.log('[App] Updating group users:', payload.members)
             setUsers(currentUsers => {
               const newUsers = new Map(currentUsers)
-              console.log('[App] Current users before update:', Array.from(newUsers.keys()))
               // First, remove users who were in this group but are no longer members
               const memberIds = new Set(payload.members!.map(m => m.id))
               newUsers.forEach((user, id) => {
                 if (user.groupId === payload.groupId && !memberIds.has(id)) {
-                  console.log('[App] Removing user no longer in group:', id)
                   newUsers.delete(id)
                 }
               })
               // Then add/update the current members
               payload.members!.forEach(m => {
-                console.log('[App] Adding/updating user:', m.id, m.username)
                 newUsers.set(m.id, {
                   id: m.id,
                   name: m.username,
@@ -503,7 +481,6 @@ function App() {
                   groupId: payload.groupId
                 })
               })
-              console.log('[App] Users after update:', Array.from(newUsers.keys()))
               return newUsers
             })
           }
