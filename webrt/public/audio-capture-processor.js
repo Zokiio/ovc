@@ -26,8 +26,9 @@ class AudioCaptureProcessor extends AudioWorkletProcessor {
     
     // Capture audio when active and we have input
     if (input && input.length > 0 && input[0].length > 0 && this.isActive) {
-      // Clone the data since we can't transfer the original buffer
-      const audioData = new Float32Array(input[0])
+      // input[0] is already a Float32Array for the first channel
+      // Clone it since we can't transfer the original buffer
+      const audioData = input[0].slice()
       
       // Send to main thread
       this.port.postMessage({
