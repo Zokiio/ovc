@@ -97,6 +97,7 @@ function App() {
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [activeTab, setActiveTab] = useState<'current-group' | 'groups' | 'all-users'>('groups')
+  const [audioMenuOpen, setAudioMenuOpen] = useState(false)
 
   // Audio transmission hook - captures and sends audio when speaking
   const { onAudioData } = useAudioTransmission({
@@ -733,6 +734,15 @@ function App() {
               )}
               <Button
                 size="icon"
+                variant={audioMenuOpen ? "default" : "outline"}
+                onClick={() => setAudioMenuOpen((open) => !open)}
+                className={`h-8 w-8 ${audioMenuOpen ? "bg-accent text-accent-foreground" : ""}`}
+                aria-label={audioMenuOpen ? "Close audio settings" : "Open audio settings"}
+              >
+                <GearIcon size={16} weight="bold" />
+              </Button>
+              <Button
+                size="icon"
                 variant={vadEnabled ? "default" : "outline"}
                 onClick={handleToggleVAD}
                 className={`h-8 w-8 ${vadEnabled ? "bg-accent text-accent-foreground" : ""}`}
@@ -744,16 +754,31 @@ function App() {
 
           {/* Mobile Content */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            <ConnectionView
-              connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
-              audioSettings={audioSettings}
-              onConnect={handleConnect}
-              onDisconnect={handleDisconnect}
-              onAudioSettingsChange={handleAudioSettingsChange}
-              onSpeakingChange={handleSpeakingChange}
-              enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
-              onAudioData={onAudioData}
-            />
+            {audioMenuOpen && (
+              <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Audio Settings</h2>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setAudioMenuOpen(false)}
+                    className="h-7 px-2 text-[10px]"
+                  >
+                    Close
+                  </Button>
+                </div>
+                <ConnectionView
+                  connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
+                  audioSettings={audioSettings}
+                  onConnect={handleConnect}
+                  onDisconnect={handleDisconnect}
+                  onAudioSettingsChange={handleAudioSettingsChange}
+                  onSpeakingChange={handleSpeakingChange}
+                  enableAudioCapture={vadEnabled && connectionState.status === 'connected'}
+                  onAudioData={onAudioData}
+                />
+              </div>
+            )}
 
             {/* Tabs Navigation */}
             <div className="bg-card border border-border rounded-xl overflow-hidden">
