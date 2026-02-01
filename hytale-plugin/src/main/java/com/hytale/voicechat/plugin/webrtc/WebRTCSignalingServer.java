@@ -378,6 +378,36 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     }
     
     /**
+     * Broadcast current player list to all connected web clients
+     */
+    private void broadcastPlayerList() {
+        com.google.gson.JsonArray playersArray = new com.google.gson.JsonArray();
+        
+        for (WebRTCClient client : clients.values()) {
+            if (client != null && client.isConnected()) {
+                JsonObject playerObj = new JsonObject();
+                playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
+                playerObj.addProperty("username", client.getUsername());
+                playerObj.addProperty("isSpeaking", client.isSpeaking());
+                
+                // Include group info if player is in a group
+                java.util.UUID groupId = groupStateManager.getClientGroup(client.getClientId());
+                if (groupId != null) {
+                    playerObj.addProperty("groupId", groupId.toString());
+                }
+                
+                playersArray.add(playerObj);
+            }
+        }
+        
+        JsonObject data = new JsonObject();
+        data.add("players", playersArray);
+        
+        SignalingMessage message = new SignalingMessage("player_list", data);
+        broadcastToAll(message);
+    }
+    
+    /**
      * Start the periodic position broadcaster
      */
     private void startPositionBroadcaster() {
@@ -661,6 +691,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
             sendMessage(ctx, response);
             
+            // Broadcast updated player list to all clients
+            broadcastPlayerList();
+            
             logger.atInfo().log("WebRTC client authenticated: " + username + " (obfuscated: " + obfuscatedId + ")");
         }
         
@@ -793,6 +826,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 
                 clients.remove(client.getClientId());
                 logger.atInfo().log("WebRTC client disconnected: " + client.getClientId());
+                
+                // Broadcast updated player list to all remaining clients
+                broadcastPlayerList();
             }
         }
         
