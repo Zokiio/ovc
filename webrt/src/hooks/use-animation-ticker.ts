@@ -73,12 +73,10 @@ const globalTicker = new AnimationTicker()
  * Hook that subscribes to a shared animation loop
  * @param callback Function to call on each animation frame (or at specified interval)
  * @param interval Minimum time in milliseconds between callback invocations (0 = every frame)
- * @param deps Dependencies array that triggers re-subscription when changed
  */
 export function useAnimationTicker(
   callback: TickCallback,
-  interval: number = 0,
-  deps: React.DependencyList = []
+  interval: number = 0
 ): void {
   const callbackRef = useRef(callback)
 
@@ -88,6 +86,7 @@ export function useAnimationTicker(
   }, [callback])
 
   useEffect(() => {
+    // Create a stable wrapper that always calls the latest callback
     const wrappedCallback: TickCallback = (time, deltaTime) => {
       callbackRef.current(time, deltaTime)
     }
@@ -97,6 +96,5 @@ export function useAnimationTicker(
     return () => {
       globalTicker.unsubscribe(subscriptionId)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interval, ...deps])
+  }, [interval])
 }
