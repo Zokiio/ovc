@@ -21,12 +21,37 @@ import { getSignalingClient } from '@/lib/signaling'
 import { getAudioPlaybackManager } from '@/lib/audio-playback'
 import icon from '@/assets/images/icon.png'
 
+const AUDIO_SETTINGS_STORAGE_KEY = 'ovc_audio_settings'
+const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
+  inputDevice: 'default',
+  outputDevice: 'default',
+  inputVolume: 80,
+  outputVolume: 80,
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true
+}
+
+function loadAudioSettings(): AudioSettings {
+  try {
+    const stored = localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY)
+    if (!stored) {
+      return DEFAULT_AUDIO_SETTINGS
+    }
+    const parsed = JSON.parse(stored) as Partial<AudioSettings>
+    return { ...DEFAULT_AUDIO_SETTINGS, ...parsed }
+  } catch {
+    return DEFAULT_AUDIO_SETTINGS
+  }
+}
+
 function App() {
   const isMobile = useIsMobile()
   const signalingClient = useRef(getSignalingClient())
   const audioPlayback = useRef(getAudioPlaybackManager())
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const eventListenersSetUpRef = useRef(false)
+  const outputWarningRef = useRef<string | null>(null)
   
   // Use Map for O(1) user lookups and updates
   const [users, setUsers] = useState<Map<string, User>>(new Map())
@@ -40,15 +65,7 @@ function App() {
   const flushTimeoutRef = useRef<number | null>(null)
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null)
   const [username, setUsername] = useState<string>('')
-  const [audioSettings, setAudioSettings] = useState<AudioSettings>({
-    inputDevice: 'default',
-    outputDevice: 'default',
-    inputVolume: 80,
-    outputVolume: 80,
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true
-  })
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>(() => loadAudioSettings())
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'disconnected',
     serverUrl: ''
@@ -571,6 +588,16 @@ function App() {
     const playback = audioPlayback.current
     // Apply output device when it changes
     if (audioSettings.outputDevice) {
+      if (audioSettings.outputDevice !== 'default' && !playback.supportsOutputDeviceSelection()) {
+        if (outputWarningRef.current !== audioSettings.outputDevice) {
+          toast.warning('Output device switching is not supported in this browser. Audio will use the system default output.')
+          outputWarningRef.current = audioSettings.outputDevice
+        }
+        return
+      }
+      if (audioSettings.outputDevice === 'default') {
+        outputWarningRef.current = null
+      }
       playback.setOutputDevice(audioSettings.outputDevice).catch(err => {
         console.warn('[App] Failed to set output device:', err)
       })
@@ -578,6 +605,15 @@ function App() {
     // Apply master volume
     playback.setMasterVolume(audioSettings.outputVolume)
   }, [audioSettings.outputDevice, audioSettings.outputVolume])
+
+  // Persist audio settings locally
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(audioSettings))
+    } catch (err) {
+      console.warn('[App] Failed to persist audio settings:', err)
+    }
+  }, [audioSettings])
 
   const handleAudioSettingsChange = useCallback((settings: AudioSettings) => {
     setAudioSettings(settings)

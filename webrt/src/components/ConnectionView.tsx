@@ -170,9 +170,29 @@ export function ConnectionView({
     try {
       await navigator.mediaDevices.getUserMedia({ audio: true })
       const devices = await navigator.mediaDevices.enumerateDevices()
-      const inputDevices = devices.filter(d => d.kind === 'audioinput')
-      const outputDevices = devices.filter(d => d.kind === 'audiooutput')
+      const isSelectableDevice = (device: MediaDeviceInfo) => (
+        device.deviceId !== 'default' && device.deviceId !== 'communications'
+      )
+      const inputDevices = devices
+        .filter(d => d.kind === 'audioinput')
+        .filter(isSelectableDevice)
+      const outputDevices = devices
+        .filter(d => d.kind === 'audiooutput')
+        .filter(isSelectableDevice)
       setAudioDevices({ inputDevices, outputDevices })
+
+      const inputDeviceIds = new Set(inputDevices.map(d => d.deviceId))
+      const outputDeviceIds = new Set(outputDevices.map(d => d.deviceId))
+
+      if (audioSettings.inputDevice !== 'default' && !inputDeviceIds.has(audioSettings.inputDevice)) {
+        onAudioSettingsChange({ ...audioSettings, inputDevice: 'default' })
+        toast.warning('Saved input device not found. Reset to Default.')
+      }
+
+      if (audioSettings.outputDevice !== 'default' && !outputDeviceIds.has(audioSettings.outputDevice)) {
+        onAudioSettingsChange({ ...audioSettings, outputDevice: 'default' })
+        toast.warning('Saved output device not found. Reset to Default.')
+      }
     } catch (err) {
       toast.error('Failed to access audio devices')
     }

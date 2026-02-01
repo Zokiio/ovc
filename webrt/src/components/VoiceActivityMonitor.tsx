@@ -12,6 +12,27 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
+const VAD_SETTINGS_STORAGE_KEY = 'ovc_vad_settings'
+const DEFAULT_VAD_SETTINGS: VADSettings = {
+  threshold: 0.15,
+  minSpeechDuration: 100,
+  minSilenceDuration: 300,
+  smoothingTimeConstant: 0.8
+}
+
+function loadVADSettings(): VADSettings {
+  try {
+    const stored = localStorage.getItem(VAD_SETTINGS_STORAGE_KEY)
+    if (!stored) {
+      return DEFAULT_VAD_SETTINGS
+    }
+    const parsed = JSON.parse(stored) as Partial<VADSettings>
+    return { ...DEFAULT_VAD_SETTINGS, ...parsed }
+  } catch {
+    return DEFAULT_VAD_SETTINGS
+  }
+}
+
 interface VoiceActivityMonitorProps {
   audioSettings: AudioSettings
   onSpeakingChange?: (isSpeaking: boolean) => void
@@ -64,17 +85,12 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
 
 export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAudioCapture = false, onAudioData }: VoiceActivityMonitorProps) {
   const [vadEnabled, setVadEnabled] = useState(true)
-  const [vadSettings, setVadSettings] = useState<VADSettings>({
-    threshold: 0.15,
-    minSpeechDuration: 100,
-    minSilenceDuration: 300,
-    smoothingTimeConstant: 0.8
-  })
+  const [vadSettings, setVadSettings] = useState<VADSettings>(() => loadVADSettings())
   
-  const [threshold, setThreshold] = useState(vadSettings?.threshold || 0.15)
-  const [minSpeechDuration, setMinSpeechDuration] = useState(vadSettings?.minSpeechDuration || 100)
-  const [minSilenceDuration, setMinSilenceDuration] = useState(vadSettings?.minSilenceDuration || 300)
-  const [smoothingTimeConstant, setSmoothingTimeConstant] = useState(vadSettings?.smoothingTimeConstant || 0.8)
+  const [threshold, setThreshold] = useState(vadSettings.threshold)
+  const [minSpeechDuration, setMinSpeechDuration] = useState(vadSettings.minSpeechDuration)
+  const [minSilenceDuration, setMinSilenceDuration] = useState(vadSettings.minSilenceDuration)
+  const [smoothingTimeConstant, setSmoothingTimeConstant] = useState(vadSettings.smoothingTimeConstant)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const prevSpeakingRef = useRef<boolean | null>(null)
   const displayLevelRef = useRef<HTMLDivElement>(null)
@@ -158,6 +174,14 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
 
     return () => clearTimeout(saveTimeout)
   }, [threshold, minSpeechDuration, minSilenceDuration, smoothingTimeConstant, setVadSettings])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VAD_SETTINGS_STORAGE_KEY, JSON.stringify(vadSettings))
+    } catch (err) {
+      console.warn('[VAD] Failed to persist settings:', err)
+    }
+  }, [vadSettings])
 
   const handleToggleVAD = async () => {
     if (vadEnabled) {

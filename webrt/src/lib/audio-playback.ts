@@ -138,15 +138,23 @@ export class AudioPlaybackManager {
   public async setOutputDevice(deviceId: string): Promise<void> {
     this.outputDeviceId = deviceId
     
+    if (deviceId === 'default') {
+      // Recreate AudioContext to pick up system default output
+      if (this.audioContext) {
+        await this.resetAudioContextToDefault()
+      }
+      return
+    }
+
     // Try to set sink on AudioContext (Chrome 110+)
-    if (this.audioContext && 'setSinkId' in this.audioContext) {
+    if (this.audioContext && this.supportsOutputDeviceSelection()) {
       try {
         await (this.audioContext as any).setSinkId(deviceId)
         console.log(`[AudioPlayback] Set output device on AudioContext: ${deviceId}`)
       } catch (err) {
         console.warn(`[AudioPlayback] Failed to set AudioContext output device:`, err)
       }
-    } else {
+    } else if (this.audioContext) {
       console.warn('[AudioPlayback] setSinkId not supported on AudioContext (requires Chrome 110+)')
     }
     
@@ -161,6 +169,48 @@ export class AudioPlaybackManager {
         }
       }
     }
+  }
+
+  /**
+   * Check if output device selection is supported
+   */
+  public supportsOutputDeviceSelection(): boolean {
+    const context = this.audioContext ?? (AudioContext.prototype as any)
+    return typeof (context as any).setSinkId === 'function'
+  }
+
+  /**
+   * Reset AudioContext to use system default output device
+   */
+  private async resetAudioContextToDefault(): Promise<void> {
+    console.log('[AudioPlayback] Resetting AudioContext to default output')
+
+    for (const state of this.userAudioStates.values()) {
+      if (state.playbackProcessor) {
+        state.playbackProcessor.disconnect()
+        state.playbackProcessor = null
+      }
+      if (state.gainNode) {
+        state.gainNode.disconnect()
+        state.gainNode = null
+      }
+      state.playbackBuffer = null
+      state.playbackWritePos = 0
+      state.playbackReadPos = 0
+      state.isPlaybackInitialized = false
+    }
+
+    if (this.masterGainNode) {
+      this.masterGainNode.disconnect()
+      this.masterGainNode = null
+    }
+
+    if (this.audioContext) {
+      await this.audioContext.close()
+      this.audioContext = null
+    }
+
+    await this.initialize()
   }
 
   /**
