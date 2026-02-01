@@ -166,7 +166,6 @@ AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost
 
 ---
 
-- **Web Client**: See [`web-client/README.md`](web-client/README.md)
 - **Hytale Plugin**: See [`hytale-plugin/docs/`](hytale-plugin/docs/) directory for detailed guides:
   - [Setup Guide](hytale-plugin/docs/SETUP.md)
   - [Testing Guide](hytale-plugin/docs/TEST.md)
