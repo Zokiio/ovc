@@ -68,7 +68,9 @@ export function AudioLevelMeter({ isSpeaking, className }: AudioLevelMeterProps)
           className="flex-1 bg-muted rounded-[1px] transition-all duration-100 ease-out relative overflow-hidden"
         >
           <div
-            ref={el => barRefs.current[index] = el}
+            ref={el => {
+              barRefs.current[index] = el
+            }}
             className="absolute bottom-0 left-0 right-0 rounded-[1px] transition-all duration-100 bg-accent/40"
             style={{ height: '0%' }}
           />

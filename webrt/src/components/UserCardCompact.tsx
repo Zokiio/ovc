@@ -114,7 +114,9 @@ function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) 
               {Array.from({ length: bars }).map((_, i) => (
                 <div
                   key={i}
-                  ref={el => barRefs.current[i] = el}
+                  ref={el => {
+                    barRefs.current[i] = el
+                  }}
                   className="w-0.5 rounded-full transition-all duration-75 bg-muted-foreground/30"
                   style={{ height: '20%', transitionDelay: '0ms' }}
                 />

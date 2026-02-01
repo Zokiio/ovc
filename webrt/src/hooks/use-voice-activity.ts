@@ -23,13 +23,16 @@ interface VoiceActivityResult {
 
 /**
  * Convert Float32 PCM samples to base64-encoded Int16 PCM
+ * Applies input volume multiplier to audio amplitude
  */
-function float32ToBase64(float32Array: Float32Array): string {
+function float32ToBase64(float32Array: Float32Array, volumeMultiplier?: number): string {
+  const multiplier = volumeMultiplier ?? 1
   const int16Array = new Int16Array(float32Array.length)
   
   for (let i = 0; i < float32Array.length; i++) {
-    // Clamp and convert float [-1, 1] to int16 [-32768, 32767]
-    const s = Math.max(-1, Math.min(1, float32Array[i]))
+    // Apply volume multiplier, then clamp and convert float [-1, 1] to int16 [-32768, 32767]
+    const amplified = float32Array[i] * multiplier
+    const s = Math.max(-1, Math.min(1, amplified))
     int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff
   }
   
