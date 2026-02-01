@@ -66,7 +66,6 @@ export function useVoiceActivity({
   const speakingTimeoutRef = useRef<number | null>(null)
   const silenceTimeoutRef = useRef<number | null>(null)
   const lastSpeechTimeRef = useRef<number>(0)
-  const lastSilenceTimeRef = useRef<number>(0)
   const isInitializingRef = useRef(false)
   const lastLevelUpdateRef = useRef<number>(0)
   const lastReportedLevelRef = useRef<number>(0)
@@ -215,7 +214,9 @@ export function useVoiceActivity({
         workletNode.port.onmessage = (event) => {
           if (event.data.type === 'audioData' && onAudioDataRef.current) {
             const float32Data = new Float32Array(event.data.data)
-            const audioData = float32ToBase64(float32Data)
+            // Apply input volume multiplier when converting to base64
+            const volumeMultiplier = audioSettings.inputVolume / 100
+            const audioData = float32ToBase64(float32Data, volumeMultiplier)
             onAudioDataRef.current(audioData)
           }
         }
@@ -272,9 +273,9 @@ export function useVoiceActivity({
           audioLevelRef.current = normalizedLevel
         }
 
-        const volumeMultiplier = audioSettings.inputVolume / 100
-        const adjustedThreshold = threshold / Math.max(volumeMultiplier, 0.1)
-        const isSpeechDetected = rms > adjustedThreshold
+        // VAD threshold is independent of input volume
+        // Input volume only affects transmitted audio amplitude, not detection
+        const isSpeechDetected = rms > threshold
 
         if (isSpeechDetected) {
           lastSpeechTimeRef.current = now
@@ -301,8 +302,6 @@ export function useVoiceActivity({
             return currentSpeaking
           })
         } else {
-          lastSilenceTimeRef.current = now
-
           setIsSpeaking(currentSpeaking => {
             if (currentSpeaking) {
               if (speakingTimeoutRef.current) {
@@ -343,7 +342,6 @@ export function useVoiceActivity({
     audioSettings.echoCancellation,
     audioSettings.noiseSuppression,
     audioSettings.autoGainControl,
-    audioSettings.inputVolume,
     threshold,
     smoothingTimeConstant,
     minSpeechDuration,

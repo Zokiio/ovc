@@ -70,9 +70,11 @@ function UserCardComponent({ user, onVolumeChange, onToggleMute }: UserCardProps
               </Badge>
             )}
           </div>
-          <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
-            {user.position ? `${Math.floor(user.position.x)}m` : '--'}m Range • {user.isSpeaking ? 'Speaking' : 'Idle'}
-          </p>
+          {user.isSpeaking && (
+            <p className="text-[10px] text-accent font-mono uppercase tracking-wider font-semibold">
+              Speaking
+            </p>
+          )}
         </div>
       </div>
 

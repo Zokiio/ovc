@@ -92,21 +92,21 @@ export class AudioPlaybackManager {
   }
 
   /**
-   * Set volume for a specific user (0-100)
+   * Set volume for a specific user (0-200%)
    */
   public setUserVolume(userId: string, volume: number): void {
-    const clampedVolume = Math.max(0, Math.min(100, volume))
+    const clampedVolume = Math.max(0, Math.min(200, volume))
     const state = this.getOrCreateUserState(userId)
     state.volume = clampedVolume
     this.updateUserGain(userId)
-    console.log(`[AudioPlayback] User ${userId} volume set to ${clampedVolume}`)
+    console.log(`[AudioPlayback] User ${userId} volume set to ${clampedVolume}%`)
   }
 
   /**
-   * Get volume for a specific user
+   * Get volume for a specific user (0-200%)
    */
   public getUserVolume(userId: string): number {
-    return this.userAudioStates.get(userId)?.volume ?? 80
+    return this.userAudioStates.get(userId)?.volume ?? 100
   }
 
   /**
