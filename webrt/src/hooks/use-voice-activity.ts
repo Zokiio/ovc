@@ -75,6 +75,7 @@ export function useVoiceActivity({
   const lastLevelUpdateRef = useRef<number>(0)
   const lastReportedLevelRef = useRef<number>(0)
   const isSpeakingRef = useRef(false) // Track speaking state for gating audio transmission
+  const thresholdRef = useRef(threshold) // Track current threshold for detection loop
   
   // Audio capture refs (using AudioWorkletNode)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
@@ -91,6 +92,11 @@ export function useVoiceActivity({
   useEffect(() => {
     useVadThresholdRef.current = useVadThreshold
   }, [useVadThreshold])
+  
+  // Keep threshold ref updated so detection loop uses current value
+  useEffect(() => {
+    thresholdRef.current = threshold
+  }, [threshold])
   
   // Activate/deactivate audio capture based on enableAudioCapture prop
   useEffect(() => {
@@ -289,7 +295,8 @@ export function useVoiceActivity({
         // VAD threshold is independent of input volume
         // Input volume only affects transmitted audio amplitude, not detection
         // Compare normalized level (0-1) against threshold so visual meter matches detection
-        const isSpeechDetected = normalizedLevel > threshold
+        // Use thresholdRef to pick up slider changes without restarting audio
+        const isSpeechDetected = normalizedLevel > thresholdRef.current
 
         if (isSpeechDetected) {
           lastSpeechTimeRef.current = now
