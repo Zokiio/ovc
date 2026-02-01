@@ -395,7 +395,7 @@ function App() {
 
       client.on('group_created', (data: unknown) => {
         console.log('[App] Received group_created:', data)
-        const payload = data as { groupId?: string, groupName?: string, membersCount?: number }
+        const payload = data as { groupId?: string, groupName?: string, membersCount?: number, creatorClientId?: string }
         if (payload.groupId && payload.groupName) {
           // Add new group to list
           const newGroup: Group = {
@@ -411,10 +411,14 @@ function App() {
           }
           console.log('[App] Adding group to list:', newGroup)
           setGroups(currentGroups => [...(currentGroups || []), newGroup])
-          // Auto-join the creator to the group they just created
-          console.log('[App] Auto-joining created group:', payload.groupId)
-          setCurrentGroupId(payload.groupId)
-          toast.success(`Group "${payload.groupName}" created`)
+          // Auto-join only if this client is the creator
+          if (payload.creatorClientId === currentUserId) {
+            console.log('[App] Auto-joining created group (creator):', payload.groupId)
+            setCurrentGroupId(payload.groupId)
+            toast.success(`Group "${payload.groupName}" created`)
+          } else {
+            console.log('[App] Group created by another client:', payload.groupId, 'creator:', payload.creatorClientId, 'current user:', currentUserId)
+          }
         } else {
           console.warn('[App] Invalid group_created payload:', payload)
         }

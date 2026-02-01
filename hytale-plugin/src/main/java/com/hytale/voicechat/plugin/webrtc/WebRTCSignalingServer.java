@@ -304,6 +304,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         broadcastData.addProperty("membersCount", 1); // Creator is automatically added
         broadcastData.addProperty("maxMembers", group.getSettings().getMaxMembers());
         broadcastData.addProperty("proximityRange", group.getSettings().getProximityRange());
+        broadcastData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(creatorId));
         
         SignalingMessage broadcastMsg = new SignalingMessage("group_created", broadcastData);
         broadcastToAll(broadcastMsg);
@@ -838,6 +839,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("groupId", group.getGroupId().toString());
             responseData.addProperty("groupName", group.getName());
             responseData.addProperty("membersCount", group.getMemberCount());
+            responseData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(client.getClientId()));
             
             SignalingMessage response = new SignalingMessage("group_created", responseData);
             sendMessage(ctx, response);
