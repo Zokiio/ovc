@@ -18,7 +18,7 @@ export function GroupCard({ group, isJoined, onJoin, onLeave, onSettings }: Grou
   const status = isJoined ? 'Joined' : isFull ? 'Full' : 'Active'
 
   return (
-    <Card className="p-5 transition-all hover:border-accent/50 group relative overflow-hidden">
+    <Card className="p-3 sm:p-5 transition-all hover:border-accent/50 group relative overflow-hidden">
       {/* Hover chevron indicator */}
       <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
         <CaretRightIcon size={16} className="text-accent" />

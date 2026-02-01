@@ -85,7 +85,7 @@ function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) 
   return (
     <div 
       className={cn(
-        "flex items-center gap-2 p-2 rounded-md border border-border bg-card transition-all duration-150",
+        "flex items-center gap-1.5 p-1.5 sm:p-2 rounded-md border border-border bg-card transition-all duration-150 text-[11px] sm:text-xs",
         user.isSpeaking && "border-accent/50 bg-accent/5"
       )}
     >

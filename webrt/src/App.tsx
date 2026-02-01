@@ -760,65 +760,67 @@ function App() {
           </header>
 
           {/* Mobile Content */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 min-w-0">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-4 space-y-3 min-w-0 w-full">
             {audioMenuOpen && (
-              <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+              <div className="bg-card border border-border rounded-lg p-3 space-y-2 w-full">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Audio Settings</h2>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => setAudioMenuOpen(false)}
-                    className="h-7 px-2 text-[10px]"
+                    className="h-6 px-2 text-[9px]"
                   >
                     Close
                   </Button>
                 </div>
-                <ConnectionView
-                  connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
-                  audioSettings={audioSettings}
-                  onConnect={handleConnect}
-                  onDisconnect={handleDisconnect}
-                  onAudioSettingsChange={handleAudioSettingsChange}
-                  onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
-                  enableAudioCapture={!isMuted && connectionState.status === 'connected'}
-                  onAudioData={onAudioData}
-                />
+                <div className="text-xs space-y-2 overflow-y-auto max-h-[200px]">
+                  <ConnectionView
+                    connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
+                    audioSettings={audioSettings}
+                    onConnect={handleConnect}
+                    onDisconnect={handleDisconnect}
+                    onAudioSettingsChange={handleAudioSettingsChange}
+                    onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
+                    enableAudioCapture={!isMuted && connectionState.status === 'connected'}
+                    onAudioData={onAudioData}
+                  />
+                </div>
               </div>
             )}
 
             {/* Tabs Navigation */}
-            <div className="bg-card border border-border rounded-xl overflow-hidden">
-              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
-                <TabsList className="w-full grid grid-cols-3 h-auto bg-secondary/50 p-1 rounded-none">
+            <div className="bg-card border border-border rounded-lg overflow-hidden w-full">
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full flex flex-col">
+                <TabsList className="w-full grid grid-cols-3 h-auto bg-secondary/50 p-1 rounded-none gap-1">
                   {currentGroup && (
                     <TabsTrigger 
                       value="current-group" 
-                      className="text-[10px] px-2 py-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-md"
+                      className="text-[9px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-sm"
                     >
-                      <HashIcon size={12} weight="bold" className="mr-1" />
+                      <HashIcon size={10} weight="bold" className="hidden sm:inline mr-0.5" />
                       Group
                     </TabsTrigger>
                   )}
                   <TabsTrigger 
                     value="groups" 
-                    className="text-[10px] px-2 py-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-md"
+                    className="text-[9px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-sm"
                     style={currentGroup ? {} : { gridColumn: 'span 2' }}
                   >
-                    <BroadcastIcon size={12} weight="bold" className="mr-1" />
+                    <BroadcastIcon size={10} weight="bold" className="hidden sm:inline mr-0.5" />
                     Groups
                   </TabsTrigger>
                   <TabsTrigger 
                     value="all-users" 
-                    className="text-[10px] px-2 py-2 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-md"
+                    className="text-[9px] px-1 py-1.5 data-[state=active]:bg-accent data-[state=active]:text-accent-foreground rounded-sm"
                     style={currentGroup ? {} : { gridColumn: 'span 1' }}
                   >
-                    <UsersIcon size={12} weight="bold" className="mr-1" />
+                    <UsersIcon size={10} weight="bold" className="hidden sm:inline mr-0.5" />
                     Users
                   </TabsTrigger>
                 </TabsList>
 
-                <div className="p-4">
+                <div className="p-2 overflow-hidden flex-1 min-w-0">
                   {currentGroup && (
                     <TabsContent value="current-group" className="mt-0 space-y-3">
                       <div className="flex items-center justify-between">
