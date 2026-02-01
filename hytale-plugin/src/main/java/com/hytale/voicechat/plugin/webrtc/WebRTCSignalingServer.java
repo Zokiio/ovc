@@ -424,8 +424,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 PlayerPosition viewerPos = allPositions.get(client.getClientId());
                 if (viewerPos == null) continue;
                 
-                // Get proximity range from group settings or use default
-                double proximityRange = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
+                // Get proximity range from group settings or use configurable default
+                double proximityRange = NetworkConfig.getDefaultProximityDistance();
                 UUID groupId = groupStateManager.getClientGroup(client.getClientId());
                 if (groupId != null && groupManager != null) {
                     Group group = groupManager.getGroup(groupId);
