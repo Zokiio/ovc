@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo, memo } from 'react'
+import { useMemo, memo, useRef, useEffect } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { useAnimationTicker } from '@/hooks/use-mobile'
 
 interface UserCardCompactProps {
   user: User
@@ -12,8 +11,16 @@ interface UserCardCompactProps {
   onToggleMute: (userId: string) => void
 }
 
-export function UserCardCompact({ user, onToggleMute }: UserCardCompactProps) {
-  const [audioLevel, setAudioLevel] = useState(0)
+function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) {
+  const barRefs = useRef<(HTMLDivElement | null)[]>([])
+  const animationFrameRef = useRef<number | null>(null)
+  const isSpeakingRef = useRef(user.isSpeaking)
+  
+  const bars = 12
+  
+  useEffect(() => {
+    isSpeakingRef.current = user.isSpeaking
+  }, [user.isSpeaking])
 
   const initials = useMemo(() => {
     return user.name
@@ -24,23 +31,56 @@ export function UserCardCompact({ user, onToggleMute }: UserCardCompactProps) {
       .slice(0, 2)
   }, [user.name])
 
-  // Use shared animation ticker instead of per-user setInterval
-  useAnimationTicker(() => {
-    if (user.isSpeaking) {
-      const randomLevel = Math.random() * 0.6 + 0.4
-      setAudioLevel(randomLevel)
-    }
-  }, user.isSpeaking)
-
-  // Reset audio level when not speaking
+  // Use RAF for smooth bar animations without causing React re-renders
   useEffect(() => {
-    if (!user.isSpeaking) {
-      setAudioLevel(0)
+    let lastUpdateTime = 0
+    const UPDATE_INTERVAL = 100 // 10Hz
+    let audioLevel = 0
+    
+    const animate = (time: number) => {
+      if (time - lastUpdateTime >= UPDATE_INTERVAL) {
+        if (isSpeakingRef.current) {
+          audioLevel = Math.random() * 0.6 + 0.4
+        } else {
+          audioLevel = 0
+        }
+        
+        const activeBarCount = Math.floor(audioLevel * bars)
+        
+        barRefs.current.forEach((bar, i) => {
+          if (!bar) return
+          
+          const isActive = i < activeBarCount
+          const barHeight = isSpeakingRef.current 
+            ? isActive 
+              ? `${30 + (i / bars) * 70}%`
+              : '20%'
+            : '20%'
+          
+          bar.style.height = barHeight
+          bar.className = cn(
+            "w-0.5 rounded-full transition-all duration-75",
+            isActive && isSpeakingRef.current
+              ? "bg-accent"
+              : "bg-muted-foreground/30"
+          )
+          bar.style.transitionDelay = isSpeakingRef.current ? `${i * 8}ms` : '0ms'
+        })
+        
+        lastUpdateTime = time
+      }
+      
+      animationFrameRef.current = requestAnimationFrame(animate)
     }
-  }, [user.isSpeaking])
-
-  const bars = 12
-  const activeBarCount = Math.floor(audioLevel * bars)
+    
+    animationFrameRef.current = requestAnimationFrame(animate)
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [bars])
 
   return (
     <div 
@@ -66,30 +106,14 @@ export function UserCardCompact({ user, onToggleMute }: UserCardCompactProps) {
           <div className="text-xs font-medium truncate leading-tight">{user.name}</div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <div className="flex items-end gap-[2px] h-3">
-              {Array.from({ length: bars }).map((_, i) => {
-                const isActive = i < activeBarCount
-                const barHeight = user.isSpeaking 
-                  ? isActive 
-                    ? `${30 + (i / bars) * 70}%`
-                    : '20%'
-                  : '20%'
-                
-                return (
-                  <div
-                    key={i}
-                    className={cn(
-                      "w-0.5 rounded-full transition-all duration-75",
-                      isActive && user.isSpeaking
-                        ? "bg-accent"
-                        : "bg-muted-foreground/30"
-                    )}
-                    style={{
-                      height: barHeight,
-                      transitionDelay: user.isSpeaking ? `${i * 8}ms` : '0ms'
-                    }}
-                  />
-                )
-              })}
+              {Array.from({ length: bars }).map((_, i) => (
+                <div
+                  key={i}
+                  ref={el => barRefs.current[i] = el}
+                  className="w-0.5 rounded-full transition-all duration-75 bg-muted-foreground/30"
+                  style={{ height: '20%', transitionDelay: '0ms' }}
+                />
+              ))}
             </div>
             <span className="text-[10px] font-mono text-muted-foreground">
               #{user.id.slice(-4)}
@@ -114,4 +138,4 @@ export function UserCardCompact({ user, onToggleMute }: UserCardCompactProps) {
   )
 }
 
-export default memo(UserCardCompact)
+export default memo(UserCardCompact)const UserCardCompact = memo(UserCardCompactComponen

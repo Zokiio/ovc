@@ -566,6 +566,19 @@ function App() {
     }
   }, [])
 
+  // Apply audio settings changes to audio systems
+  useEffect(() => {
+    const playback = audioPlayback.current
+    // Apply output device when it changes
+    if (audioSettings.outputDevice) {
+      playback.setOutputDevice(audioSettings.outputDevice).catch(err => {
+        console.warn('[App] Failed to set output device:', err)
+      })
+    }
+    // Apply master volume
+    playback.setMasterVolume(audioSettings.outputVolume)
+  }, [audioSettings.outputDevice, audioSettings.outputVolume])
+
   const handleAudioSettingsChange = useCallback((settings: AudioSettings) => {
     setAudioSettings(settings)
   }, [])

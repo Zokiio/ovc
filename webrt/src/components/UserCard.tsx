@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo } from 'react'
+import { useMemo, memo } from 'react'
 import { Card } from '@/components/ui/card'
 import { Slider } from '@/components/ui/slider'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -8,7 +8,6 @@ import { SpeakerHighIcon, SpeakerSlashIcon, MicrophoneIcon } from '@phosphor-ico
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { AudioLevelMeter } from '@/components/AudioLevelMeter'
-import { useAnimationTicker } from '@/hooks/use-mobile'
 
 interface UserCardProps {
   user: User
@@ -16,9 +15,7 @@ interface UserCardProps {
   onToggleMute: (userId: string) => void
 }
 
-export function UserCard({ user, onVolumeChange, onToggleMute }: UserCardProps) {
-  const [visualVolume, setVisualVolume] = useState(user.volume)
-
+function UserCardComponent({ user, onVolumeChange, onToggleMute }: UserCardProps) {
   const initials = useMemo(() => {
     return user.name
       .split(' ')
@@ -27,22 +24,6 @@ export function UserCard({ user, onVolumeChange, onToggleMute }: UserCardProps) 
       .toUpperCase()
       .slice(0, 2)
   }, [user.name])
-
-  // Use shared animation ticker instead of per-user setInterval
-  useAnimationTicker(() => {
-    if (user.isSpeaking) {
-      const jump = Math.random() * 30 + 10
-      const targetVolume = Math.min(200, user.volume + jump)
-      setVisualVolume(targetVolume)
-    }
-  }, user.isSpeaking)
-
-  // Reset visual volume when not speaking
-  useEffect(() => {
-    if (!user.isSpeaking) {
-      setVisualVolume(user.volume)
-    }
-  }, [user.isSpeaking, user.volume])
 
   return (
     <Card 
@@ -127,4 +108,4 @@ export function UserCard({ user, onVolumeChange, onToggleMute }: UserCardProps) 
   )
 }
 
-export default memo(UserCard)
+export const UserCard = memo(UserCardComponent)

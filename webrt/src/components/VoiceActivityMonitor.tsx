@@ -77,7 +77,9 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
   const [smoothingTimeConstant, setSmoothingTimeConstant] = useState(vadSettings?.smoothingTimeConstant || 0.8)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const prevSpeakingRef = useRef<boolean | null>(null)
-  const [displayLevel, setDisplayLevel] = useState(0) // Local state for UI animation
+  const displayLevelRef = useRef<HTMLDivElement>(null)
+  const thresholdIndicatorRef = useRef<HTMLDivElement>(null)
+  const levelTextRef = useRef<HTMLSpanElement>(null)
 
   const {
     isSpeaking,
@@ -105,17 +107,35 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
     }
   }, [isSpeaking, onSpeakingChange])
 
-  // Update display level from ref at ~20fps for smooth UI without causing hook re-renders
+  // Update display level using direct DOM manipulation to avoid re-renders
   useEffect(() => {
     if (!isInitialized) return
     
+    let animationFrameId: number
+    
     const updateDisplay = () => {
-      setDisplayLevel(audioLevelRef.current)
+      const level = audioLevelRef.current
+      const isActive = level > threshold
+      
+      // Update level bar width and color
+      if (displayLevelRef.current) {
+        displayLevelRef.current.style.width = `${Math.min(100, level * 100)}%`
+        displayLevelRef.current.className = isActive
+          ? 'h-full transition-all duration-100 bg-accent shadow-[inset_0_0_12px_rgba(255,255,255,0.3)]'
+          : 'h-full transition-all duration-100 bg-muted-foreground/60'
+      }
+      
+      // Update level text
+      if (levelTextRef.current) {
+        levelTextRef.current.textContent = (level * 100).toFixed(0)
+      }
+      
+      animationFrameId = requestAnimationFrame(updateDisplay)
     }
     
-    const intervalId = setInterval(updateDisplay, 50) // 20fps
-    return () => clearInterval(intervalId)
-  }, [isInitialized, audioLevelRef])
+    animationFrameId = requestAnimationFrame(updateDisplay)
+    return () => cancelAnimationFrame(animationFrameId)
+  }, [isInitialized, audioLevelRef, threshold])
 
   useEffect(() => {
     if (vadSettings) {
@@ -264,26 +284,21 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <span className="text-xs text-muted-foreground font-mono">
-                          Level: <span className="font-bold text-foreground">{(displayLevel * 100).toFixed(0)}%</span>
+                          Level: <span className="font-bold text-foreground"><span ref={levelTextRef}>0</span>%</span>
                         </span>
                       </div>
 
                       <div className="relative">
                         <div className="h-12 rounded-lg overflow-hidden bg-muted/50 border border-border">
                           <div 
-                            className={cn(
-                              "h-full transition-all duration-100",
-                              displayLevel > threshold 
-                                ? "bg-accent shadow-[inset_0_0_12px_rgba(255,255,255,0.3)]" 
-                                : "bg-muted-foreground/60"
-                            )}
-                            style={{ 
-                              width: `${Math.min(100, displayLevel * 100)}%`,
-                            }}
+                            ref={displayLevelRef}
+                            className="h-full transition-all duration-100 bg-muted-foreground/60"
+                            style={{ width: '0%' }}
                           />
                         </div>
                         
                         <div 
+                          ref={thresholdIndicatorRef}
                           className="absolute inset-y-0 w-0.5 bg-destructive/70 z-10 transition-all"
                           style={{ left: `${Math.min(100, threshold * 100)}%` }}
                         >
@@ -336,10 +351,7 @@ export function VoiceActivityMonitor({ audioSettings, onSpeakingChange, enableAu
                     <Label htmlFor="vad-threshold" className="text-sm font-semibold">Detection Threshold</Label>
                     <Badge 
                       variant="outline"
-                      className={cn(
-                        "font-mono text-xs",
-                        displayLevel > threshold && "bg-accent/20 text-accent border-accent/50"
-                      )}
+                      className="font-mono text-xs"
                     >
                       {(threshold * 100).toFixed(0)}%
                     </Badge>

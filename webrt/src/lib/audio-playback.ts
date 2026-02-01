@@ -41,6 +41,16 @@ export class AudioPlaybackManager {
     this.masterGainNode.connect(this.audioContext.destination)
     this.updateMasterGain()
     
+    // Apply output device if one was set before initialization
+    if (this.outputDeviceId !== 'default' && 'setSinkId' in this.audioContext) {
+      try {
+        await (this.audioContext as any).setSinkId(this.outputDeviceId)
+        console.log('[AudioPlayback] Applied output device on initialization:', this.outputDeviceId)
+      } catch (err) {
+        console.warn('[AudioPlayback] Failed to apply output device on init:', err)
+      }
+    }
+    
     console.log('[AudioPlayback] Initialized AudioContext')
   }
 
@@ -123,10 +133,24 @@ export class AudioPlaybackManager {
 
   /**
    * Set output device
+   * Applies to the AudioContext destination (Chrome 110+)
    */
   public async setOutputDevice(deviceId: string): Promise<void> {
     this.outputDeviceId = deviceId
-    // Apply to all existing audio elements
+    
+    // Try to set sink on AudioContext (Chrome 110+)
+    if (this.audioContext && 'setSinkId' in this.audioContext) {
+      try {
+        await (this.audioContext as any).setSinkId(deviceId)
+        console.log(`[AudioPlayback] Set output device on AudioContext: ${deviceId}`)
+      } catch (err) {
+        console.warn(`[AudioPlayback] Failed to set AudioContext output device:`, err)
+      }
+    } else {
+      console.warn('[AudioPlayback] setSinkId not supported on AudioContext (requires Chrome 110+)')
+    }
+    
+    // Also apply to any audio elements (legacy support)
     for (const [userId, state] of this.userAudioStates) {
       if (state.audioElement && 'setSinkId' in state.audioElement) {
         try {

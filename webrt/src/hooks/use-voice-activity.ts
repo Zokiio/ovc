@@ -327,7 +327,20 @@ export function useVoiceActivity({
     } else if (!enabled && isInitialized) {
       stopListening()
     }
-  }, [enabled, isInitialized])
+  }, [enabled, isInitialized, startListening, stopListening])
+
+  // Restart audio when input device changes (while enabled)
+  useEffect(() => {
+    if (enabled && isInitialized) {
+      console.log('[VAD] Input device changed, restarting audio...')
+      stopListening()
+      // Small delay to ensure cleanup completes before restart
+      const timer = setTimeout(() => {
+        startListening()
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [audioSettings.inputDevice])
 
   useEffect(() => {
     return () => {
@@ -335,7 +348,7 @@ export function useVoiceActivity({
         stopListening()
       }
     }
-  }, [])
+  }, [stopListening])
 
   return {
     isSpeaking,
