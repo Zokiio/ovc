@@ -760,31 +760,33 @@ function App() {
           </header>
 
           {/* Mobile Content */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 py-4 space-y-3 min-w-0 w-full">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden px-1 py-4 space-y-3 min-w-0 w-full">
             {audioMenuOpen && (
-              <div className="bg-card border border-border rounded-lg p-3 space-y-2 w-full">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Audio Settings</h2>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setAudioMenuOpen(false)}
-                    className="h-6 px-2 text-[9px]"
-                  >
-                    Close
-                  </Button>
-                </div>
-                <div className="text-xs space-y-2 overflow-y-auto max-h-[200px]">
-                  <ConnectionView
-                    connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
-                    audioSettings={audioSettings}
-                    onConnect={handleConnect}
-                    onDisconnect={handleDisconnect}
-                    onAudioSettingsChange={handleAudioSettingsChange}
-                    onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
-                    enableAudioCapture={!isMuted && connectionState.status === 'connected'}
-                    onAudioData={onAudioData}
-                  />
+              <div className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm">
+                <div className="absolute inset-x-0 top-0 bottom-0 bg-card border-b border-border">
+                  <div className="h-14 border-b border-border flex items-center justify-between px-3">
+                    <h2 className="text-xs font-black uppercase tracking-widest text-muted-foreground">Audio Settings</h2>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setAudioMenuOpen(false)}
+                      className="h-6 px-2 text-[9px]"
+                    >
+                      Close
+                    </Button>
+                  </div>
+                  <div className="absolute inset-x-0 top-14 bottom-0 overflow-y-auto px-3 py-3">
+                    <ConnectionView
+                      connectionState={connectionState || { status: 'disconnected', serverUrl: '' }}
+                      audioSettings={audioSettings}
+                      onConnect={handleConnect}
+                      onDisconnect={handleDisconnect}
+                      onAudioSettingsChange={handleAudioSettingsChange}
+                      onSpeakingChange={isMuted ? undefined : handleSpeakingChange}
+                      enableAudioCapture={!isMuted && connectionState.status === 'connected'}
+                      onAudioData={onAudioData}
+                    />
+                  </div>
                 </div>
               </div>
             )}
