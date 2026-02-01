@@ -45,9 +45,9 @@ const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   outputDevice: 'default',
   inputVolume: 80,
   outputVolume: 80,
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true
+  echoCancellation: false,
+  noiseSuppression: false,
+  autoGainControl: false
 }
 
 function loadAudioSettings(): AudioSettings {

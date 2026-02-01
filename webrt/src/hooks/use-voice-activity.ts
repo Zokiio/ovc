@@ -145,14 +145,16 @@ export function useVoiceActivity({
     try {
       setError(null)
 
+      // Only include audio processing constraints when explicitly enabled
+      // Omitting them (undefined) prevents browser from changing system settings
       const constraints: MediaStreamConstraints = {
         audio: {
           deviceId: audioSettings.inputDevice !== 'default' 
             ? { ideal: audioSettings.inputDevice }
             : undefined,
-          echoCancellation: audioSettings.echoCancellation,
-          noiseSuppression: audioSettings.noiseSuppression,
-          autoGainControl: audioSettings.autoGainControl,
+          echoCancellation: audioSettings.echoCancellation || undefined,
+          noiseSuppression: audioSettings.noiseSuppression || undefined,
+          autoGainControl: audioSettings.autoGainControl || undefined,
           channelCount: 1,
           sampleRate: 48000
         }
