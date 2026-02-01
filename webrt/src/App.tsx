@@ -327,18 +327,6 @@ function App() {
         if (payload.clientId) {
           setCurrentUserId(payload.clientId)
           currentUserIdRef.current = payload.clientId
-          // Add self to users list
-          setUsers(currentUsers => {
-            const newUsers = new Map(currentUsers)
-            newUsers.set(payload.clientId!, {
-              id: payload.clientId!,
-              name: username,
-              isSpeaking: false,
-              isMuted: false,
-              volume: 100
-            })
-            return newUsers
-          })
         }
         toast.success('Connected to server')
       })
