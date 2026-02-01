@@ -103,7 +103,12 @@ function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) 
 
       <div className="flex-1 min-w-0 flex items-center gap-2">
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium truncate leading-tight">{user.name}</div>
+          <div className="flex items-center gap-1.5">
+            <div className="text-xs font-medium truncate leading-tight">{user.name}</div>
+            {user.isVoiceConnected === false && (
+              <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-orange-500" title="Not voice connected" />
+            )}
+          </div>
           <div className="flex items-center gap-1.5 mt-0.5">
             <div className="flex items-end gap-[2px] h-3">
               {Array.from({ length: bars }).map((_, i) => (

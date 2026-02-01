@@ -37,7 +37,8 @@ export class AudioPlaybackManager {
   public async initialize(): Promise<void> {
     if (this.audioContext) return
 
-    this.audioContext = new AudioContext()
+    // Force 48kHz to match server sample rate
+    this.audioContext = new AudioContext({ sampleRate: 48000 })
     this.masterGainNode = this.audioContext.createGain()
     this.masterGainNode.connect(this.audioContext.destination)
     this.updateMasterGain()

@@ -1,0 +1,592 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  Mic, MicOff, Volume2, VolumeX, Settings, Users, 
+  Radio, Shield, Search, Plus, Power, Activity, 
+  Wifi, ChevronRight, Hash, LogOut, Info, AlertCircle,
+  BarChart3, Headphones
+} from 'lucide-react';
+
+// --- Mock Data & Constants ---
+const INITIAL_USERS = [
+  { id: 'u1', name: 'Commander_Rex', isSpeaking: true, volume: 85, muted: false, distance: 4.2 },
+  { id: 'u2', name: 'Nova_Prime', isSpeaking: false, volume: 100, muted: false, distance: 12.8 },
+  { id: 'u3', name: 'Echo_Seven', isSpeaking: true, volume: 70, muted: true, distance: 2.1 },
+  { id: 'u4', name: 'Ghost_Protocol', isSpeaking: false, volume: 90, muted: false, distance: 45.0 },
+];
+
+const INITIAL_GROUPS = [
+  { id: 'g1', name: 'Tactical Alpha', members: 4, maxMembers: 8, proximity: 50, status: 'Active' },
+  { id: 'g2', name: 'Exploration Squad', members: 12, maxMembers: 20, proximity: 200, status: 'Full' },
+  { id: 'g3', name: 'Tech Support', members: 2, maxMembers: 5, proximity: 10, status: 'Private' },
+];
+
+const App = () => {
+  // --- State ---
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [activeTab, setActiveTab] = useState('current'); 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [users, setUsers] = useState(INITIAL_USERS);
+  const [joinedGroupId, setJoinedGroupId] = useState('g1');
+  const [latency, setLatency] = useState(24);
+  const [toasts, setToasts] = useState([]);
+  
+  // VAD Simulation State
+  const [inputLevel, setInputLevel] = useState(0);
+
+  // Audio Settings State
+  const [audioSettings, setAudioSettings] = useState({
+    inputDevice: 'default',
+    outputDevice: 'default',
+    inputVolume: 80,
+    outputVolume: 90,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGain: false,
+    voiceDetection: true,
+    vadThreshold: 35 // VAD Threshold percentage
+  });
+
+  // --- Effects ---
+  // Simulate speaking states and VAD input meter
+  useEffect(() => {
+    if (!isConnected) return;
+    const interval = setInterval(() => {
+      // Update users
+      setUsers(prev => prev.map(u => ({
+        ...u,
+        isSpeaking: Math.random() > 0.7,
+        distance: Math.max(1, u.distance + (Math.random() * 2 - 1))
+      })));
+      
+      // Update latency
+      setLatency(prev => Math.max(15, prev + Math.floor(Math.random() * 5 - 2)));
+    }, 2500);
+
+    // Simulate VAD Meter
+    const meterInterval = setInterval(() => {
+      setInputLevel(prev => {
+        const noise = Math.random() * 15;
+        const voice = Math.random() > 0.8 ? Math.random() * 60 : 0;
+        return Math.floor(Math.min(100, noise + voice));
+      });
+    }, 100);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(meterInterval);
+    };
+  }, [isConnected]);
+
+  // Determine if local user "would be" speaking based on VAD
+  const isVADActive = useMemo(() => {
+    return audioSettings.voiceDetection && inputLevel > audioSettings.vadThreshold;
+  }, [inputLevel, audioSettings]);
+
+  // --- Handlers ---
+  const addToast = (msg, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, msg, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
+  };
+
+  const handleConnect = () => {
+    setIsConnecting(true);
+    setTimeout(() => {
+      setIsConnected(true);
+      setIsConnecting(false);
+      addToast("Successfully connected to VoxComm Server");
+    }, 1200);
+  };
+
+  const handleDisconnect = () => {
+    setIsConnected(false);
+    setJoinedGroupId(null);
+    addToast("Disconnected from server", "error");
+  };
+
+  const filteredUsers = useMemo(() => {
+    return users.filter(u => u.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  }, [users, searchQuery]);
+
+  // --- Components ---
+  const UserRow = ({ user, isLocal }) => (
+    <div className={`flex items-center justify-between p-3 rounded-lg border transition-all duration-300 ${
+      (isLocal ? isVADActive : user.isSpeaking) ? 'bg-indigo-500/10 border-indigo-500/40 shadow-sm' : 'bg-slate-800/40 border-slate-700/50 hover:border-slate-600'
+    }`}>
+      <div className="flex items-center gap-3">
+        <div className="relative">
+          <div className={`w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold border-2 ${
+            (isLocal ? isVADActive : user.isSpeaking) ? 'border-indigo-400' : 'border-slate-600'
+          }`}>
+            {user.name.substring(0, 2).toUpperCase()}
+          </div>
+          {(isLocal ? isVADActive : user.isSpeaking) && (
+            <div className="absolute -inset-1 rounded-full border-2 border-indigo-400/50 animate-ping" />
+          )}
+          <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 ${
+            isConnected ? 'bg-emerald-500' : 'bg-slate-500'
+          }`} />
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className={`font-medium text-sm ${(isLocal ? isVADActive : user.isSpeaking) ? 'text-indigo-300' : 'text-slate-200'}`}>
+              {user.name} {isLocal && "(You)"}
+            </span>
+            {user.muted && <VolumeX size={12} className="text-red-400" />}
+          </div>
+          <p className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+            {Math.floor(user.distance)}m Range • {(isLocal ? isVADActive : user.isSpeaking) ? 'Speaking' : 'Idle'}
+          </p>
+        </div>
+      </div>
+
+      {!isLocal && (
+        <div className="flex items-center gap-4">
+          <div className="hidden sm:flex items-center gap-2">
+            <Volume2 size={14} className="text-slate-500" />
+            <input 
+              type="range" 
+              className="w-20 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500" 
+              defaultValue={user.volume} 
+            />
+          </div>
+          <button className={`p-2 rounded-md hover:bg-slate-700 transition-colors ${user.muted ? 'text-red-400' : 'text-slate-400'}`}>
+            {user.muted ? <MicOff size={18} /> : <Mic size={18} />}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+
+  const StatusCard = ({ label, value, icon: Icon, colorClass = "text-indigo-400" }) => (
+    <div className="bg-slate-900/50 border border-slate-800 p-3 rounded-lg flex items-center gap-3">
+      <div className={`p-2 rounded-md bg-slate-800 ${colorClass}`}>
+        <Icon size={16} />
+      </div>
+      <div>
+        <p className="text-[10px] uppercase text-slate-500 font-bold tracking-widest">{label}</p>
+        <p className="text-sm font-mono text-slate-200">{value}</p>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex h-screen bg-slate-950 text-slate-200 overflow-hidden font-sans selection:bg-indigo-500/30">
+      
+      {/* --- SIDEBAR --- */}
+      <aside className="hidden lg:flex flex-col w-80 bg-slate-900 border-r border-slate-800 p-5 space-y-6 overflow-y-auto">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-lg shadow-indigo-500/20">
+            <Activity size={18} className="text-white" />
+          </div>
+          <h1 className="text-xl font-black tracking-tighter italic">VOX_COMM</h1>
+        </div>
+
+        {/* Connection Panel */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+             <h2 className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Server Hub</h2>
+             {isConnected && <div className="flex items-center gap-1.5 text-[10px] text-emerald-400 animate-pulse font-bold">
+               <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> LIVE
+             </div>}
+          </div>
+          
+          <div className="space-y-3 bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 shadow-inner">
+            <div className="space-y-1">
+              <label className="text-[10px] text-slate-500 uppercase px-1">Host Address</label>
+              <input 
+                disabled={isConnected}
+                type="text" 
+                placeholder="vox.server.io" 
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:ring-1 ring-indigo-500 outline-none transition-all disabled:opacity-50" 
+              />
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-1">
+                <label className="text-[10px] text-slate-500 uppercase px-1">Username</label>
+                <input 
+                  disabled={isConnected}
+                  type="text" 
+                  placeholder="Pilot_01" 
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs outline-none disabled:opacity-50" 
+                />
+              </div>
+              <div className="w-20 space-y-1">
+                <label className="text-[10px] text-slate-500 uppercase px-1">Auth Code</label>
+                <input 
+                  disabled={isConnected}
+                  type="password" 
+                  placeholder="****" 
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs outline-none disabled:opacity-50" 
+                />
+              </div>
+            </div>
+            <button 
+              onClick={isConnected ? handleDisconnect : handleConnect}
+              disabled={isConnecting}
+              className={`w-full py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 ${
+                isConnected 
+                  ? 'bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500/20' 
+                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20'
+              }`}
+            >
+              {isConnecting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Power size={14} />}
+              {isConnected ? 'Terminate Session' : 'Establish Link'}
+            </button>
+          </div>
+        </div>
+
+        {/* Audio Engine */}
+        <div className="space-y-4">
+          <h2 className="text-[10px] uppercase font-black text-slate-500 tracking-widest">Hardware Engine</h2>
+          <div className="space-y-5 p-1">
+            
+            {/* Device Configuration */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-500 uppercase px-1 font-bold">Input Device</label>
+                <select 
+                  value={audioSettings.inputDevice}
+                  onChange={e => setAudioSettings(s => ({...s, inputDevice: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+                >
+                  <option value="default">Default - System Mic</option>
+                  <option value="xlr">USB Audio Interface (XLR)</option>
+                  <option value="bt">Bluetooth Headset</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] text-slate-500 uppercase px-1 font-bold">Output Device</label>
+                <select 
+                  value={audioSettings.outputDevice}
+                  onChange={e => setAudioSettings(s => ({...s, outputDevice: e.target.value}))}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+                >
+                  <option value="default">Default - System Speakers</option>
+                  <option value="headphones">High-Fi Headphones</option>
+                  <option value="virtual">Virtual Audio Cable</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Input Volume */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                <span className="flex items-center gap-1.5 uppercase tracking-tighter"><Mic size={12}/> Mic Sensitivity</span>
+                <span>{audioSettings.inputVolume}%</span>
+              </div>
+              <input 
+                type="range" 
+                value={audioSettings.inputVolume}
+                onChange={e => setAudioSettings(s => ({...s, inputVolume: e.target.value}))}
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500" 
+              />
+            </div>
+
+            {/* Output Volume */}
+            <div className="space-y-2">
+              <div className="flex justify-between text-[10px] font-bold text-slate-400">
+                <span className="flex items-center gap-1.5 uppercase tracking-tighter"><Headphones size={12}/> Master Output</span>
+                <span>{audioSettings.outputVolume}%</span>
+              </div>
+              <input 
+                type="range" 
+                value={audioSettings.outputVolume}
+                onChange={e => setAudioSettings(s => ({...s, outputVolume: e.target.value}))}
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" 
+              />
+            </div>
+
+            {/* VAD Threshold Setting */}
+            <div className="space-y-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800/50">
+              <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <span className="flex items-center gap-1.5"><BarChart3 size={12}/> VAD Threshold</span>
+                <span className={isVADActive ? "text-emerald-400" : "text-slate-500"}>
+                  {audioSettings.vadThreshold}%
+                </span>
+              </div>
+              
+              <div className="relative h-4 bg-slate-900 rounded-md overflow-hidden border border-slate-800">
+                {/* Simulated Input Level Bar */}
+                <div 
+                  className={`absolute inset-y-0 left-0 transition-all duration-75 ${
+                    isVADActive ? 'bg-emerald-500/40' : 'bg-indigo-500/20'
+                  }`}
+                  style={{ width: `${inputLevel}%` }}
+                />
+                {/* Threshold Marker */}
+                <div 
+                  className="absolute inset-y-0 w-0.5 bg-red-500 z-10 shadow-[0_0_8px_rgba(239,68,68,0.5)]"
+                  style={{ left: `${audioSettings.vadThreshold}%` }}
+                />
+              </div>
+              
+              <input 
+                type="range" 
+                min="0"
+                max="100"
+                value={audioSettings.vadThreshold}
+                onChange={e => setAudioSettings(s => ({...s, vadThreshold: parseInt(e.target.value)}))}
+                className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500" 
+              />
+              <p className="text-[9px] text-slate-600 italic">Adjust red line to set voice trigger sensitivity.</p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: 'echoCancellation', label: 'Echo Cancel' },
+                { key: 'noiseSuppression', label: 'Noise Supp' },
+                { key: 'autoGain', label: 'Auto Gain' },
+                { key: 'voiceDetection', label: 'Voice Det' }
+              ].map(opt => (
+                <button 
+                  key={opt.key}
+                  onClick={() => setAudioSettings(s => ({...s, [opt.key]: !s[opt.key]}))}
+                  className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+                    audioSettings[opt.key] 
+                      ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400' 
+                      : 'bg-slate-950 border-slate-800 text-slate-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Diagnostic Stats */}
+        {isConnected && (
+          <div className="mt-auto grid grid-cols-2 gap-2">
+            <StatusCard label="Latency" value={`${latency}ms`} icon={Wifi} colorClass={latency > 100 ? "text-amber-400" : "text-emerald-400"} />
+            <StatusCard label="Bitrate" value="128kbps" icon={Activity} />
+          </div>
+        )}
+      </aside>
+
+      {/* --- MAIN STAGE --- */}
+      <main className="flex-1 flex flex-col bg-slate-950">
+        
+        {/* Navigation Bar */}
+        <header className="h-16 border-b border-slate-800 bg-slate-900/30 flex items-center justify-between px-6 shrink-0">
+          <div className="flex gap-8 items-center h-full">
+            {[
+              { id: 'current', label: 'Active Group', icon: Hash },
+              { id: 'available', label: 'Explore Groups', icon: Radio },
+              { id: 'all', label: 'Directory', icon: Users }
+            ].map(tab => (
+              <button 
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 h-full border-b-2 text-sm font-bold transition-all ${
+                  activeTab === tab.id 
+                    ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5 px-2' 
+                    : 'border-transparent text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                <tab.icon size={16} />
+                <span className="hidden sm:inline">{tab.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-48 sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={16} />
+            <input 
+              type="text" 
+              placeholder="Search users..." 
+              className="w-full bg-slate-900 border border-slate-800 rounded-full pl-10 pr-4 py-1.5 text-xs outline-none focus:ring-1 ring-indigo-500 transition-all"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+        </header>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+          {!isConnected ? (
+            <div className="h-full flex flex-col items-center justify-center space-y-6 text-center">
+              <div className="w-24 h-24 bg-slate-900 rounded-3xl flex items-center justify-center border border-slate-800 shadow-2xl">
+                <Shield size={48} className="text-slate-700" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-black italic tracking-tight">ENCRYPTED LINK OFFLINE</h3>
+                <p className="text-slate-500 max-w-sm mx-auto text-sm leading-relaxed">
+                  Authentication required to join the voice grid. Use the command panel to establish a secure connection.
+                </p>
+              </div>
+              <button 
+                onClick={handleConnect}
+                className="px-8 py-3 bg-indigo-600 hover:bg-indigo-500 rounded-full font-bold text-sm shadow-xl shadow-indigo-600/20 active:scale-95 transition-all"
+              >
+                Initiate Handshake
+              </button>
+            </div>
+          ) : (
+            <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              
+              {activeTab === 'current' && (
+                <div className="space-y-6">
+                  {/* Group Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 bg-slate-900/40 p-6 rounded-2xl border border-slate-800">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-indigo-400 font-bold text-xs uppercase tracking-widest">
+                        <Hash size={12} /> Live Transmission
+                      </div>
+                      <h2 className="text-3xl font-black text-white italic">TACTICAL_ALPHA_CORE</h2>
+                      <p className="text-slate-500 text-sm font-medium flex items-center gap-4">
+                        <span className="flex items-center gap-1.5 text-slate-400 font-mono">
+                          <Users size={14} /> 4/8 PILOTS
+                        </span>
+                        <span className="flex items-center gap-1.5 text-slate-400 font-mono">
+                          <Activity size={14} /> RANGE: 50m
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold transition-all">
+                        <Settings size={16} /> Config
+                      </button>
+                      <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 px-4 py-2.5 rounded-xl text-sm font-bold transition-all">
+                        <LogOut size={16} /> Exit
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* User List */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {filteredUsers.map(u => (
+                      <UserRow key={u.id} user={u} isLocal={u.id === 'u3'} />
+                    ))}
+                    {filteredUsers.length === 0 && (
+                      <div className="col-span-full py-20 text-center space-y-3 opacity-50">
+                        <AlertCircle size={40} className="mx-auto" />
+                        <p className="font-bold">No pilots found matching "{searchQuery}"</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'available' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {INITIAL_GROUPS.map(group => (
+                    <div key={group.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl hover:border-indigo-500/50 transition-all group relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                         <ChevronRight className="text-indigo-400" />
+                      </div>
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-start">
+                          <div className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter ${
+                            group.status === 'Full' ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
+                          }`}>
+                            {group.status}
+                          </div>
+                          <span className="text-xs font-mono text-slate-500">{group.members}/{group.maxMembers}</span>
+                        </div>
+                        <h3 className="text-lg font-black text-slate-200">{group.name}</h3>
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500 uppercase font-bold tracking-widest">
+                          <Activity size={12} /> {group.proximity}m Range Limit
+                        </div>
+                        <button 
+                          className={`w-full py-2 rounded-lg text-xs font-bold transition-all ${
+                            group.status === 'Full' 
+                            ? 'bg-slate-800 text-slate-600 cursor-not-allowed' 
+                            : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                          }`}
+                        >
+                          {group.status === 'Full' ? 'Squad Maxed' : 'Sync Frequency'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button className="bg-slate-950 border-2 border-dashed border-slate-800 p-5 rounded-2xl flex flex-col items-center justify-center gap-3 text-slate-500 hover:border-indigo-500/50 hover:text-indigo-400 transition-all group">
+                    <div className="w-12 h-12 rounded-full bg-slate-900 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Plus size={24} />
+                    </div>
+                    <span className="font-bold text-sm">New Group Link</span>
+                  </button>
+                </div>
+              )}
+
+              {activeTab === 'all' && (
+                <div className="bg-slate-900/30 rounded-2xl border border-slate-800 overflow-hidden">
+                   <div className="p-4 bg-slate-900/50 border-b border-slate-800 flex items-center justify-between">
+                     <span className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                       <Users size={14} /> Global Registry
+                     </span>
+                     <span className="text-[10px] font-mono text-slate-600">Total Encounters: 1,248</span>
+                   </div>
+                   <div className="divide-y divide-slate-800/50">
+                     {users.concat(users).map((u, i) => (
+                       <div key={i} className="flex items-center justify-between p-4 hover:bg-slate-800/30 transition-colors">
+                         <div className="flex items-center gap-3">
+                           <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400">
+                             {u.name[0]}
+                           </div>
+                           <div>
+                             <p className="text-sm font-bold">{u.name}</p>
+                             <p className="text-[10px] text-slate-500 font-mono">ID: xFA-00{i+1}</p>
+                           </div>
+                         </div>
+                         <div className="flex items-center gap-6">
+                           <div className="hidden sm:block text-right">
+                             <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Last Activity</p>
+                             <p className="text-xs text-slate-400">Just Now</p>
+                           </div>
+                           <button className="p-2 hover:bg-indigo-500/10 hover:text-indigo-400 text-slate-500 rounded-lg transition-all">
+                             <Info size={18} />
+                           </button>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* --- TOASTS --- */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+        {toasts.map(toast => (
+          <div 
+            key={toast.id}
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl animate-in slide-in-from-right-full ${
+              toast.type === 'error' 
+                ? 'bg-red-500/10 border-red-500/50 text-red-200' 
+                : 'bg-indigo-600 border-indigo-400 text-white'
+            }`}
+          >
+            {toast.type === 'error' ? <AlertCircle size={18} /> : <Activity size={18} />}
+            <span className="text-sm font-bold">{toast.msg}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Mobile Navigation Toggle (Placeholder) */}
+      <div className="lg:hidden fixed bottom-6 left-1/2 -translate-x-1/2 bg-indigo-600 p-4 rounded-full shadow-2xl shadow-indigo-600/40 text-white active:scale-95 transition-transform z-40">
+        <Users size={24} />
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes pulse-ring {
+          0% { transform: scale(0.8); opacity: 0.5; }
+          100% { transform: scale(1.3); opacity: 0; }
+        }
+        .active-pulse::after {
+          content: '';
+          position: absolute;
+          inset: -4px;
+          border-radius: 9999px;
+          border: 2px solid #6366f1;
+          animation: pulse-ring 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+      ` }} />
+    </div>
+  );
+};
+
+export default App;

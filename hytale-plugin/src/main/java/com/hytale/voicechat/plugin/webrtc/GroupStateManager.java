@@ -160,6 +160,7 @@ public class GroupStateManager {
             memberObj.addProperty("isSpeaking", client.isSpeaking());
             memberObj.addProperty("isMuted", client.isMuted());
             memberObj.addProperty("volume", client.getVolume());
+            memberObj.addProperty("isVoiceConnected", client.isConnected());
             members.add(memberObj);
         }
         

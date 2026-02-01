@@ -148,19 +148,21 @@ export function useVoiceActivity({
       const constraints: MediaStreamConstraints = {
         audio: {
           deviceId: audioSettings.inputDevice !== 'default' 
-            ? { exact: audioSettings.inputDevice }
+            ? { ideal: audioSettings.inputDevice }
             : undefined,
           echoCancellation: audioSettings.echoCancellation,
           noiseSuppression: audioSettings.noiseSuppression,
           autoGainControl: audioSettings.autoGainControl,
-          channelCount: 1
+          channelCount: 1,
+          sampleRate: 48000
         }
       }
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
       streamRef.current = stream
 
-      const audioContext = new AudioContext()
+      // Force 48kHz to match server sample rate
+      const audioContext = new AudioContext({ sampleRate: 48000 })
       audioContextRef.current = audioContext
 
       const analyser = audioContext.createAnalyser()

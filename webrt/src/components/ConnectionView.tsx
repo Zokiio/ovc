@@ -149,7 +149,11 @@ export function ConnectionView({
 
   const enumerateDevices = async () => {
     try {
-      await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Request permission to access devices
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Stop tracks immediately after getting permission
+      tempStream.getTracks().forEach(track => track.stop())
+      
       const devices = await navigator.mediaDevices.enumerateDevices()
       const isSelectableDevice = (device: MediaDeviceInfo) => (
         device.deviceId !== 'default' && device.deviceId !== 'communications'

@@ -7,6 +7,7 @@ export interface User {
   volume: number
   groupId?: string
   position?: PlayerPosition
+  isVoiceConnected?: boolean
 }
 
 export interface PlayerPosition {
@@ -22,6 +23,7 @@ export interface GroupMember {
   id: string
   name: string
   isSpeaking?: boolean
+  isVoiceConnected?: boolean
 }
 
 export interface Group {
