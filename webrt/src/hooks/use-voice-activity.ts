@@ -288,7 +288,8 @@ export function useVoiceActivity({
 
         // VAD threshold is independent of input volume
         // Input volume only affects transmitted audio amplitude, not detection
-        const isSpeechDetected = rms > threshold
+        // Compare normalized level (0-1) against threshold so visual meter matches detection
+        const isSpeechDetected = normalizedLevel > threshold
 
         if (isSpeechDetected) {
           lastSpeechTimeRef.current = now
