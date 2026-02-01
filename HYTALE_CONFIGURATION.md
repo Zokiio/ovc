@@ -184,16 +184,15 @@ chmod 644 /etc/letsencrypt/live/voice.example.com/fullchain.pem
 chmod 600 /etc/letsencrypt/live/voice.example.com/privkey.pem
 ```
 
-## Migration from Legacy to HOCON Format
+## Migration from Legacy Format
 
-The plugin supports both formats for backward compatibility. To migrate:
+**Note**: Legacy JSON format (`voice-chat.json`) is no longer supported.
 
-1. Create `ovc.conf` with same properties
-2. Keep `voice-chat.json` as backup
-3. Test with HOCON format
-4. Remove `voice-chat.json` once verified working
+If you have existing configuration files, you'll need to migrate to `ovc.conf`:
 
-Note: HOCON format takes priority if both files exist.
+1. Create `ovc.conf` with same properties in HOCON format
+2. Test with `ovc.conf`
+3. Remove old configuration files once verified working
 
 ## Environment-Specific Configuration
 
