@@ -327,6 +327,18 @@ function App() {
         if (payload.clientId) {
           setCurrentUserId(payload.clientId)
           currentUserIdRef.current = payload.clientId
+          // Add self to users list
+          setUsers(currentUsers => {
+            const newUsers = new Map(currentUsers)
+            newUsers.set(payload.clientId!, {
+              id: payload.clientId!,
+              name: username,
+              isSpeaking: false,
+              isMuted: false,
+              volume: 100
+            })
+            return newUsers
+          })
         }
         toast.success('Connected to server')
       })
@@ -1001,7 +1013,7 @@ function App() {
                 {[
                   ...(currentGroup ? [{ id: 'current-group', label: 'Active Group', icon: HashIcon }] : []),
                   { id: 'groups', label: 'Explore Groups', icon: BroadcastIcon },
-                  { id: 'all-users', label: 'Directory', icon: UsersIcon }
+                  { id: 'all-users', label: 'Players', icon: UsersIcon }
                 ].map(tab => (
                   <button 
                     key={tab.id}
@@ -1165,7 +1177,7 @@ function App() {
                     <div className="bg-card/30 rounded-2xl border border-border overflow-hidden">
                       <div className="p-4 bg-card/50 border-b border-border flex items-center justify-between">
                         <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-                          <UsersIcon size={14} weight="fill" /> Global Registry
+                          <UsersIcon size={14} weight="fill" /> Players connected
                         </span>
                         <span className="text-[10px] font-mono text-muted-foreground/70">
                           Total Online: {filteredUsers.length}
