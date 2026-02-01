@@ -15,15 +15,17 @@ interface GroupSettingsDialogProps {
 export function GroupSettingsDialog({ group, open, onOpenChange, onSave }: GroupSettingsDialogProps) {
   if (!group) return null
 
-  const [settings, setSettings] = [group.settings, (newSettings: GroupSettings) => {
+  const settings = group.settings
+  const applySettings = (newSettings: GroupSettings) => {
     onSave(group.id, newSettings)
-  }]
+  }
 
   const handleSettingChange = <K extends keyof GroupSettings>(
     key: K,
     value: GroupSettings[K]
   ) => {
-    setSettings({ ...settings, [key]: value })
+    const newSettings = { ...group.settings, [key]: value }
+    applySettings(newSettings)
   }
 
   return (
