@@ -19,7 +19,7 @@ public class NetworkConfig {
     
     // Voice chat proximity defaults
     public static final double DEFAULT_PROXIMITY_DISTANCE = 50.0;
-    public static final double PROXIMITY_FADE_START = 35.0;        // 70% of default proximity
+    public static final double PROXIMITY_FADE_START = 20.0;        // 70% of default proximity
     public static final double PROXIMITY_ROLLOFF_FACTOR = 1.5;
     public static final double PROXIMITY_FADE_START_RATIO = 0.7;   // Fade starts at 70% of max range
     public static final double MAX_VOICE_DISTANCE = 100.0;
