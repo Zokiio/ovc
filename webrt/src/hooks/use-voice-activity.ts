@@ -73,6 +73,7 @@ export function useVoiceActivity({
   
   // Audio capture refs (using AudioWorkletNode)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
+  const constraintsAppliedRef = useRef(false)  // Track if processing constraints were applied
   const onAudioDataRef = useRef(onAudioData)  // Keep callback ref updated
   const enableAudioCaptureRef = useRef(enableAudioCapture)
   
@@ -105,6 +106,9 @@ export function useVoiceActivity({
       clearTimeout(silenceTimeoutRef.current)
       silenceTimeoutRef.current = null
     }
+
+    // Reset constraints tracking when stopping
+    constraintsAppliedRef.current = false
 
     // Clean up AudioWorklet node for audio capture
     if (workletNodeRef.current) {
@@ -145,22 +149,42 @@ export function useVoiceActivity({
     try {
       setError(null)
 
-      // Only include audio processing constraints when explicitly enabled
-      // Omitting them (undefined) prevents browser from changing system settings
-      const constraints: MediaStreamConstraints = {
-        audio: {
-          deviceId: audioSettings.inputDevice !== 'default' 
-            ? { ideal: audioSettings.inputDevice }
-            : undefined,
-          echoCancellation: audioSettings.echoCancellation || undefined,
-          noiseSuppression: audioSettings.noiseSuppression || undefined,
-          autoGainControl: audioSettings.autoGainControl || undefined,
-          channelCount: 1,
-          sampleRate: 48000
+      // Build audio constraints - only include processing properties on initial setup
+      // This prevents system audio changes when user changes device
+      const audioConstraints: MediaTrackConstraints = {
+        channelCount: 1,
+        sampleRate: 48000
+      }
+      
+      // Only add deviceId if not default
+      if (audioSettings.inputDevice !== 'default') {
+        audioConstraints.deviceId = { ideal: audioSettings.inputDevice }
+        console.log('[VAD] Using specific device:', audioSettings.inputDevice)
+      }
+      
+      // ONLY apply processing constraints on initial setup, not on device changes
+      // This prevents OS from applying audio constraints system-wide on every device change
+      if (!constraintsAppliedRef.current && (audioSettings.echoCancellation || audioSettings.noiseSuppression || audioSettings.autoGainControl)) {
+        console.log('[VAD] Applying processing constraints (first time only)')
+        if (audioSettings.echoCancellation) {
+          audioConstraints.echoCancellation = true
         }
+        if (audioSettings.noiseSuppression) {
+          audioConstraints.noiseSuppression = true
+        }
+        if (audioSettings.autoGainControl) {
+          audioConstraints.autoGainControl = true
+        }
+        constraintsAppliedRef.current = true
       }
 
+      const constraints: MediaStreamConstraints = {
+        audio: audioConstraints
+      }
+
+      console.log('[VAD] Requesting audio stream with constraints:', JSON.stringify(audioConstraints, null, 2))
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
+      console.log('[VAD] Audio stream acquired successfully')
       streamRef.current = stream
 
       // Force 48kHz to match server sample rate

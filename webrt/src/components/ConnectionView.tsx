@@ -149,12 +149,21 @@ export function ConnectionView({
 
   const enumerateDevices = async () => {
     try {
-      // Request permission to access devices
-      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      // Stop tracks immediately after getting permission
-      tempStream.getTracks().forEach(track => track.stop())
+      // Check if we already have microphone permission
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+      console.log('[Devices] Microphone permission status:', permissionStatus.state)
+      
+      // Only request stream if we don't have permission yet
+      // This minimizes audio system interactions
+      if (permissionStatus.state !== 'granted') {
+        console.log('[Devices] Requesting microphone permission...')
+        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        tempStream.getTracks().forEach(track => track.stop())
+        console.log('[Devices] Permission granted, stream stopped')
+      }
       
       const devices = await navigator.mediaDevices.enumerateDevices()
+      console.log('[Devices] Found', devices.length, 'total devices')
       const isSelectableDevice = (device: MediaDeviceInfo) => (
         device.deviceId !== 'default' && device.deviceId !== 'communications'
       )
