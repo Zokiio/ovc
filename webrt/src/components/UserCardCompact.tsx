@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
+import { useAnimationTicker } from '@/hooks/use-mobile'
 
 interface UserCardCompactProps {
   user: User
@@ -13,8 +14,8 @@ interface UserCardCompactProps {
 
 function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) {
   const barRefs = useRef<(HTMLDivElement | null)[]>([])
-  const animationFrameRef = useRef<number | null>(null)
   const isSpeakingRef = useRef(user.isSpeaking)
+  const audioLevelRef = useRef(0)
   
   const bars = 12
   
@@ -31,56 +32,36 @@ function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) 
       .slice(0, 2)
   }, [user.name])
 
-  // Use RAF for smooth bar animations without causing React re-renders
-  useEffect(() => {
-    let lastUpdateTime = 0
-    const UPDATE_INTERVAL = 100 // 10Hz
-    let audioLevel = 0
+  // Use shared animation ticker for smooth bar animations without causing React re-renders
+  useAnimationTicker(() => {
+    if (isSpeakingRef.current) {
+      audioLevelRef.current = Math.random() * 0.6 + 0.4
+    } else {
+      audioLevelRef.current = 0
+    }
     
-    const animate = (time: number) => {
-      if (time - lastUpdateTime >= UPDATE_INTERVAL) {
-        if (isSpeakingRef.current) {
-          audioLevel = Math.random() * 0.6 + 0.4
-        } else {
-          audioLevel = 0
-        }
-        
-        const activeBarCount = Math.floor(audioLevel * bars)
-        
-        barRefs.current.forEach((bar, i) => {
-          if (!bar) return
-          
-          const isActive = i < activeBarCount
-          const barHeight = isSpeakingRef.current 
-            ? isActive 
-              ? `${30 + (i / bars) * 70}%`
-              : '20%'
-            : '20%'
-          
-          bar.style.height = barHeight
-          bar.className = cn(
-            "w-0.5 rounded-full transition-all duration-75",
-            isActive && isSpeakingRef.current
-              ? "bg-accent"
-              : "bg-muted-foreground/30"
-          )
-          bar.style.transitionDelay = isSpeakingRef.current ? `${i * 8}ms` : '0ms'
-        })
-        
-        lastUpdateTime = time
-      }
+    const activeBarCount = Math.floor(audioLevelRef.current * bars)
+    
+    barRefs.current.forEach((bar, i) => {
+      if (!bar) return
       
-      animationFrameRef.current = requestAnimationFrame(animate)
-    }
-    
-    animationFrameRef.current = requestAnimationFrame(animate)
-    
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-    }
-  }, [bars])
+      const isActive = i < activeBarCount
+      const barHeight = isSpeakingRef.current 
+        ? isActive 
+          ? `${30 + (i / bars) * 70}%`
+          : '20%'
+        : '20%'
+      
+      bar.style.height = barHeight
+      bar.className = cn(
+        "w-0.5 rounded-full transition-all duration-75",
+        isActive && isSpeakingRef.current
+          ? "bg-accent"
+          : "bg-muted-foreground/30"
+      )
+      bar.style.transitionDelay = isSpeakingRef.current ? `${i * 8}ms` : '0ms'
+    })
+  }, true)
 
   return (
     <div 
