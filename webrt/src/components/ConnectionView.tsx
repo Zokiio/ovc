@@ -46,7 +46,7 @@ export function ConnectionView({
     inputDevices: [],
     outputDevices: []
   })
-  const [voiceDetectionEnabled, setVoiceDetectionEnabled] = useState(true)
+  const [useVadThreshold, setUseVadThreshold] = useState(true)  // Controls VAD threshold gating, voice activation is always on
   
   const { servers, addServer, updateServer, removeServer, markUsed } = useSavedServers()
 
@@ -460,11 +460,12 @@ export function ConnectionView({
           <VoiceActivityMonitor
             variant="compact"
             audioSettings={audioSettings}
-            enabled={voiceDetectionEnabled}
-            onEnabledChange={setVoiceDetectionEnabled}
+            enabled={true}
             onSpeakingChange={onSpeakingChange}
             enableAudioCapture={enableAudioCapture}
             onAudioData={onAudioData}
+            useVadThreshold={useVadThreshold}
+            onVadThresholdChange={setUseVadThreshold}
           />
 
           <div className="grid grid-cols-2 gap-2">
@@ -503,9 +504,9 @@ export function ConnectionView({
             </button>
             <button
               type="button"
-              onClick={() => setVoiceDetectionEnabled((prev) => !prev)}
+              onClick={() => setUseVadThreshold((prev) => !prev)}
               className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-                voiceDetectionEnabled
+                useVadThreshold
                   ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
                   : 'bg-slate-950 border-slate-800 text-slate-600'
               }`}

@@ -10,6 +10,7 @@ interface VoiceActivityOptions {
   minSilenceDuration?: number
   enableAudioCapture?: boolean  // Enable PCM capture for transmission
   onAudioData?: (audioData: string) => void  // Callback for captured audio (base64)
+  useVadThreshold?: boolean  // Apply VAD threshold gating to audio transmission (default: true)
 }
 
 interface VoiceActivityResult {
@@ -54,7 +55,8 @@ export function useVoiceActivity({
   minSpeechDuration = 100,
   minSilenceDuration = 300,
   enableAudioCapture = false,
-  onAudioData
+  onAudioData,
+  useVadThreshold = true
 }: VoiceActivityOptions): VoiceActivityResult {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const audioLevelRef = useRef(0)  // Use ref instead of state to avoid re-renders
@@ -72,17 +74,23 @@ export function useVoiceActivity({
   const isInitializingRef = useRef(false)
   const lastLevelUpdateRef = useRef<number>(0)
   const lastReportedLevelRef = useRef<number>(0)
+  const isSpeakingRef = useRef(false) // Track speaking state for gating audio transmission
   
   // Audio capture refs (using AudioWorkletNode)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const constraintsAppliedRef = useRef(false)  // Track if processing constraints were applied
   const onAudioDataRef = useRef(onAudioData)  // Keep callback ref updated
   const enableAudioCaptureRef = useRef(enableAudioCapture)
+  const useVadThresholdRef = useRef(useVadThreshold)  // Track VAD threshold gating setting
   
   // Update refs when props change
   useEffect(() => {
     onAudioDataRef.current = onAudioData
   }, [onAudioData])
+  
+  useEffect(() => {
+    useVadThresholdRef.current = useVadThreshold
+  }, [useVadThreshold])
   
   // Activate/deactivate audio capture based on enableAudioCapture prop
   useEffect(() => {
@@ -139,6 +147,7 @@ export function useVoiceActivity({
     }
 
     setIsSpeaking(false)
+    isSpeakingRef.current = false // Reset ref for audio gating
     audioLevelRef.current = 0
     setIsInitialized(false)
   }, [])
@@ -212,6 +221,11 @@ export function useVoiceActivity({
         // Handle audio data from worklet - MUST be set up immediately after node creation
         workletNode.port.onmessage = (event) => {
           if (event.data.type === 'audioData' && onAudioDataRef.current) {
+            // Gate audio transmission: only send when speech is detected above threshold (if VAD threshold is enabled)
+            if (useVadThresholdRef.current && !isSpeakingRef.current) {
+              return // Discard audio below VAD threshold
+            }
+            
             const float32Data = new Float32Array(event.data.data)
             // Apply input volume multiplier when converting to base64
             const volumeMultiplier = audioSettings.inputVolume / 100
@@ -289,6 +303,7 @@ export function useVoiceActivity({
               if (!speakingTimeoutRef.current) {
                 speakingTimeoutRef.current = window.setTimeout(() => {
                   setIsSpeaking(true)
+                  isSpeakingRef.current = true // Update ref for audio gating
                   speakingTimeoutRef.current = null
                 }, minSpeechDuration)
               }
@@ -311,6 +326,7 @@ export function useVoiceActivity({
               if (!silenceTimeoutRef.current && now - lastSpeechTimeRef.current > minSilenceDuration) {
                 silenceTimeoutRef.current = window.setTimeout(() => {
                   setIsSpeaking(false)
+                  isSpeakingRef.current = false // Update ref for audio gating
                   silenceTimeoutRef.current = null
                 }, minSilenceDuration)
               }

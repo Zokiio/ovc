@@ -39,6 +39,8 @@ interface VoiceActivityMonitorProps {
   variant?: 'full' | 'compact'
   enabled?: boolean
   onEnabledChange?: (enabled: boolean) => void
+  useVadThreshold?: boolean
+  onVadThresholdChange?: (useVadThreshold: boolean) => void
 }
 
 type EnvironmentPreset = {
@@ -91,9 +93,12 @@ export function VoiceActivityMonitor({
   onAudioData,
   variant = 'full',
   enabled,
-  onEnabledChange
+  onEnabledChange,
+  useVadThreshold = true,
+  onVadThresholdChange
 }: VoiceActivityMonitorProps) {
   const [vadEnabled, setVadEnabled] = useState(enabled ?? true)
+  const [internalVadThreshold, setInternalVadThreshold] = useState(useVadThreshold)
   const [vadSettings, setVadSettings] = useState<VADSettings>(() => loadVADSettings())
   
   const [threshold, setThreshold] = useState(vadSettings.threshold)
@@ -107,6 +112,7 @@ export function VoiceActivityMonitor({
   const levelTextRef = useRef<HTMLSpanElement>(null)
 
   const effectiveEnabled = enabled ?? vadEnabled
+  const effectiveVadThreshold = useVadThreshold ?? internalVadThreshold
 
   const {
     isSpeaking,
@@ -123,8 +129,10 @@ export function VoiceActivityMonitor({
     minSilenceDuration,
     smoothingTimeConstant,
     enableAudioCapture,
-    onAudioData
+    onAudioData,
+    useVadThreshold: effectiveVadThreshold
   })
+
 
   useEffect(() => {
     if (enabled !== undefined) {
