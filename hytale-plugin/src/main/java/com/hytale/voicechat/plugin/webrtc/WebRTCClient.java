@@ -15,6 +15,9 @@ public class WebRTCClient {
     private final String username;
     private final Channel channel;
     private volatile boolean authenticated;
+    private volatile boolean speaking = false; // VAD state
+    private volatile boolean muted = false;
+    private volatile int volume = 100; // 0-200%
     
     public WebRTCClient(UUID clientId, String username, Channel channel) {
         this.clientId = clientId;
@@ -39,12 +42,50 @@ public class WebRTCClient {
         return authenticated;
     }
     
+    public boolean isSpeaking() {
+        return speaking;
+    }
+    
+    public void setSpeaking(boolean speaking) {
+        this.speaking = speaking;
+    }
+    
+    public boolean isMuted() {
+        return muted;
+    }
+    
+    public void setMuted(boolean muted) {
+        this.muted = muted;
+    }
+    
+    public int getVolume() {
+        return volume;
+    }
+    
+    public void setVolume(int volume) {
+        // Clamp volume between 0 and 200%
+        this.volume = Math.max(0, Math.min(200, volume));
+    }
+    
+    public void sendMessage(String message) {
+        if (!isConnected()) {
+            return;
+        }
+        
+        try {
+            channel.writeAndFlush(new TextWebSocketFrame(message));
+        } catch (Exception e) {
+            // Silently fail
+        }
+    }
+    
     /**
      * Send audio data to this WebRTC client via WebSocket
      * 
+     * @param senderId The UUID of the sender (for client to know who's speaking)
      * @param audioData The audio data to send
      */
-    public void sendAudio(byte[] audioData) {
+    public void sendAudio(UUID senderId, byte[] audioData) {
         if (!isConnected()) {
             return;
         }
@@ -55,6 +96,7 @@ public class WebRTCClient {
             // Encode audio data as base64 for JSON transmission
             String encodedAudio = java.util.Base64.getEncoder().encodeToString(audioData);
             data.addProperty("audioData", encodedAudio);
+            data.addProperty("senderId", senderId.toString());
             
             SignalingMessage message = new SignalingMessage("audio", data);
             channel.writeAndFlush(new TextWebSocketFrame(message.toJson()));

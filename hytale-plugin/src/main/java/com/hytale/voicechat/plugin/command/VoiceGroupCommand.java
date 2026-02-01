@@ -40,6 +40,8 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
         addSubCommand(new GuiSubCommand(groupManager, plugin));
         addSubCommand(new IsolatedSubCommand(groupManager));
         addSubCommand(new ProximitySubCommand(plugin));
+        addSubCommand(new LoginSubCommand(plugin));
+        addSubCommand(new ResetCodeSubCommand(plugin));
     }
 
     @Override
@@ -353,6 +355,77 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
             plugin.configureProximity(newDistance);
             context.sendMessage(Message.raw("Proximity distance set to " + String.format("%.1f", newDistance) + " blocks"));
             logger.atInfo().log("Proximity updated to " + newDistance + " by " + context.sender().getDisplayName());
+        }
+    }
+
+    // Login subcommand - generates auth code for web UI
+    static class LoginSubCommand extends CommandBase {
+        private final HytaleVoiceChatPlugin plugin;
+
+        LoginSubCommand(HytaleVoiceChatPlugin plugin) {
+            super("login", "Get your voice chat login code for the web UI");
+            this.plugin = plugin;
+        }
+
+        @Override
+        protected boolean canGeneratePermission() {
+            return false;
+        }
+
+        @Override
+        protected void executeSync(CommandContext context) {
+            if (!(context.sender() instanceof Player player)) {
+                context.sendMessage(Message.raw("Only players can use this command."));
+                return;
+            }
+
+            String username = player.getDisplayName();
+            @SuppressWarnings("removal")
+            UUID playerId = player.getUuid();
+            
+            // Get existing code or create a new one
+            String code = plugin.getAuthCodeStore().getOrCreateCode(username, playerId);
+            
+            context.sendMessage(Message.raw("=== Voice Chat Login ==="));
+            context.sendMessage(Message.raw("Your login code: " + code));
+            context.sendMessage(Message.raw("Use this code with your username in the web UI."));
+            context.sendMessage(Message.raw("Use /vc resetcode to generate a new code."));
+            logger.atInfo().log("Player " + username + " retrieved login code");
+        }
+    }
+
+    // Reset code subcommand - generates a new auth code
+    static class ResetCodeSubCommand extends CommandBase {
+        private final HytaleVoiceChatPlugin plugin;
+
+        ResetCodeSubCommand(HytaleVoiceChatPlugin plugin) {
+            super("resetcode", "Generate a new voice chat login code");
+            this.plugin = plugin;
+        }
+
+        @Override
+        protected boolean canGeneratePermission() {
+            return false;
+        }
+
+        @Override
+        protected void executeSync(CommandContext context) {
+            if (!(context.sender() instanceof Player player)) {
+                context.sendMessage(Message.raw("Only players can use this command."));
+                return;
+            }
+
+            String username = player.getDisplayName();
+            @SuppressWarnings("removal")
+            UUID playerId = player.getUuid();
+            
+            // Generate new code (invalidates old one)
+            String newCode = plugin.getAuthCodeStore().resetCode(username, playerId);
+            
+            context.sendMessage(Message.raw("=== Voice Chat Login ==="));
+            context.sendMessage(Message.raw("Your new login code: " + newCode));
+            context.sendMessage(Message.raw("Your old code is no longer valid."));
+            logger.atInfo().log("Player " + username + " reset their login code");
         }
     }
 }

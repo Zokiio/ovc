@@ -2,6 +2,7 @@ package com.hytale.voicechat.plugin.webrtc;
 
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
+import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
 
@@ -21,6 +22,8 @@ public class WebRTCAudioBridge {
     
     private final PlayerPositionTracker positionTracker;
     private final Map<UUID, WebRTCClient> clients;
+    private GroupStateManager groupStateManager;
+    private GroupManager groupManager;
     
     // Audio buffering and routing
     private final BlockingQueue<AudioFrame> audioQueue;
@@ -30,11 +33,28 @@ public class WebRTCAudioBridge {
     // Proximity distance in blocks
     private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
     
+    // Volume scaling settings
+    private double fadeStartDistance = NetworkConfig.PROXIMITY_FADE_START;
+    private double rolloffFactor = NetworkConfig.PROXIMITY_ROLLOFF_FACTOR;
+    
     public WebRTCAudioBridge(Object ignored, PlayerPositionTracker positionTracker, 
                             Map<UUID, WebRTCClient> clients) {
         this.positionTracker = positionTracker;
         this.clients = clients;
         this.audioQueue = new LinkedBlockingQueue<>(1000); // Buffer up to 1000 frames
+        
+        // Load settings from config
+        this.proximityDistance = NetworkConfig.getDefaultProximityDistance();
+        this.fadeStartDistance = NetworkConfig.getProximityFadeStart();
+        this.rolloffFactor = NetworkConfig.getProximityRolloffFactor();
+    }
+    
+    public void setGroupStateManager(GroupStateManager stateManager) {
+        this.groupStateManager = stateManager;
+    }
+    
+    public void setGroupManager(GroupManager groupManager) {
+        this.groupManager = groupManager;
     }
     
     /**
@@ -142,11 +162,96 @@ public class WebRTCAudioBridge {
     
     /**
      * Route audio to nearby WebRTC clients
+     * Supports both group-based routing and proximity-based routing
      */
     private void routeAudioToNearbyWebRTC(PlayerPosition senderPosition, byte[] audioData) {
+        UUID senderId = senderPosition.getPlayerId();
+        
+        // Check if sender is in a group
+        if (groupStateManager != null) {
+            UUID groupId = groupStateManager.getClientGroup(senderId);
+            if (groupId != null && groupManager != null) {
+                // Route within group with proximity filtering
+                routeAudioToGroup(groupId, senderId, senderPosition, audioData);
+                return;
+            }
+        }
+        
+        // Fallback: proximity-based routing
+        routeAudioByProximity(senderId, senderPosition, audioData);
+    }
+    
+    /**
+     * Route audio within a group
+     * If GroupGlobalVoice is enabled, all group members hear each other regardless of distance
+     * If GroupSpatialAudio is enabled, volume scales with distance for realistic spatial audio
+     */
+    private void routeAudioToGroup(UUID groupId, UUID senderId, PlayerPosition senderPosition, byte[] audioData) {
+        if (groupStateManager == null || groupManager == null) {
+            return;
+        }
+        
+        var group = groupManager.getGroup(groupId);
+        if (group == null) {
+            return;
+        }
+        
+        double proximityRange = group.getSettings().getProximityRange();
+        boolean isGlobalVoice = NetworkConfig.isGroupGlobalVoice();
+        boolean isSpatialAudio = NetworkConfig.isGroupSpatialAudio();
+        List<WebRTCClient> groupMembers = groupStateManager.getGroupClients(groupId);
+        
+        for (WebRTCClient client : groupMembers) {
+            // Skip self
+            if (client.getClientId().equals(senderId)) {
+                continue;
+            }
+            
+            PlayerPosition clientPosition = positionTracker.getPlayerPosition(client.getClientId());
+            if (clientPosition == null) {
+                continue;
+            }
+            
+            double distance = senderPosition.distanceTo(clientPosition);
+            if (distance == Double.MAX_VALUE) {
+                continue; // Different worlds, skip
+            }
+            
+            if (isGlobalVoice) {
+                // Global voice: always send to all group members
+                if (isSpatialAudio) {
+                    // Within proximity range: apply spatial volume with minimum floor
+                    // Outside proximity range: use full volume (global voice)
+                    if (distance <= proximityRange) {
+                        logger.atFine().log("Sending audio to group member (proximity+spatial): " + client.getUsername() + " (distance: " + distance + ")");
+                        routeAudioToWebRTCWithMinVolume(senderId, client.getClientId(), audioData, distance, proximityRange);
+                    } else {
+                        // Outside proximity: full volume for global group voice
+                        logger.atFine().log("Sending audio to group member (global): " + client.getUsername() + " (distance: " + distance + ")");
+                        routeAudioToWebRTCFullVolume(senderId, client.getClientId(), audioData);
+                    }
+                } else {
+                    // Full volume, no spatial audio
+                    logger.atFine().log("Sending audio to group member (global): " + client.getUsername() + " (distance: " + distance + ")");
+                    routeAudioToWebRTCFullVolume(senderId, client.getClientId(), audioData);
+                }
+            } else {
+                // Legacy behavior: proximity-based filtering for groups
+                if (distance <= proximityRange) {
+                    logger.atFine().log("Sending audio to group member (proximity): " + client.getUsername() + " (distance: " + distance + ")");
+                    routeAudioToWebRTC(senderId, client.getClientId(), audioData, distance, proximityRange);
+                }
+            }
+        }
+    }
+    
+    /**
+     * Route audio by proximity (for non-group players)
+     */
+    private void routeAudioByProximity(UUID senderId, PlayerPosition senderPosition, byte[] audioData) {
         for (WebRTCClient client : clients.values()) {
             // Skip self
-            if (client.getClientId().equals(senderPosition.getPlayerId())) {
+            if (client.getClientId().equals(senderId)) {
                 continue;
             }
             
@@ -160,22 +265,90 @@ public class WebRTCAudioBridge {
             
             if (distance <= proximityDistance && distance != Double.MAX_VALUE) {
                 logger.atFine().log("Sending audio to WebRTC client: " + client.getUsername() + " (distance: " + distance + ")");
-                routeAudioToWebRTC(client.getClientId(), audioData);
+                routeAudioToWebRTC(senderId, client.getClientId(), audioData, distance, proximityDistance);
             }
         }
     }
     
     /**
-     * Send audio to a specific WebRTC client
+     * Send audio to a specific WebRTC client with distance-based volume adjustment
+     * 
+     * @param senderId The sender's client ID
+     * @param recipientId The recipient's client ID
+     * @param audioData The audio data
+     * @param distance The distance between sender and recipient
+     * @param maxRange The maximum range for this audio
      */
-    private void routeAudioToWebRTC(UUID clientId, byte[] audioData) {
-        WebRTCClient client = clients.get(clientId);
+    private void routeAudioToWebRTC(UUID senderId, UUID recipientId, byte[] audioData, double distance, double maxRange) {
+        WebRTCClient client = clients.get(recipientId);
         if (client == null) {
             return;
         }
         
+        byte[] processedAudio = audioData;
+        
+        // Apply server-side volume scaling if enabled
+        if (NetworkConfig.isServerSideVolumeEnabled()) {
+            double volumeMultiplier = calculateVolumeMultiplier(distance, maxRange);
+            if (volumeMultiplier < 1.0) {
+                processedAudio = scaleAudioVolume(audioData, volumeMultiplier);
+            }
+        }
+        
         // Send via data channel or WebSocket
-        client.sendAudio(audioData);
+        client.sendAudio(senderId, processedAudio);
+    }
+    
+    /**
+     * Send audio to a specific WebRTC client at full volume (no distance-based adjustment)
+     * Used for global group voice without spatial audio
+     * 
+     * @param senderId The sender's client ID
+     * @param recipientId The recipient's client ID
+     * @param audioData The audio data
+     */
+    private void routeAudioToWebRTCFullVolume(UUID senderId, UUID recipientId, byte[] audioData) {
+        WebRTCClient client = clients.get(recipientId);
+        if (client == null) {
+            return;
+        }
+        
+        // Send at full volume without any processing
+        client.sendAudio(senderId, audioData);
+    }
+    
+    /**
+     * Send audio to a specific WebRTC client with distance-based volume adjustment
+     * but with a minimum volume floor (for global group voice with spatial audio)
+     * 
+     * @param senderId The sender's client ID
+     * @param recipientId The recipient's client ID
+     * @param audioData The audio data
+     * @param distance The distance between sender and recipient
+     * @param maxRange The maximum range for volume scaling
+     */
+    private void routeAudioToWebRTCWithMinVolume(UUID senderId, UUID recipientId, byte[] audioData, double distance, double maxRange) {
+        WebRTCClient client = clients.get(recipientId);
+        if (client == null) {
+            return;
+        }
+        
+        byte[] processedAudio = audioData;
+        
+        // Apply server-side volume scaling if enabled
+        if (NetworkConfig.isServerSideVolumeEnabled()) {
+            double volumeMultiplier = calculateVolumeMultiplier(distance, maxRange);
+            // For global groups, enforce a minimum volume so they're always audible
+            double minVolume = NetworkConfig.getGroupMinVolume();
+            volumeMultiplier = Math.max(minVolume, volumeMultiplier);
+            
+            if (volumeMultiplier < 1.0) {
+                processedAudio = scaleAudioVolume(audioData, volumeMultiplier);
+            }
+        }
+        
+        // Send via data channel or WebSocket
+        client.sendAudio(senderId, processedAudio);
     }
     
     /**
@@ -198,6 +371,86 @@ public class WebRTCAudioBridge {
      */
     public boolean isRunning() {
         return running;
+    }
+    
+    /**
+     * Calculate volume multiplier based on distance
+     * Scales proportionally with maxRange parameter to ensure consistent behavior
+     * regardless of proximity settings (30m, 50m, 100m, etc.)
+     * 
+     * @param distance Current distance to the listener
+     * @param maxRange Maximum hearing range
+     * @return Volume multiplier between 0.0 and 1.0
+     */
+    private double calculateVolumeMultiplier(double distance, double maxRange) {
+        // Scale fade start proportionally to max range using configured ratio
+        // Default: 0.7 means fade starts at 70% of max range (e.g., 35m for 50m range)
+        double scaledFadeStart = maxRange * NetworkConfig.PROXIMITY_FADE_START_RATIO;
+        
+        // Within fade start distance = full volume
+        if (distance <= scaledFadeStart) {
+            return 1.0;
+        }
+        
+        // Beyond max range = silent
+        if (distance >= maxRange) {
+            return 0.0;
+        }
+        
+        // Calculate fade zone (from scaledFadeStart to maxRange)
+        double fadeZone = maxRange - scaledFadeStart;
+        double positionInFadeZone = distance - scaledFadeStart;
+        
+        // Normalized position in fade zone (0.0 at start, 1.0 at end)
+        double normalizedPosition = positionInFadeZone / fadeZone;
+        
+        // Apply rolloff curve (use instance variable for consistency)
+        // rolloffFactor = 1.0 -> linear fade
+        // rolloffFactor = 1.5 -> moderate curve (default)
+        // rolloffFactor = 2.0 -> quadratic (faster falloff)
+        double volumeMultiplier = 1.0 - Math.pow(normalizedPosition, rolloffFactor);
+        
+        // Clamp to valid range
+        return Math.max(0.0, Math.min(1.0, volumeMultiplier));
+    }
+    
+    /**
+     * Scale audio volume by multiplying PCM samples
+     * Assumes 16-bit signed PCM audio (little-endian)
+     * 
+     * @param audioData Original audio data
+     * @param volumeMultiplier Volume scale (0.0 to 1.0)
+     * @return Scaled audio data
+     */
+    private byte[] scaleAudioVolume(byte[] audioData, double volumeMultiplier) {
+        if (volumeMultiplier >= 1.0) {
+            return audioData;
+        }
+        
+        if (volumeMultiplier <= 0.0) {
+            // Return silence
+            return new byte[audioData.length];
+        }
+        
+        byte[] scaledData = new byte[audioData.length];
+        
+        // Process as 16-bit little-endian PCM samples
+        for (int i = 0; i < audioData.length - 1; i += 2) {
+            // Read 16-bit sample (little-endian)
+            int sample = (audioData[i] & 0xFF) | (audioData[i + 1] << 8);
+            
+            // Scale the sample
+            sample = (int) (sample * volumeMultiplier);
+            
+            // Clamp to prevent overflow
+            sample = Math.max(-32768, Math.min(32767, sample));
+            
+            // Write back (little-endian)
+            scaledData[i] = (byte) (sample & 0xFF);
+            scaledData[i + 1] = (byte) ((sample >> 8) & 0xFF);
+        }
+        
+        return scaledData;
     }
     
     /**

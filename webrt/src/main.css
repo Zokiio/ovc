@@ -1,0 +1,166 @@
+@import 'tailwindcss';
+
+@import './styles/theme.css';
+@import './index.css';
+@import "tw-animate-css";
+/*
+  ---break---
+*/
+@custom-variant dark (&:is(.dark *));
+
+@config '../tailwind.config.js';
+
+/*
+  The default border color has changed to `currentColor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}
+
+/*
+  ---break---
+  VOX_COMM Theme - Futuristic Dark Slate with Indigo Accents
+  This is always dark mode - no light mode support
+*/
+:root {
+  --radius: 0.5rem;
+  /* Base: Slate-950 (deep dark) */
+  --background: oklch(0.08 0.01 265);
+  /* Foreground: Light slate */
+  --foreground: oklch(0.93 0.01 250);
+  /* Card: Slate-900 */
+  --card: oklch(0.12 0.015 260);
+  --card-foreground: oklch(0.93 0.01 250);
+  /* Popover: Slate-900 */
+  --popover: oklch(0.12 0.015 260);
+  --popover-foreground: oklch(0.93 0.01 250);
+  /* Primary: Indigo-600 */
+  --primary: oklch(0.55 0.20 265);
+  --primary-foreground: oklch(0.98 0.005 265);
+  /* Secondary: Slate-800 */
+  --secondary: oklch(0.18 0.02 255);
+  --secondary-foreground: oklch(0.93 0.01 250);
+  /* Muted: Slate-800/Slate-500 */
+  --muted: oklch(0.18 0.02 255);
+  --muted-foreground: oklch(0.55 0.015 250);
+  /* Accent: Indigo-500 */
+  --accent: oklch(0.60 0.22 265);
+  --accent-foreground: oklch(0.98 0.005 265);
+  /* Destructive: Red-500 */
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 250);
+  /* Border: Slate-800 */
+  --border: oklch(0.22 0.02 260);
+  /* Input: Slate-800 */
+  --input: oklch(0.22 0.02 260);
+  /* Ring: Indigo-500 */
+  --ring: oklch(0.60 0.22 265);
+  /* Chart colors - Indigo/Emerald theme */
+  --chart-1: oklch(0.60 0.22 265);
+  --chart-2: oklch(0.65 0.17 160);
+  --chart-3: oklch(0.75 0.16 85);
+  --chart-4: oklch(0.55 0.22 25);
+  --chart-5: oklch(0.50 0.20 280);
+  /* Sidebar: Slate-900 */
+  --sidebar: oklch(0.12 0.015 260);
+  --sidebar-foreground: oklch(0.93 0.01 250);
+  --sidebar-primary: oklch(0.60 0.22 265);
+  --sidebar-primary-foreground: oklch(0.98 0.005 265);
+  --sidebar-accent: oklch(0.18 0.02 255);
+  --sidebar-accent-foreground: oklch(0.93 0.01 250);
+  --sidebar-border: oklch(0.22 0.02 260);
+  --sidebar-ring: oklch(0.60 0.22 265);
+}
+
+/*
+  ---break---
+*/
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  /*
+  ---break---
+*/
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  /*
+  ---break---
+*/
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+
+    to {
+      height: 0;
+    }
+  }
+}
+
+/*
+  ---break---
+*/
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
