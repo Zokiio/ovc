@@ -337,6 +337,41 @@ function App() {
         // Merge with existing groups to preserve any groups not in the list
         // but remove groups that are now empty
         setGroups(groupsList.filter(g => g.memberCount > 0))
+
+        // Populate users list from group members so "All Users" is always accurate
+        const membersFromGroups = groupsList.flatMap(group =>
+          (group.members || []).map(member => ({ ...member, groupId: group.id }))
+        )
+
+        if (membersFromGroups.length > 0) {
+          setUsers(currentUsers => {
+            const newUsers = new Map(currentUsers)
+            const memberIds = new Set<string>()
+
+            membersFromGroups.forEach(member => {
+              memberIds.add(member.id)
+              const existing = newUsers.get(member.id)
+              newUsers.set(member.id, {
+                id: member.id,
+                name: member.name,
+                groupId: member.groupId,
+                isSpeaking: member.isSpeaking ?? existing?.isSpeaking ?? false,
+                isMuted: existing?.isMuted ?? false,
+                volume: existing?.volume ?? 100,
+                position: existing?.position
+              })
+            })
+
+            // Remove users that are no longer in any group list
+            newUsers.forEach((user, id) => {
+              if (!memberIds.has(id)) {
+                newUsers.delete(id)
+              }
+            })
+
+            return newUsers
+          })
+        }
       })
 
       client.on('group_created', (data: unknown) => {
