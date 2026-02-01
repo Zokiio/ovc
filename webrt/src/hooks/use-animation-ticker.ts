@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-type TickCallback = (time: number, deltaTime: number) => void
+type TickCallback = (time: number, intervalDelta: number) => void
 
 interface TickerSubscription {
   callback: TickCallback
@@ -18,7 +18,7 @@ class AnimationTicker {
     const id = this.nextId++
     this.subscribers.set(id, {
       callback,
-      lastCallTime: 0,
+      lastCallTime: performance.now(),
       interval,
     })
 
@@ -78,7 +78,9 @@ const globalTicker = new AnimationTicker()
 
 /**
  * Hook that subscribes to a shared animation loop
- * @param callback Function to call on each animation frame (or at specified interval)
+ * @param callback Function to call on each animation frame (or at specified interval).
+ *                 Receives (time, intervalDelta) where intervalDelta is the time since 
+ *                 this callback was last invoked (not the global frame delta).
  * @param interval Minimum time in milliseconds between callback invocations (0 = every frame)
  */
 export function useAnimationTicker(
@@ -102,8 +104,8 @@ export function useAnimationTicker(
 
   useEffect(() => {
     // Create a stable wrapper that always calls the latest callback
-    const wrappedCallback: TickCallback = (time, deltaTime) => {
-      callbackRef.current(time, deltaTime)
+    const wrappedCallback: TickCallback = (time, intervalDelta) => {
+      callbackRef.current(time, intervalDelta)
     }
 
     const subscriptionId = globalTicker.subscribe(wrappedCallback, interval)
