@@ -32,6 +32,7 @@ import { GroupCard } from '@/components/GroupCard'
 import { CreateGroupDialog } from '@/components/CreateGroupDialog'
 import { GroupSettingsDialog } from '@/components/GroupSettingsDialog'
 import { ConnectionView } from '@/components/ConnectionView'
+import { SignInPage } from '@/components/SignInPage'
 import { toast } from 'sonner'
 import { useIsMobile } from '@/hooks/use-mobile'
 import { useAudioTransmission } from '@/hooks/use-audio-transmission'
@@ -754,6 +755,22 @@ function App() {
     enableAudioCapture: !isMuted && connectionState.status === 'connected',
     onAudioData,
   };
+
+  // Show SignInPage when not connected
+  if (connectionState.status !== 'connected') {
+    return (
+      <>
+        <Toaster />
+        <SignInPage
+          connectionState={connectionState}
+          audioSettings={audioSettings}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
+          onAudioSettingsChange={handleAudioSettingsChange}
+        />
+      </>
+    )
+  }
 
   return (
     <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden font-sans selection:bg-accent/30">
