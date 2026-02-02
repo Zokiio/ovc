@@ -84,7 +84,7 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
             value={audioSettings.inputDevice}
             onValueChange={handleInputDeviceChange}
           >
-            <SelectTrigger className="w-full bg-background border-border text-xs h-9">
+            <SelectTrigger id="input-device" className="w-full bg-background border-border text-xs h-9">
               <SelectValue placeholder="Select input device" />
             </SelectTrigger>
             <SelectContent>
@@ -106,7 +106,7 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
             value={audioSettings.outputDevice}
             onValueChange={handleOutputDeviceChange}
           >
-            <SelectTrigger className="w-full bg-background border-border text-xs h-9">
+            <SelectTrigger id="output-device" className="w-full bg-background border-border text-xs h-9">
               <SelectValue placeholder="Select output device" />
             </SelectTrigger>
             <SelectContent>
