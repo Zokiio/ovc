@@ -393,6 +393,8 @@ export function ConnectionView({
       <div className="space-y-3">
         <button
           onClick={() => setAudioSettingsExpanded(!audioSettingsExpanded)}
+          aria-expanded={audioSettingsExpanded}
+          aria-controls="audio-settings-content"
           className="w-full flex items-center justify-between text-[10px] uppercase font-black text-muted-foreground tracking-widest hover:text-foreground transition-colors"
         >
           <span>Audio Settings</span>
@@ -404,7 +406,7 @@ export function ConnectionView({
         </button>
 
         {audioSettingsExpanded && (
-          <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div id="audio-settings-content" className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="space-y-4 bg-secondary/40 p-4 rounded-xl border border-border/50">
               <h3 className="text-[10px] uppercase font-black text-muted-foreground tracking-widest">
                 Hardware Engine
