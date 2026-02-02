@@ -95,6 +95,7 @@ function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const currentUserIdRef = useRef<string | null>(null)
+  const [latency, setLatency] = useState<number | undefined>(undefined)
   
   const [searchQuery, setSearchQuery] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -578,10 +579,7 @@ function App() {
 
       client.on('latency', (data: unknown) => {
         const payload = data as { latency?: number }
-        setConnectionState(currentState => ({
-          ...currentState,
-          latency: payload.latency
-        }))
+        setLatency(payload.latency)
       })
 
       client.on('connection_error', (error) => {
@@ -635,9 +633,9 @@ function App() {
     setConnectionState(currentState => ({
       serverUrl: currentState?.serverUrl || '',
       status: 'disconnected',
-      latency: undefined,
       errorMessage: undefined
     }))
+    setLatency(undefined)
     setCurrentGroupId(null)
     setCurrentUserId(null)
     currentUserIdRef.current = null
@@ -745,7 +743,7 @@ function App() {
   )
 
   // Derive ConnectionView props once to maintain stable reference across layout changes
-  const connectionViewProps = {
+  const connectionViewProps = useMemo(() => ({
     connectionState: connectionState || { status: 'disconnected', serverUrl: '' },
     audioSettings,
     onConnect: handleConnect,
@@ -754,7 +752,7 @@ function App() {
     onSpeakingChange: isMuted ? undefined : handleSpeakingChange,
     enableAudioCapture: !isMuted && connectionState.status === 'connected',
     onAudioData,
-  };
+  }), [connectionState, audioSettings, handleConnect, handleDisconnect, handleAudioSettingsChange, isMuted, handleSpeakingChange, onAudioData]);
 
   // Show SignInPage when not connected
   if (connectionState.status !== 'connected') {
@@ -1043,9 +1041,9 @@ function App() {
               <div className="mt-auto grid grid-cols-2 gap-2">
                 <StatusCard 
                   label="Latency" 
-                  value={`${connectionState.latency ?? '--'}ms`} 
+                  value={`${latency ?? '--'}ms`} 
                   icon={WifiHighIcon} 
-                  colorClass={(connectionState.latency ?? 0) > 100 ? "text-yellow-400" : "text-green-400"} 
+                  colorClass={(latency ?? 0) > 100 ? "text-yellow-400" : "text-green-400"} 
                 />
                 <StatusCard 
                   label="Status" 

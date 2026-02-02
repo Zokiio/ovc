@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
@@ -86,7 +86,7 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
   }
 ]
 
-export function VoiceActivityMonitor({
+export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
   audioSettings,
   onSpeakingChange,
   enableAudioCapture = false,
@@ -106,10 +106,16 @@ export function VoiceActivityMonitor({
   const [minSilenceDuration, setMinSilenceDuration] = useState(vadSettings.minSilenceDuration)
   const [smoothingTimeConstant, setSmoothingTimeConstant] = useState(vadSettings.smoothingTimeConstant)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const prevSpeakingRef = useRef<boolean | null>(null)
+  const prevSpeakingRef = useRef<boolean>(false)
+  const onSpeakingChangeRef = useRef(onSpeakingChange)
   const displayLevelRef = useRef<HTMLDivElement>(null)
   const thresholdIndicatorRef = useRef<HTMLDivElement>(null)
   const levelTextRef = useRef<HTMLSpanElement>(null)
+
+  // Update the callback ref when it changes
+  useEffect(() => {
+    onSpeakingChangeRef.current = onSpeakingChange
+  }, [onSpeakingChange])
 
   const effectiveEnabled = enabled ?? vadEnabled
   const effectiveVadThreshold = useVadThreshold ?? internalVadThreshold
@@ -118,6 +124,7 @@ export function VoiceActivityMonitor({
     isSpeaking,
     audioLevelRef,
     isInitialized,
+    isSwitchingDevice,
     error,
     startListening,
     stopListening
@@ -142,11 +149,11 @@ export function VoiceActivityMonitor({
 
   // Notify parent of speaking status changes
   useEffect(() => {
-    if (onSpeakingChange && prevSpeakingRef.current !== isSpeaking) {
+    if (onSpeakingChangeRef.current && prevSpeakingRef.current !== isSpeaking) {
       prevSpeakingRef.current = isSpeaking
-      onSpeakingChange(isSpeaking)
+      onSpeakingChangeRef.current(isSpeaking)
     }
-  }, [isSpeaking, onSpeakingChange])
+  }, [isSpeaking])
 
   // Update display level using direct DOM manipulation to avoid re-renders
   useEffect(() => {
@@ -265,7 +272,8 @@ export function VoiceActivityMonitor({
       )
     }
 
-    if (!isInitialized) {
+    // Show initializing only on first load, not during device switching
+    if (!isInitialized && !isSwitchingDevice) {
       return (
         <div className="rounded-lg bg-slate-950/40 border border-slate-800/50 p-3 text-[10px] text-slate-500">
           Initializing voice detection…
@@ -274,10 +282,13 @@ export function VoiceActivityMonitor({
     }
 
     const thresholdPercent = Math.round(threshold * 100)
-    const isActive = effectiveEnabled && isSpeaking
+    const isActive = effectiveEnabled && isSpeaking && !isSwitchingDevice
 
     return (
-      <div className="space-y-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800/50">
+      <div className={cn(
+        "space-y-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800/50 transition-opacity duration-200",
+        isSwitchingDevice && "opacity-50 pointer-events-none"
+      )}>
         <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
           <span className="flex items-center gap-1.5">
             <ChartBarIcon size={12} weight="bold" /> VAD Threshold
@@ -291,7 +302,7 @@ export function VoiceActivityMonitor({
           <div
             ref={displayLevelRef}
             className={isActive ? 'h-full transition-all duration-75 bg-emerald-500/40' : 'h-full transition-all duration-75 bg-indigo-500/20'}
-            style={{ width: '0%' }}
+            style={{ width: isSwitchingDevice ? '0%' : undefined }}
           />
           <div
             ref={thresholdIndicatorRef}
@@ -306,7 +317,8 @@ export function VoiceActivityMonitor({
           max={100}
           value={thresholdPercent}
           onChange={(event) => setThreshold(parseInt(event.target.value, 10) / 100)}
-          className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500"
+          disabled={isSwitchingDevice}
+          className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500 disabled:opacity-50"
         />
         <p className="text-[9px] text-slate-600 italic">Adjust red line to set voice trigger sensitivity.</p>
       </div>
@@ -573,4 +585,4 @@ export function VoiceActivityMonitor({
       </div>
     </div>
   )
-}
+})

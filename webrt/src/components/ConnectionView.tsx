@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, memo } from 'react'
+import { useState, useEffect, useMemo, memo, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { 
   MicrophoneIcon, 
   SpeakerHighIcon, 
@@ -19,6 +19,195 @@ import { toast } from 'sonner'
 import { VoiceActivityMonitor } from '@/components/VoiceActivityMonitor'
 import { useSavedServers } from '@/hooks/use-saved-servers'
 
+// Hardware Engine content - extracted to prevent re-renders
+interface HardwareEngineContentProps {
+  audioSettings: AudioSettings
+  audioDevices: { inputDevices: MediaDeviceInfo[], outputDevices: MediaDeviceInfo[] }
+  onAudioSettingsChange: (settings: AudioSettings) => void
+  onSpeakingChange?: (isSpeaking: boolean) => void
+  enableAudioCapture: boolean
+  onAudioData?: (audioData: string) => void
+  useVadThreshold: boolean
+  onVadThresholdChange: (value: boolean) => void
+}
+
+const HardwareEngineContent = memo(function HardwareEngineContent({
+  audioSettings,
+  audioDevices,
+  onAudioSettingsChange,
+  onSpeakingChange,
+  enableAudioCapture,
+  onAudioData,
+  useVadThreshold,
+  onVadThresholdChange
+}: HardwareEngineContentProps) {
+  const handleInputDeviceChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    onAudioSettingsChange({ ...audioSettings, inputDevice: event.target.value })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleOutputDeviceChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    onAudioSettingsChange({ ...audioSettings, outputDevice: event.target.value })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleInputVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    onAudioSettingsChange({ ...audioSettings, inputVolume: Number(event.target.value) })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleOutputVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    onAudioSettingsChange({ ...audioSettings, outputVolume: Number(event.target.value) })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleEchoCancellationToggle = useCallback(() => {
+    onAudioSettingsChange({ ...audioSettings, echoCancellation: !audioSettings.echoCancellation })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleNoiseSuppressionToggle = useCallback(() => {
+    onAudioSettingsChange({ ...audioSettings, noiseSuppression: !audioSettings.noiseSuppression })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleAutoGainControlToggle = useCallback(() => {
+    onAudioSettingsChange({ ...audioSettings, autoGainControl: !audioSettings.autoGainControl })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleVadThresholdToggle = useCallback(() => {
+    onVadThresholdChange(!useVadThreshold)
+  }, [useVadThreshold, onVadThresholdChange])
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="input-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
+            Input Device
+          </Label>
+          <select
+            id="input-device"
+            value={audioSettings.inputDevice}
+            onChange={handleInputDeviceChange}
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+          >
+            <option value="default">Default - System Mic</option>
+            {audioDevices.inputDevices.map(device => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="output-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
+            Output Device
+          </Label>
+          <select
+            id="output-device"
+            value={audioSettings.outputDevice}
+            onChange={handleOutputDeviceChange}
+            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+          >
+            <option value="default">Default - System Speakers</option>
+            {audioDevices.outputDevices.map(device => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label || `Output ${device.deviceId.slice(0, 8)}`}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex justify-between text-[10px] font-bold text-slate-400">
+          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
+            <MicrophoneIcon size={12} weight="bold" /> Mic Sensitivity
+          </span>
+          <span>{audioSettings.inputVolume}%</span>
+        </div>
+        <input
+          id="input-volume"
+          type="range"
+          value={audioSettings.inputVolume}
+          onChange={handleInputVolumeChange}
+          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex justify-between text-[10px] font-bold text-slate-400">
+          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
+            <SpeakerHighIcon size={12} weight="bold" /> Master Output
+          </span>
+          <span>{audioSettings.outputVolume}%</span>
+        </div>
+        <input
+          id="output-volume"
+          type="range"
+          value={audioSettings.outputVolume}
+          onChange={handleOutputVolumeChange}
+          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+        />
+      </div>
+
+      <VoiceActivityMonitor
+        variant="compact"
+        audioSettings={audioSettings}
+        enabled={true}
+        onSpeakingChange={onSpeakingChange}
+        enableAudioCapture={enableAudioCapture}
+        onAudioData={onAudioData}
+        useVadThreshold={useVadThreshold}
+        onVadThresholdChange={onVadThresholdChange}
+      />
+
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={handleEchoCancellationToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            audioSettings.echoCancellation
+              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+              : 'bg-slate-950 border-slate-800 text-slate-600'
+          }`}
+        >
+          Echo Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleNoiseSuppressionToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            audioSettings.noiseSuppression
+              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+              : 'bg-slate-950 border-slate-800 text-slate-600'
+          }`}
+        >
+          Noise Supp
+        </button>
+        <button
+          type="button"
+          onClick={handleAutoGainControlToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            audioSettings.autoGainControl
+              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+              : 'bg-slate-950 border-slate-800 text-slate-600'
+          }`}
+        >
+          Auto Gain
+        </button>
+        <button
+          type="button"
+          onClick={handleVadThresholdToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            useVadThreshold
+              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
+              : 'bg-slate-950 border-slate-800 text-slate-600'
+          }`}
+        >
+          Voice Det
+        </button>
+      </div>
+    </div>
+  )
+})
+
 interface ConnectionViewProps {
   connectionState: ConnectionState
   audioSettings: AudioSettings
@@ -30,7 +219,7 @@ interface ConnectionViewProps {
   onAudioData?: (audioData: string) => void
 }
 
-export function ConnectionView({
+export const ConnectionView = memo(function ConnectionView({
   connectionState,
   audioSettings,
   onConnect,
@@ -220,140 +409,10 @@ export function ConnectionView({
     onConnect(serverUrl, username, authCode)
   }
 
-  // Hardware Engine content - shared between modal and inline display
-  const HardwareEngineContent = () => (
-    <div className="space-y-5">
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <Label htmlFor="input-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
-            Input Device
-          </Label>
-          <select
-            id="input-device"
-            value={audioSettings.inputDevice}
-            onChange={(event) => onAudioSettingsChange({ ...audioSettings, inputDevice: event.target.value })}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
-          >
-            <option value="default">Default - System Mic</option>
-            {audioDevices.inputDevices.map(device => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="output-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
-            Output Device
-          </Label>
-          <select
-            id="output-device"
-            value={audioSettings.outputDevice}
-            onChange={(event) => onAudioSettingsChange({ ...audioSettings, outputDevice: event.target.value })}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
-          >
-            <option value="default">Default - System Speakers</option>
-            {audioDevices.outputDevices.map(device => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Output ${device.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
-            <MicrophoneIcon size={12} weight="bold" /> Mic Sensitivity
-          </span>
-          <span>{audioSettings.inputVolume}%</span>
-        </div>
-        <input
-          id="input-volume"
-          type="range"
-          value={audioSettings.inputVolume}
-          onChange={(event) => onAudioSettingsChange({ ...audioSettings, inputVolume: Number(event.target.value) })}
-          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
-            <SpeakerHighIcon size={12} weight="bold" /> Master Output
-          </span>
-          <span>{audioSettings.outputVolume}%</span>
-        </div>
-        <input
-          id="output-volume"
-          type="range"
-          value={audioSettings.outputVolume}
-          onChange={(event) => onAudioSettingsChange({ ...audioSettings, outputVolume: Number(event.target.value) })}
-          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-        />
-      </div>
-
-      <VoiceActivityMonitor
-        variant="compact"
-        audioSettings={audioSettings}
-        enabled={true}
-        onSpeakingChange={onSpeakingChange}
-        enableAudioCapture={enableAudioCapture}
-        onAudioData={onAudioData}
-        useVadThreshold={useVadThreshold}
-        onVadThresholdChange={setUseVadThreshold}
-      />
-
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => onAudioSettingsChange({ ...audioSettings, echoCancellation: !audioSettings.echoCancellation })}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            audioSettings.echoCancellation
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Echo Cancel
-        </button>
-        <button
-          type="button"
-          onClick={() => onAudioSettingsChange({ ...audioSettings, noiseSuppression: !audioSettings.noiseSuppression })}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            audioSettings.noiseSuppression
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Noise Supp
-        </button>
-        <button
-          type="button"
-          onClick={() => onAudioSettingsChange({ ...audioSettings, autoGainControl: !audioSettings.autoGainControl })}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            audioSettings.autoGainControl
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Auto Gain
-        </button>
-        <button
-          type="button"
-          onClick={() => setUseVadThreshold((prev) => !prev)}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            useVadThreshold
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Voice Det
-        </button>
-      </div>
-    </div>
-  )
+  // Memoize the callback for VAD threshold changes
+  const handleVadThresholdChange = useCallback((value: boolean) => {
+    setUseVadThreshold(value)
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -568,8 +627,20 @@ export function ConnectionView({
                   <MicrophoneIcon size={18} weight="bold" className="text-accent" />
                   Audio Configuration
                 </DialogTitle>
+                <DialogDescription>
+                  Configure your audio input and output devices for voice chat.
+                </DialogDescription>
               </DialogHeader>
-              <HardwareEngineContent />
+              <HardwareEngineContent
+                audioSettings={audioSettings}
+                audioDevices={audioDevices}
+                onAudioSettingsChange={onAudioSettingsChange}
+                onSpeakingChange={onSpeakingChange}
+                enableAudioCapture={enableAudioCapture}
+                onAudioData={onAudioData}
+                useVadThreshold={useVadThreshold}
+                onVadThresholdChange={handleVadThresholdChange}
+              />
             </DialogContent>
           </Dialog>
         </>
@@ -605,11 +676,18 @@ export function ConnectionView({
           Hardware Engine
         </h2>
 
-        <HardwareEngineContent />
+        <HardwareEngineContent
+          audioSettings={audioSettings}
+          audioDevices={audioDevices}
+          onAudioSettingsChange={onAudioSettingsChange}
+          onSpeakingChange={onSpeakingChange}
+          enableAudioCapture={enableAudioCapture}
+          onAudioData={onAudioData}
+          useVadThreshold={useVadThreshold}
+          onVadThresholdChange={handleVadThresholdChange}
+        />
       </div>
       )}
     </div>
   )
-}
-
-export default memo(ConnectionView)
+})
