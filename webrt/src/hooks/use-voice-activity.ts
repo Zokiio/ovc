@@ -332,14 +332,16 @@ export function useVoiceActivity({
             speakingTimeoutRef.current = null
           }
 
-          // Stop speaking after minSilenceDuration if currently speaking
-          if (isSpeakingRef.current && !silenceTimeoutRef.current && 
-              now - lastSpeechTimeRef.current > minSilenceDuration) {
+          // Stop speaking after minSilenceDuration since last detected speech
+          if (isSpeakingRef.current && !silenceTimeoutRef.current) {
+            const timeSinceLastSpeech = now - lastSpeechTimeRef.current
+            const remainingSilence = Math.max(0, minSilenceDuration - timeSinceLastSpeech)
+
             silenceTimeoutRef.current = window.setTimeout(() => {
               setIsSpeaking(false)
               isSpeakingRef.current = false
               silenceTimeoutRef.current = null
-            }, minSilenceDuration)
+            }, remainingSilence)
           }
         }
 
