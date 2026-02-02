@@ -78,6 +78,7 @@ export function useVoiceActivity({
   const lastReportedLevelRef = useRef<number>(0)
   const isSpeakingRef = useRef(false) // Track speaking state for gating audio transmission
   const thresholdRef = useRef(threshold) // Track current threshold for detection loop
+  const deviceSwitchTimerRef = useRef<number | null>(null) // Track device switch restart timer
   
   // Audio capture refs (using AudioWorkletNode)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
@@ -126,6 +127,11 @@ export function useVoiceActivity({
       silenceTimeoutRef.current = null
     }
 
+    if (deviceSwitchTimerRef.current) {
+      clearTimeout(deviceSwitchTimerRef.current)
+      deviceSwitchTimerRef.current = null
+    }
+
     // Reset constraints tracking when stopping
     constraintsAppliedRef.current = false
 
@@ -158,6 +164,7 @@ export function useVoiceActivity({
     setIsSpeaking(false)
     isSpeakingRef.current = false // Reset ref for audio gating
     audioLevelRef.current = 0
+    setIsSwitchingDevice(false) // Reset switching state on cleanup
     
     if (resetInitialized) {
       setIsInitialized(false)
@@ -384,12 +391,26 @@ export function useVoiceActivity({
       // Use cleanupAudio(false) to preserve isInitialized state during device switch
       cleanupAudio(false)
       // Small delay to ensure cleanup completes before restart
-      const timer = setTimeout(() => {
-        startListening().finally(() => {
+      deviceSwitchTimerRef.current = window.setTimeout(() => {
+        // Guard: only restart if still enabled and initialized
+        if (enabled && isInitialized) {
+          startListening().finally(() => {
+            setIsSwitchingDevice(false)
+          })
+        } else {
+          // Reset switching state if conditions no longer met
           setIsSwitchingDevice(false)
-        })
+        }
+        deviceSwitchTimerRef.current = null
       }, 100)
-      return () => clearTimeout(timer)
+    }
+    
+    return () => {
+      if (deviceSwitchTimerRef.current) {
+        clearTimeout(deviceSwitchTimerRef.current)
+        deviceSwitchTimerRef.current = null
+        setIsSwitchingDevice(false)
+      }
     }
   }, [audioSettings.inputDevice])
 
