@@ -275,7 +275,7 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
     // Show initializing only on first load, not during device switching
     if (!isInitialized && !isSwitchingDevice) {
       return (
-        <div className="rounded-lg bg-slate-950/40 border border-slate-800/50 p-3 text-[10px] text-slate-500">
+        <div className="rounded-lg bg-secondary/40 border border-border/50 p-3 text-[10px] text-muted-foreground">
           Initializing voice detection…
         </div>
       )
@@ -286,19 +286,19 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
 
     return (
       <div className={cn(
-        "space-y-3 bg-slate-950/40 p-3 rounded-xl border border-slate-800/50 transition-opacity duration-200",
+        "space-y-3 bg-secondary/40 p-3 rounded-xl border border-border/50 transition-opacity duration-200",
         isSwitchingDevice && "opacity-50 pointer-events-none"
       )}>
-        <div className="flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+        <div className="flex justify-between items-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
           <span className="flex items-center gap-1.5">
             <ChartBarIcon size={12} weight="bold" /> VAD Threshold
           </span>
-          <span className={isActive ? "text-emerald-400" : "text-slate-500"}>
+          <span className={isActive ? "text-emerald-400" : "text-muted-foreground"}>
             {thresholdPercent}%
           </span>
         </div>
 
-        <div className="relative h-4 bg-slate-900 rounded-md overflow-hidden border border-slate-800">
+        <div className="relative h-4 bg-background rounded-md overflow-hidden border border-border">
           <div
             ref={displayLevelRef}
             className={isActive ? 'h-full transition-all duration-75 bg-emerald-500/40' : 'h-full transition-all duration-75 bg-indigo-500/20'}
@@ -318,9 +318,9 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
           value={thresholdPercent}
           onChange={(event) => setThreshold(parseInt(event.target.value, 10) / 100)}
           disabled={isSwitchingDevice}
-          className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-red-500 disabled:opacity-50"
+          className="w-full h-1 bg-secondary rounded-lg appearance-none cursor-pointer accent-destructive disabled:opacity-50"
         />
-        <p className="text-[9px] text-slate-600 italic">Adjust red line to set voice trigger sensitivity.</p>
+        <p className="text-[9px] text-muted-foreground italic">Adjust red line to set voice trigger sensitivity.</p>
       </div>
     )
   }

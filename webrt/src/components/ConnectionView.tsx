@@ -41,12 +41,12 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
   useVadThreshold,
   onVadThresholdChange
 }: HardwareEngineContentProps) {
-  const handleInputDeviceChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    onAudioSettingsChange({ ...audioSettings, inputDevice: event.target.value })
+  const handleInputDeviceChange = useCallback((value: string) => {
+    onAudioSettingsChange({ ...audioSettings, inputDevice: value })
   }, [audioSettings, onAudioSettingsChange])
 
-  const handleOutputDeviceChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    onAudioSettingsChange({ ...audioSettings, outputDevice: event.target.value })
+  const handleOutputDeviceChange = useCallback((value: string) => {
+    onAudioSettingsChange({ ...audioSettings, outputDevice: value })
   }, [audioSettings, onAudioSettingsChange])
 
   const handleInputVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,47 +77,53 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
     <div className="space-y-5">
       <div className="space-y-3">
         <div className="space-y-1">
-          <Label htmlFor="input-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
+          <Label htmlFor="input-device" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
             Input Device
           </Label>
-          <select
-            id="input-device"
+          <Select
             value={audioSettings.inputDevice}
-            onChange={handleInputDeviceChange}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+            onValueChange={handleInputDeviceChange}
           >
-            <option value="default">Default - System Mic</option>
-            {audioDevices.inputDevices.map(device => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full bg-background border-border text-xs h-9">
+              <SelectValue placeholder="Select input device" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Default - System Mic</SelectItem>
+              {audioDevices.inputDevices.map(device => (
+                <SelectItem key={device.deviceId} value={device.deviceId}>
+                  {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-1">
-          <Label htmlFor="output-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
+          <Label htmlFor="output-device" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
             Output Device
           </Label>
-          <select
-            id="output-device"
+          <Select
             value={audioSettings.outputDevice}
-            onChange={handleOutputDeviceChange}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
+            onValueChange={handleOutputDeviceChange}
           >
-            <option value="default">Default - System Speakers</option>
-            {audioDevices.outputDevices.map(device => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Output ${device.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full bg-background border-border text-xs h-9">
+              <SelectValue placeholder="Select output device" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Default - System Speakers</SelectItem>
+              {audioDevices.outputDevices.map(device => (
+                <SelectItem key={device.deviceId} value={device.deviceId}>
+                  {device.label || `Output ${device.deviceId.slice(0, 8)}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
       <div className="space-y-2">
-        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
+        <div className="flex justify-between text-[10px] font-bold text-muted-foreground">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider">
             <MicrophoneIcon size={12} weight="bold" /> Mic Sensitivity
           </span>
           <span>{audioSettings.inputVolume}%</span>
@@ -127,13 +133,13 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
           type="range"
           value={audioSettings.inputVolume}
           onChange={handleInputVolumeChange}
-          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+          className="w-full h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-accent"
         />
       </div>
 
       <div className="space-y-2">
-        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
+        <div className="flex justify-between text-[10px] font-bold text-muted-foreground">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider">
             <SpeakerHighIcon size={12} weight="bold" /> Master Output
           </span>
           <span>{audioSettings.outputVolume}%</span>
@@ -143,7 +149,7 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
           type="range"
           value={audioSettings.outputVolume}
           onChange={handleOutputVolumeChange}
-          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+          className="w-full h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-accent"
         />
       </div>
 
@@ -164,8 +170,8 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
           onClick={handleEchoCancellationToggle}
           className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
             audioSettings.echoCancellation
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
           }`}
         >
           Echo Cancel
@@ -175,8 +181,8 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
           onClick={handleNoiseSuppressionToggle}
           className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
             audioSettings.noiseSuppression
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
           }`}
         >
           Noise Supp
@@ -186,8 +192,8 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
           onClick={handleAutoGainControlToggle}
           className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
             audioSettings.autoGainControl
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
           }`}
         >
           Auto Gain
@@ -197,8 +203,8 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
           onClick={handleVadThresholdToggle}
           className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
             useVadThreshold
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
           }`}
         >
           Voice Det
@@ -264,7 +270,7 @@ export const ConnectionView = memo(function ConnectionView({
     }
   }, [audioModalOpen, isConnected])
 
-  const handleSelectServer = (serverId: string) => {
+  const handleSelectServer = useCallback((serverId: string) => {
     if (serverId === 'new') {
       setSelectedServerId('')
       setServerUrl('')
@@ -283,9 +289,9 @@ export const ConnectionView = memo(function ConnectionView({
       setServerNickname(server.nickname)
       setIsEditing(false)
     }
-  }
+  }, [servers])
 
-  const handleSaveServer = () => {
+  const handleSaveServer = useCallback(() => {
     if (!serverUrl.trim() || !username.trim()) {
       toast.error('Please enter server URL and username')
       return
@@ -300,9 +306,9 @@ export const ConnectionView = memo(function ConnectionView({
     setSelectedServerId(newServer.id)
     setIsEditing(false)
     toast.success(`Server "${nickname}" saved`)
-  }
+  }, [serverUrl, username, serverNickname, authCode, addServer])
 
-  const handleUpdateServer = () => {
+  const handleUpdateServer = useCallback(() => {
     if (!selectedServerId) return
     if (!serverUrl.trim() || !username.trim()) {
       toast.error('Please enter server URL and username')
@@ -317,9 +323,9 @@ export const ConnectionView = memo(function ConnectionView({
     })
     setIsEditing(false)
     toast.success(`Server "${nickname}" updated`)
-  }
+  }, [selectedServerId, serverUrl, username, serverNickname, authCode, updateServer])
 
-  const handleDeleteServer = () => {
+  const handleDeleteServer = useCallback(() => {
     if (selectedServerId) {
       const server = servers.find(s => s.id === selectedServerId)
       removeServer(selectedServerId)
@@ -331,13 +337,13 @@ export const ConnectionView = memo(function ConnectionView({
       setIsEditing(false)
       toast.success(`Server "${server?.nickname}" removed`)
     }
-  }
+  }, [selectedServerId, servers, removeServer])
 
-  const handleStartEdit = () => {
+  const handleStartEdit = useCallback(() => {
     setIsEditing(true)
-  }
+  }, [])
 
-  const handleCancelEdit = () => {
+  const handleCancelEdit = useCallback(() => {
     // Restore original values from selected server
     const server = servers.find(s => s.id === selectedServerId)
     if (server) {
@@ -347,7 +353,7 @@ export const ConnectionView = memo(function ConnectionView({
       setServerNickname(server.nickname)
     }
     setIsEditing(false)
-  }
+  }, [servers, selectedServerId])
 
   const enumerateDevices = async () => {
     try {
