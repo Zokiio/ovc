@@ -62,6 +62,50 @@ export function ConnectionView({
     }))
   }, [servers])
 
+  const enumerateDevices = useCallback(async () => {
+    try {
+      // Check if we already have microphone permission
+      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName })
+      
+      // Only request stream if we don't have permission yet
+      // This minimizes audio system interactions
+      if (permissionStatus.state !== 'granted') {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        tempStream.getTracks().forEach(track => track.stop())
+      }
+      
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const isSelectableDevice = (device: MediaDeviceInfo) => (
+        device.deviceId !== 'default' && device.deviceId !== 'communications'
+      )
+      const inputDevices = devices
+        .filter(d => d.kind === 'audioinput')
+        .filter(isSelectableDevice)
+      const outputDevices = devices
+        .filter(d => d.kind === 'audiooutput')
+        .filter(isSelectableDevice)
+      setAudioDevices({ inputDevices, outputDevices })
+      setDevicesEnumerated(true)
+
+      const inputDeviceIds = new Set(inputDevices.map(d => d.deviceId))
+      const outputDeviceIds = new Set(outputDevices.map(d => d.deviceId))
+
+      if (audioSettings.inputDevice !== 'default' && !inputDeviceIds.has(audioSettings.inputDevice)) {
+        onAudioSettingsChange({ ...audioSettings, inputDevice: 'default' })
+        toast.warning('Saved input device not found. Reset to Default.')
+      }
+
+      if (audioSettings.outputDevice !== 'default' && !outputDeviceIds.has(audioSettings.outputDevice)) {
+        onAudioSettingsChange({ ...audioSettings, outputDevice: 'default' })
+        toast.warning('Saved output device not found. Reset to Default.')
+      }
+    } catch (err) {
+      toast.error('Failed to access audio devices')
+      // Don't reset devicesEnumerated to prevent infinite retry loop
+      // (the effect would re-run if audioSettingsExpanded is still true and devicesEnumerated becomes false)
+    }
+  }, [audioSettings, onAudioSettingsChange])
+
   // Only enumerate devices when user explicitly opens audio settings
   useEffect(() => {
     if (audioSettingsExpanded && !devicesEnumerated) {
@@ -153,49 +197,6 @@ export function ConnectionView({
     }
     setIsEditing(false)
   }
-
-  const enumerateDevices = useCallback(async () => {
-    try {
-      // Check if we already have microphone permission
-      const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName })
-      
-      // Only request stream if we don't have permission yet
-      // This minimizes audio system interactions
-      if (permissionStatus.state !== 'granted') {
-        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        tempStream.getTracks().forEach(track => track.stop())
-      }
-      
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      const isSelectableDevice = (device: MediaDeviceInfo) => (
-        device.deviceId !== 'default' && device.deviceId !== 'communications'
-      )
-      const inputDevices = devices
-        .filter(d => d.kind === 'audioinput')
-        .filter(isSelectableDevice)
-      const outputDevices = devices
-        .filter(d => d.kind === 'audiooutput')
-        .filter(isSelectableDevice)
-      setAudioDevices({ inputDevices, outputDevices })
-      setDevicesEnumerated(true)
-
-      const inputDeviceIds = new Set(inputDevices.map(d => d.deviceId))
-      const outputDeviceIds = new Set(outputDevices.map(d => d.deviceId))
-
-      if (audioSettings.inputDevice !== 'default' && !inputDeviceIds.has(audioSettings.inputDevice)) {
-        onAudioSettingsChange({ ...audioSettings, inputDevice: 'default' })
-        toast.warning('Saved input device not found. Reset to Default.')
-      }
-
-      if (audioSettings.outputDevice !== 'default' && !outputDeviceIds.has(audioSettings.outputDevice)) {
-        onAudioSettingsChange({ ...audioSettings, outputDevice: 'default' })
-        toast.warning('Saved output device not found. Reset to Default.')
-      }
-    } catch (err) {
-      toast.error('Failed to access audio devices')
-      // Don't reset devicesEnumerated to avoid infinite retry loop
-    }
-  }, [audioSettings, onAudioSettingsChange])
 
   const handleConnect = () => {
     if (!serverUrl.trim()) {
