@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 
 export interface SavedServer {
   id: string
@@ -73,9 +73,10 @@ export function useSavedServers() {
     return servers.find(server => server.id === id)
   }, [servers])
 
-  // Sort by last used (most recent first)
-  const sortedServers = [...servers].sort((a, b) => 
-    (b.lastUsed ?? 0) - (a.lastUsed ?? 0)
+  // Sort by last used (most recent first) - memoized to prevent new array on every render
+  const sortedServers = useMemo(() => 
+    [...servers].sort((a, b) => (b.lastUsed ?? 0) - (a.lastUsed ?? 0)),
+    [servers]
   )
 
   return {

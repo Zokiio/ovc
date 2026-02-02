@@ -17,6 +17,7 @@ interface VoiceActivityResult {
   isSpeaking: boolean
   audioLevelRef: React.RefObject<number>  // Use ref to avoid re-renders
   isInitialized: boolean
+  isSwitchingDevice: boolean  // True when switching input devices
   error: string | null
   startListening: () => Promise<void>
   stopListening: () => void
@@ -61,6 +62,7 @@ export function useVoiceActivity({
   const [isSpeaking, setIsSpeaking] = useState(false)
   const audioLevelRef = useRef(0)  // Use ref instead of state to avoid re-renders
   const [isInitialized, setIsInitialized] = useState(false)
+  const [isSwitchingDevice, setIsSwitchingDevice] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const audioContextRef = useRef<AudioContext | null>(null)
@@ -76,6 +78,7 @@ export function useVoiceActivity({
   const lastReportedLevelRef = useRef<number>(0)
   const isSpeakingRef = useRef(false) // Track speaking state for gating audio transmission
   const thresholdRef = useRef(threshold) // Track current threshold for detection loop
+  const deviceSwitchTimerRef = useRef<number | null>(null) // Track device switch restart timer
   
   // Audio capture refs (using AudioWorkletNode)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
@@ -107,7 +110,8 @@ export function useVoiceActivity({
     }
   }, [enableAudioCapture])
 
-  const stopListening = useCallback(() => {
+  // Internal cleanup function - can preserve isInitialized state for device switching
+  const cleanupAudio = useCallback((resetInitialized: boolean = true) => {
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current)
       animationFrameRef.current = null
@@ -121,6 +125,11 @@ export function useVoiceActivity({
     if (silenceTimeoutRef.current) {
       clearTimeout(silenceTimeoutRef.current)
       silenceTimeoutRef.current = null
+    }
+
+    if (deviceSwitchTimerRef.current) {
+      clearTimeout(deviceSwitchTimerRef.current)
+      deviceSwitchTimerRef.current = null
     }
 
     // Reset constraints tracking when stopping
@@ -155,8 +164,16 @@ export function useVoiceActivity({
     setIsSpeaking(false)
     isSpeakingRef.current = false // Reset ref for audio gating
     audioLevelRef.current = 0
-    setIsInitialized(false)
+    setIsSwitchingDevice(false) // Reset switching state on cleanup
+    
+    if (resetInitialized) {
+      setIsInitialized(false)
+    }
   }, [])
+
+  const stopListening = useCallback(() => {
+    cleanupAudio(true)
+  }, [cleanupAudio])
 
   const startListening = useCallback(async () => {
     if (isInitializingRef.current || audioContextRef.current) return
@@ -301,51 +318,38 @@ export function useVoiceActivity({
         if (isSpeechDetected) {
           lastSpeechTimeRef.current = now
           
-          setIsSpeaking(currentSpeaking => {
-            if (!currentSpeaking) {
-              if (silenceTimeoutRef.current) {
-                clearTimeout(silenceTimeoutRef.current)
-                silenceTimeoutRef.current = null
-              }
+          // Clear silence timeout if speech is detected
+          if (silenceTimeoutRef.current) {
+            clearTimeout(silenceTimeoutRef.current)
+            silenceTimeoutRef.current = null
+          }
 
-              if (!speakingTimeoutRef.current) {
-                speakingTimeoutRef.current = window.setTimeout(() => {
-                  setIsSpeaking(true)
-                  isSpeakingRef.current = true // Update ref for audio gating
-                  speakingTimeoutRef.current = null
-                }, minSpeechDuration)
-              }
-            } else {
-              if (speakingTimeoutRef.current) {
-                clearTimeout(speakingTimeoutRef.current)
-                speakingTimeoutRef.current = null
-              }
-            }
-            return currentSpeaking
-          })
+          // Start speaking after minSpeechDuration if not already speaking
+          if (!isSpeakingRef.current && !speakingTimeoutRef.current) {
+            speakingTimeoutRef.current = window.setTimeout(() => {
+              setIsSpeaking(true)
+              isSpeakingRef.current = true
+              speakingTimeoutRef.current = null
+            }, minSpeechDuration)
+          }
         } else {
-          setIsSpeaking(currentSpeaking => {
-            if (currentSpeaking) {
-              if (speakingTimeoutRef.current) {
-                clearTimeout(speakingTimeoutRef.current)
-                speakingTimeoutRef.current = null
-              }
+          // Clear speaking timeout if speech stops before threshold
+          if (speakingTimeoutRef.current) {
+            clearTimeout(speakingTimeoutRef.current)
+            speakingTimeoutRef.current = null
+          }
 
-              if (!silenceTimeoutRef.current && now - lastSpeechTimeRef.current > minSilenceDuration) {
-                silenceTimeoutRef.current = window.setTimeout(() => {
-                  setIsSpeaking(false)
-                  isSpeakingRef.current = false // Update ref for audio gating
-                  silenceTimeoutRef.current = null
-                }, minSilenceDuration)
-              }
-            } else {
-              if (speakingTimeoutRef.current) {
-                clearTimeout(speakingTimeoutRef.current)
-                speakingTimeoutRef.current = null
-              }
-            }
-            return currentSpeaking
-          })
+          // Stop speaking after minSilenceDuration since last detected speech
+          if (isSpeakingRef.current && !silenceTimeoutRef.current) {
+            const timeSinceLastSpeech = now - lastSpeechTimeRef.current
+            const remainingSilence = Math.max(0, minSilenceDuration - timeSinceLastSpeech)
+
+            silenceTimeoutRef.current = window.setTimeout(() => {
+              setIsSpeaking(false)
+              isSpeakingRef.current = false
+              silenceTimeoutRef.current = null
+            }, remainingSilence)
+          }
         }
 
         animationFrameRef.current = requestAnimationFrame(detectVoiceActivity)
@@ -383,12 +387,30 @@ export function useVoiceActivity({
   // Restart audio when input device changes (while enabled)
   useEffect(() => {
     if (enabled && isInitialized) {
-      stopListening()
+      setIsSwitchingDevice(true)
+      // Use cleanupAudio(false) to preserve isInitialized state during device switch
+      cleanupAudio(false)
       // Small delay to ensure cleanup completes before restart
-      const timer = setTimeout(() => {
-        startListening()
+      deviceSwitchTimerRef.current = window.setTimeout(() => {
+        // Guard: only restart if still enabled and initialized
+        if (enabled && isInitialized) {
+          startListening().finally(() => {
+            setIsSwitchingDevice(false)
+          })
+        } else {
+          // Reset switching state if conditions no longer met
+          setIsSwitchingDevice(false)
+        }
+        deviceSwitchTimerRef.current = null
       }, 100)
-      return () => clearTimeout(timer)
+    }
+    
+    return () => {
+      if (deviceSwitchTimerRef.current) {
+        clearTimeout(deviceSwitchTimerRef.current)
+        deviceSwitchTimerRef.current = null
+        setIsSwitchingDevice(false)
+      }
     }
   }, [audioSettings.inputDevice])
 
@@ -404,6 +426,7 @@ export function useVoiceActivity({
     isSpeaking,
     audioLevelRef,
     isInitialized,
+    isSwitchingDevice,
     error,
     startListening,
     stopListening

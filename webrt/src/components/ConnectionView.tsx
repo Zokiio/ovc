@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, memo } from 'react'
+import { useState, useEffect, useMemo, memo, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { 
   MicrophoneIcon, 
   SpeakerHighIcon, 
@@ -19,6 +19,201 @@ import { toast } from 'sonner'
 import { VoiceActivityMonitor } from '@/components/VoiceActivityMonitor'
 import { useSavedServers } from '@/hooks/use-saved-servers'
 
+// Hardware Engine content - extracted to prevent re-renders
+interface HardwareEngineContentProps {
+  audioSettings: AudioSettings
+  audioDevices: { inputDevices: MediaDeviceInfo[], outputDevices: MediaDeviceInfo[] }
+  onAudioSettingsChange: (settings: AudioSettings) => void
+  onSpeakingChange?: (isSpeaking: boolean) => void
+  enableAudioCapture: boolean
+  onAudioData?: (audioData: string) => void
+  useVadThreshold: boolean
+  onVadThresholdChange: (value: boolean) => void
+}
+
+const HardwareEngineContent = memo(function HardwareEngineContent({
+  audioSettings,
+  audioDevices,
+  onAudioSettingsChange,
+  onSpeakingChange,
+  enableAudioCapture,
+  onAudioData,
+  useVadThreshold,
+  onVadThresholdChange
+}: HardwareEngineContentProps) {
+  const handleInputDeviceChange = useCallback((value: string) => {
+    onAudioSettingsChange({ ...audioSettings, inputDevice: value })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleOutputDeviceChange = useCallback((value: string) => {
+    onAudioSettingsChange({ ...audioSettings, outputDevice: value })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleInputVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    onAudioSettingsChange({ ...audioSettings, inputVolume: Number(event.target.value) })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleOutputVolumeChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    onAudioSettingsChange({ ...audioSettings, outputVolume: Number(event.target.value) })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleEchoCancellationToggle = useCallback(() => {
+    onAudioSettingsChange({ ...audioSettings, echoCancellation: !audioSettings.echoCancellation })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleNoiseSuppressionToggle = useCallback(() => {
+    onAudioSettingsChange({ ...audioSettings, noiseSuppression: !audioSettings.noiseSuppression })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleAutoGainControlToggle = useCallback(() => {
+    onAudioSettingsChange({ ...audioSettings, autoGainControl: !audioSettings.autoGainControl })
+  }, [audioSettings, onAudioSettingsChange])
+
+  const handleVadThresholdToggle = useCallback(() => {
+    onVadThresholdChange(!useVadThreshold)
+  }, [useVadThreshold, onVadThresholdChange])
+
+  return (
+    <div className="space-y-5">
+      <div className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="input-device" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
+            Input Device
+          </Label>
+          <Select
+            value={audioSettings.inputDevice}
+            onValueChange={handleInputDeviceChange}
+          >
+            <SelectTrigger id="input-device" className="w-full bg-background border-border text-xs h-9">
+              <SelectValue placeholder="Select input device" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Default - System Mic</SelectItem>
+              {audioDevices.inputDevices.map(device => (
+                <SelectItem key={device.deviceId} value={device.deviceId}>
+                  {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="output-device" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
+            Output Device
+          </Label>
+          <Select
+            value={audioSettings.outputDevice}
+            onValueChange={handleOutputDeviceChange}
+          >
+            <SelectTrigger id="output-device" className="w-full bg-background border-border text-xs h-9">
+              <SelectValue placeholder="Select output device" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="default">Default - System Speakers</SelectItem>
+              {audioDevices.outputDevices.map(device => (
+                <SelectItem key={device.deviceId} value={device.deviceId}>
+                  {device.label || `Output ${device.deviceId.slice(0, 8)}`}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex justify-between text-[10px] font-bold text-muted-foreground">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider">
+            <MicrophoneIcon size={12} weight="bold" /> Mic Sensitivity
+          </span>
+          <span>{audioSettings.inputVolume}%</span>
+        </div>
+        <input
+          id="input-volume"
+          type="range"
+          value={audioSettings.inputVolume}
+          onChange={handleInputVolumeChange}
+          className="w-full h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-accent"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex justify-between text-[10px] font-bold text-muted-foreground">
+          <span className="flex items-center gap-1.5 uppercase tracking-wider">
+            <SpeakerHighIcon size={12} weight="bold" /> Master Output
+          </span>
+          <span>{audioSettings.outputVolume}%</span>
+        </div>
+        <input
+          id="output-volume"
+          type="range"
+          value={audioSettings.outputVolume}
+          onChange={handleOutputVolumeChange}
+          className="w-full h-1.5 bg-secondary rounded-lg appearance-none cursor-pointer accent-accent"
+        />
+      </div>
+
+      <VoiceActivityMonitor
+        variant="compact"
+        audioSettings={audioSettings}
+        enabled={true}
+        onSpeakingChange={onSpeakingChange}
+        enableAudioCapture={enableAudioCapture}
+        onAudioData={onAudioData}
+        useVadThreshold={useVadThreshold}
+        onVadThresholdChange={onVadThresholdChange}
+      />
+
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={handleEchoCancellationToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            audioSettings.echoCancellation
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
+          }`}
+        >
+          Echo Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleNoiseSuppressionToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            audioSettings.noiseSuppression
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
+          }`}
+        >
+          Noise Supp
+        </button>
+        <button
+          type="button"
+          onClick={handleAutoGainControlToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            audioSettings.autoGainControl
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
+          }`}
+        >
+          Auto Gain
+        </button>
+        <button
+          type="button"
+          onClick={handleVadThresholdToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            useVadThreshold
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
+          }`}
+        >
+          Voice Det
+        </button>
+      </div>
+    </div>
+  )
+})
+
 interface ConnectionViewProps {
   connectionState: ConnectionState
   audioSettings: AudioSettings
@@ -30,7 +225,7 @@ interface ConnectionViewProps {
   onAudioData?: (audioData: string) => void
 }
 
-export function ConnectionView({
+export const ConnectionView = memo(function ConnectionView({
   connectionState,
   audioSettings,
   onConnect,
@@ -75,7 +270,7 @@ export function ConnectionView({
     }
   }, [audioModalOpen, isConnected])
 
-  const handleSelectServer = (serverId: string) => {
+  const handleSelectServer = useCallback((serverId: string) => {
     if (serverId === 'new') {
       setSelectedServerId('')
       setServerUrl('')
@@ -94,9 +289,9 @@ export function ConnectionView({
       setServerNickname(server.nickname)
       setIsEditing(false)
     }
-  }
+  }, [servers])
 
-  const handleSaveServer = () => {
+  const handleSaveServer = useCallback(() => {
     if (!serverUrl.trim() || !username.trim()) {
       toast.error('Please enter server URL and username')
       return
@@ -111,9 +306,9 @@ export function ConnectionView({
     setSelectedServerId(newServer.id)
     setIsEditing(false)
     toast.success(`Server "${nickname}" saved`)
-  }
+  }, [serverUrl, username, serverNickname, authCode, addServer])
 
-  const handleUpdateServer = () => {
+  const handleUpdateServer = useCallback(() => {
     if (!selectedServerId) return
     if (!serverUrl.trim() || !username.trim()) {
       toast.error('Please enter server URL and username')
@@ -128,9 +323,9 @@ export function ConnectionView({
     })
     setIsEditing(false)
     toast.success(`Server "${nickname}" updated`)
-  }
+  }, [selectedServerId, serverUrl, username, serverNickname, authCode, updateServer])
 
-  const handleDeleteServer = () => {
+  const handleDeleteServer = useCallback(() => {
     if (selectedServerId) {
       const server = servers.find(s => s.id === selectedServerId)
       removeServer(selectedServerId)
@@ -142,13 +337,13 @@ export function ConnectionView({
       setIsEditing(false)
       toast.success(`Server "${server?.nickname}" removed`)
     }
-  }
+  }, [selectedServerId, servers, removeServer])
 
-  const handleStartEdit = () => {
+  const handleStartEdit = useCallback(() => {
     setIsEditing(true)
-  }
+  }, [])
 
-  const handleCancelEdit = () => {
+  const handleCancelEdit = useCallback(() => {
     // Restore original values from selected server
     const server = servers.find(s => s.id === selectedServerId)
     if (server) {
@@ -158,7 +353,7 @@ export function ConnectionView({
       setServerNickname(server.nickname)
     }
     setIsEditing(false)
-  }
+  }, [servers, selectedServerId])
 
   const enumerateDevices = async () => {
     try {
@@ -220,140 +415,10 @@ export function ConnectionView({
     onConnect(serverUrl, username, authCode)
   }
 
-  // Hardware Engine content - shared between modal and inline display
-  const HardwareEngineContent = () => (
-    <div className="space-y-5">
-      <div className="space-y-3">
-        <div className="space-y-1">
-          <Label htmlFor="input-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
-            Input Device
-          </Label>
-          <select
-            id="input-device"
-            value={audioSettings.inputDevice}
-            onChange={(event) => onAudioSettingsChange({ ...audioSettings, inputDevice: event.target.value })}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
-          >
-            <option value="default">Default - System Mic</option>
-            {audioDevices.inputDevices.map(device => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="output-device" className="text-[10px] text-slate-500 uppercase px-1 font-bold">
-            Output Device
-          </Label>
-          <select
-            id="output-device"
-            value={audioSettings.outputDevice}
-            onChange={(event) => onAudioSettingsChange({ ...audioSettings, outputDevice: event.target.value })}
-            className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-2 text-[11px] outline-none focus:ring-1 ring-indigo-500 text-slate-300 transition-all cursor-pointer hover:border-slate-700 shadow-inner"
-          >
-            <option value="default">Default - System Speakers</option>
-            {audioDevices.outputDevices.map(device => (
-              <option key={device.deviceId} value={device.deviceId}>
-                {device.label || `Output ${device.deviceId.slice(0, 8)}`}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
-            <MicrophoneIcon size={12} weight="bold" /> Mic Sensitivity
-          </span>
-          <span>{audioSettings.inputVolume}%</span>
-        </div>
-        <input
-          id="input-volume"
-          type="range"
-          value={audioSettings.inputVolume}
-          onChange={(event) => onAudioSettingsChange({ ...audioSettings, inputVolume: Number(event.target.value) })}
-          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-        />
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between text-[10px] font-bold text-slate-400">
-          <span className="flex items-center gap-1.5 uppercase tracking-tighter">
-            <SpeakerHighIcon size={12} weight="bold" /> Master Output
-          </span>
-          <span>{audioSettings.outputVolume}%</span>
-        </div>
-        <input
-          id="output-volume"
-          type="range"
-          value={audioSettings.outputVolume}
-          onChange={(event) => onAudioSettingsChange({ ...audioSettings, outputVolume: Number(event.target.value) })}
-          className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-        />
-      </div>
-
-      <VoiceActivityMonitor
-        variant="compact"
-        audioSettings={audioSettings}
-        enabled={true}
-        onSpeakingChange={onSpeakingChange}
-        enableAudioCapture={enableAudioCapture}
-        onAudioData={onAudioData}
-        useVadThreshold={useVadThreshold}
-        onVadThresholdChange={setUseVadThreshold}
-      />
-
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => onAudioSettingsChange({ ...audioSettings, echoCancellation: !audioSettings.echoCancellation })}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            audioSettings.echoCancellation
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Echo Cancel
-        </button>
-        <button
-          type="button"
-          onClick={() => onAudioSettingsChange({ ...audioSettings, noiseSuppression: !audioSettings.noiseSuppression })}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            audioSettings.noiseSuppression
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Noise Supp
-        </button>
-        <button
-          type="button"
-          onClick={() => onAudioSettingsChange({ ...audioSettings, autoGainControl: !audioSettings.autoGainControl })}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            audioSettings.autoGainControl
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Auto Gain
-        </button>
-        <button
-          type="button"
-          onClick={() => setUseVadThreshold((prev) => !prev)}
-          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
-            useVadThreshold
-              ? 'bg-indigo-500/10 border-indigo-500/50 text-indigo-400'
-              : 'bg-slate-950 border-slate-800 text-slate-600'
-          }`}
-        >
-          Voice Det
-        </button>
-      </div>
-    </div>
-  )
+  // Memoize the callback for VAD threshold changes
+  const handleVadThresholdChange = useCallback((value: boolean) => {
+    setUseVadThreshold(value)
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -447,10 +512,11 @@ export function ConnectionView({
         {/* Server Nickname - show when new or editing */}
         {(!selectedServerId || isEditing) && (
           <div className="space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
+            <label htmlFor="server-nickname" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
               Nickname {selectedServerId ? '' : '(optional)'}
             </label>
             <input
+              id="server-nickname"
               type="text"
               placeholder="My Server"
               value={serverNickname}
@@ -463,9 +529,10 @@ export function ConnectionView({
 
         {/* Host Address */}
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Host Address</label>
+          <label htmlFor="host-address" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Host Address</label>
           <div className="relative">
             <input
+              id="host-address"
               type={showHost ? "text" : "password"}
               placeholder="localhost:24455"
               value={serverUrl}
@@ -488,8 +555,9 @@ export function ConnectionView({
         {/* Username and Auth Code side by side */}
         <div className="flex gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Username</label>
+            <label htmlFor="username" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Username</label>
             <input
+              id="username"
               type="text"
               placeholder="Your username"
               value={username}
@@ -499,9 +567,10 @@ export function ConnectionView({
             />
           </div>
           <div className="w-24 space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Auth</label>
+            <label htmlFor="auth-code" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Auth</label>
             <div className="relative">
               <input
+                id="auth-code"
                 type={showAuthCode ? "text" : "password"}
                 placeholder="CODE"
                 value={authCode}
@@ -568,8 +637,20 @@ export function ConnectionView({
                   <MicrophoneIcon size={18} weight="bold" className="text-accent" />
                   Audio Configuration
                 </DialogTitle>
+                <DialogDescription>
+                  Configure your audio input and output devices for voice chat.
+                </DialogDescription>
               </DialogHeader>
-              <HardwareEngineContent />
+              <HardwareEngineContent
+                audioSettings={audioSettings}
+                audioDevices={audioDevices}
+                onAudioSettingsChange={onAudioSettingsChange}
+                onSpeakingChange={onSpeakingChange}
+                enableAudioCapture={enableAudioCapture}
+                onAudioData={onAudioData}
+                useVadThreshold={useVadThreshold}
+                onVadThresholdChange={handleVadThresholdChange}
+              />
             </DialogContent>
           </Dialog>
         </>
@@ -605,11 +686,18 @@ export function ConnectionView({
           Hardware Engine
         </h2>
 
-        <HardwareEngineContent />
+        <HardwareEngineContent
+          audioSettings={audioSettings}
+          audioDevices={audioDevices}
+          onAudioSettingsChange={onAudioSettingsChange}
+          onSpeakingChange={onSpeakingChange}
+          enableAudioCapture={enableAudioCapture}
+          onAudioData={onAudioData}
+          useVadThreshold={useVadThreshold}
+          onVadThresholdChange={handleVadThresholdChange}
+        />
       </div>
       )}
     </div>
   )
-}
-
-export default memo(ConnectionView)
+})

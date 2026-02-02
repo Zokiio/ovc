@@ -27,28 +27,21 @@ export function SignInPage({
             {/* Logo & Title */}
             <div className="space-y-6">
               <div className="flex items-center justify-center lg:justify-start gap-4">
-                <img src={icon} alt="OVC" className="h-16 w-16 lg:h-20 lg:w-20 shadow-2xl shadow-accent/20 rounded-2xl" />
+                <img src={icon} alt="OVC" className="h-16 w-16 lg:h-20 lg:w-20" />
                 <div>
                   <h1 className="text-4xl lg:text-6xl font-black tracking-tighter italic">OVC</h1>
-                  <p className="text-sm lg:text-base text-muted-foreground font-bold tracking-widest uppercase">Voice Grid</p>
-                </div>
-              </div>
-              
-              {/* Hero Icon */}
-              <div className="flex justify-center lg:justify-start">
-                <div className="w-32 h-32 lg:w-40 lg:h-40 bg-card/50 rounded-3xl flex items-center justify-center border border-border shadow-2xl">
-                  <ShieldIcon size={80} className="text-accent" weight="bold" />
+                  <p className="text-sm lg:text-base text-muted-foreground font-bold tracking-widest uppercase">Obsolete Voice Chat</p>
                 </div>
               </div>
 
               {/* Description */}
               <div className="space-y-4">
                 <h2 className="text-2xl lg:text-3xl font-black italic tracking-tight">
-                  Establish Secure Link
+                  Enter the Realm
                 </h2>
                 <p className="text-muted-foreground leading-relaxed text-sm lg:text-base">
-                  Connect to the voice communication grid to join channels, coordinate with your team, 
-                  and experience proximity-based spatial audio in Hytale.
+                  Link up with your squad through the voice network. Battle together, explore dungeons, 
+                  and hear your allies' voices fade as they venture into the distance.
                 </p>
               </div>
 

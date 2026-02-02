@@ -95,6 +95,7 @@ function App() {
   const [isMuted, setIsMuted] = useState<boolean>(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const currentUserIdRef = useRef<string | null>(null)
+  const [latency, setLatency] = useState<number | undefined>(undefined)
   
   const [searchQuery, setSearchQuery] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -578,10 +579,7 @@ function App() {
 
       client.on('latency', (data: unknown) => {
         const payload = data as { latency?: number }
-        setConnectionState(currentState => ({
-          ...currentState,
-          latency: payload.latency
-        }))
+        setLatency(payload.latency)
       })
 
       client.on('connection_error', (error) => {
@@ -635,9 +633,9 @@ function App() {
     setConnectionState(currentState => ({
       serverUrl: currentState?.serverUrl || '',
       status: 'disconnected',
-      latency: undefined,
       errorMessage: undefined
     }))
+    setLatency(undefined)
     setCurrentGroupId(null)
     setCurrentUserId(null)
     currentUserIdRef.current = null
@@ -745,7 +743,7 @@ function App() {
   )
 
   // Derive ConnectionView props once to maintain stable reference across layout changes
-  const connectionViewProps = {
+  const connectionViewProps = useMemo(() => ({
     connectionState: connectionState || { status: 'disconnected', serverUrl: '' },
     audioSettings,
     onConnect: handleConnect,
@@ -754,7 +752,7 @@ function App() {
     onSpeakingChange: isMuted ? undefined : handleSpeakingChange,
     enableAudioCapture: !isMuted && connectionState.status === 'connected',
     onAudioData,
-  };
+  }), [connectionState, audioSettings, handleConnect, handleDisconnect, handleAudioSettingsChange, isMuted, handleSpeakingChange, onAudioData]);
 
   // Show SignInPage when not connected
   if (connectionState.status !== 'connected') {
@@ -893,7 +891,9 @@ function App() {
 
                       <div className="relative">
                         <MagnifyingGlassIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <label htmlFor="search-group-users" className="sr-only">Search group users</label>
                         <Input
+                          id="search-group-users"
                           placeholder="Search..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
@@ -962,7 +962,9 @@ function App() {
                     <h3 className="text-lg font-black">All Users</h3>
                     <div className="relative">
                       <MagnifyingGlassIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <label htmlFor="search-all-users" className="sr-only">Search all users</label>
                       <Input
+                        id="search-all-users"
                         placeholder="Search users..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -1043,9 +1045,9 @@ function App() {
               <div className="mt-auto grid grid-cols-2 gap-2">
                 <StatusCard 
                   label="Latency" 
-                  value={`${connectionState.latency ?? '--'}ms`} 
+                  value={`${latency ?? '--'}ms`} 
                   icon={WifiHighIcon} 
-                  colorClass={(connectionState.latency ?? 0) > 100 ? "text-yellow-400" : "text-green-400"} 
+                  colorClass={(latency ?? 0) > 100 ? "text-yellow-400" : "text-green-400"} 
                 />
                 <StatusCard 
                   label="Status" 
@@ -1084,7 +1086,9 @@ function App() {
 
               <div className="relative w-full max-w-[16rem] sm:max-w-xs">
                 <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+                <label htmlFor="main-search-users" className="sr-only">Search users</label>
                 <Input 
+                  id="main-search-users"
                   type="text" 
                   placeholder="Search users..." 
                   className="bg-card border-border rounded-full pl-10 pr-4 py-1.5 text-xs focus:ring-1 ring-accent w-full"
