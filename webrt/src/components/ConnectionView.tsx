@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, memo } from 'react'
+import { useState, useEffect, useMemo, memo, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -67,7 +67,7 @@ export function ConnectionView({
     if (audioSettingsExpanded && !devicesEnumerated) {
       enumerateDevices()
     }
-  }, [audioSettingsExpanded, devicesEnumerated])
+  }, [audioSettingsExpanded, devicesEnumerated, enumerateDevices])
 
   const handleSelectServer = (serverId: string) => {
     if (serverId === 'new') {
@@ -154,7 +154,7 @@ export function ConnectionView({
     setIsEditing(false)
   }
 
-  const enumerateDevices = async () => {
+  const enumerateDevices = useCallback(async () => {
     try {
       // Check if we already have microphone permission
       const permissionStatus = await navigator.permissions.query({ name: 'microphone' as PermissionName })
@@ -193,9 +193,9 @@ export function ConnectionView({
       }
     } catch (err) {
       toast.error('Failed to access audio devices')
-      setDevicesEnumerated(false)
+      // Don't reset devicesEnumerated to avoid infinite retry loop
     }
-  }
+  }, [audioSettings, onAudioSettingsChange])
 
   const handleConnect = () => {
     if (!serverUrl.trim()) {
