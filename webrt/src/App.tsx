@@ -41,6 +41,9 @@ import { getAudioPlaybackManager } from '@/lib/audio-playback'
 import icon from '@/assets/images/icon.png'
 
 const AUDIO_SETTINGS_STORAGE_KEY = 'ovc_audio_settings'
+const MAX_RECONNECT_ATTEMPTS = 3
+const AUTH_TIMEOUT_MS = 8000
+const RECONNECT_BASE_DELAY_MS = 1200
 const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   inputDevice: 'default',
   outputDevice: 'default',
@@ -69,7 +72,18 @@ function App() {
   const signalingClient = useRef(getSignalingClient())
   const audioPlayback = useRef(getAudioPlaybackManager())
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const eventListenersSetUpRef = useRef(false)
+  const reconnectTimerRef = useRef<number | null>(null)
+  const reconnectAttemptRef = useRef(0)
+  const authTimeoutRef = useRef<number | null>(null)
+  const lastCredentialsRef = useRef<{ serverUrl: string; username: string; authCode: string } | null>(null)
+  const performConnectRef = useRef<((
+    serverUrl: string,
+    username: string,
+    authCode: string,
+    options?: { reconnectAttempt?: number; isAutoReconnect?: boolean }
+  ) => void) | null>(null)
+  const manualDisconnectRef = useRef(false)
+  const blockReconnectRef = useRef(false)
   const outputWarningRef = useRef<string | null>(null)
   
   // Use Map for O(1) user lookups and updates
@@ -277,54 +291,82 @@ function App() {
     toast.success('Settings updated')
   }, [])
 
-  const handleConnect = useCallback(async (serverUrl: string, username: string, authCode: string) => {
+  const clearPingInterval = useCallback(() => {
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current)
+      pingIntervalRef.current = null
+    }
+  }, [])
+
+  const clearAuthTimeout = useCallback(() => {
+    if (authTimeoutRef.current) {
+      clearTimeout(authTimeoutRef.current)
+      authTimeoutRef.current = null
+    }
+  }, [])
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
+
+  const performConnect = useCallback(async (
+    serverUrl: string,
+    username: string,
+    authCode: string,
+    options?: { reconnectAttempt?: number; isAutoReconnect?: boolean }
+  ) => {
     setConnectionState(currentState => ({
       serverUrl,
       status: 'connecting',
       latency: currentState?.latency,
-      errorMessage: undefined
+      errorMessage: undefined,
+      reconnectAttempt: options?.reconnectAttempt,
+      disconnectReason: undefined
     }))
-    
+
     try {
       const client = signalingClient.current
-      
-      // Clear previous event listeners if reconnecting
-      if (eventListenersSetUpRef.current) {
-        client.removeAllListeners()
+
+      manualDisconnectRef.current = false
+      if (!options?.isAutoReconnect) {
+        blockReconnectRef.current = false
       }
-      
-      // Clear any existing ping interval
-      if (pingIntervalRef.current) {
-        clearInterval(pingIntervalRef.current)
-        pingIntervalRef.current = null
-      }
-      
+
+      clearReconnectTimer()
+      clearAuthTimeout()
+      clearPingInterval()
+      client.removeAllListeners()
+
       await client.connect(serverUrl, username, authCode)
-      
-      setConnectionState(currentState => ({
-        serverUrl,
-        status: 'connected',
-        latency: currentState?.latency,
-        errorMessage: undefined
-      }))
-      
-      // Initialize audio playback
-      await audioPlayback.current.initialize()
-      
+      lastCredentialsRef.current = { serverUrl, username, authCode }
+
+      authTimeoutRef.current = window.setTimeout(() => {
+        blockReconnectRef.current = true
+        setConnectionState(currentState => ({
+          ...currentState,
+          status: 'error',
+          errorMessage: 'Authentication timed out. Please reconnect.'
+        }))
+        client.disconnect()
+      }, AUTH_TIMEOUT_MS)
+
       // Set up audio playback callback for incoming audio
       client.setAudioPlaybackCallback((userId: string, audioData: string) => {
         audioPlayback.current.playUserAudio(userId, audioData)
-        
+
         // Mark user as speaking when receiving audio
         updateQueueRef.current.speaking.set(userId, true)
         scheduleFlush()
-        
+
         // Clear any existing timeout for this user
         const existingTimeout = speakingTimeoutsRef.current.get(userId)
         if (existingTimeout) {
           clearTimeout(existingTimeout)
         }
-        
+
         // Schedule timeout to mark user as not speaking after audio stops
         const timeout = window.setTimeout(() => {
           updateQueueRef.current.speaking.set(userId, false)
@@ -333,25 +375,40 @@ function App() {
         }, 400) // 400ms after last audio packet
         speakingTimeoutsRef.current.set(userId, timeout)
       })
-      
-      // Request group list and player list
-      client.listGroups()
-      client.listPlayers()
-      
-      // Start ping for latency monitoring
-      pingIntervalRef.current = setInterval(() => {
-        if (client.isConnected()) {
-          client.ping()
-        }
-      }, 5000)
 
-      // Setup event listeners (only once per connection)
       client.on('authenticated', (data: unknown) => {
+        clearAuthTimeout()
+        reconnectAttemptRef.current = 0
+        blockReconnectRef.current = false
+
         const payload = data as { clientId?: string }
         if (payload.clientId) {
           setCurrentUserId(payload.clientId)
           currentUserIdRef.current = payload.clientId
         }
+
+        setConnectionState(currentState => ({
+          serverUrl,
+          status: 'connected',
+          latency: currentState?.latency,
+          errorMessage: undefined,
+          reconnectAttempt: undefined,
+          disconnectReason: undefined
+        }))
+
+        audioPlayback.current.initialize().catch(err => {
+          console.warn('[App] Failed to initialize audio playback:', err)
+        })
+
+        client.listGroups()
+        client.listPlayers()
+
+        pingIntervalRef.current = setInterval(() => {
+          if (client.isConnected()) {
+            client.ping()
+          }
+        }, 5000)
+
         toast.success('Connected to server')
       })
 
@@ -582,58 +639,142 @@ function App() {
         setLatency(payload.latency)
       })
 
+      client.on('message:error', (data: unknown) => {
+        const payload = data as { message?: string }
+        blockReconnectRef.current = true
+        clearAuthTimeout()
+        setConnectionState(currentState => ({
+          ...currentState,
+          status: 'error',
+          errorMessage: payload.message || 'Server rejected the connection.'
+        }))
+        client.disconnect()
+      })
+
       client.on('connection_error', (error) => {
+        if (reconnectAttemptRef.current > 0 && !manualDisconnectRef.current) {
+          return
+        }
         setConnectionState(currentState => ({
           ...currentState,
           status: 'error',
           errorMessage: 'Connection failed: ' + (error instanceof Error ? error.message : 'Unknown error')
         }))
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current)
-          pingIntervalRef.current = null
-        }
+        clearPingInterval()
         toast.error('Connection failed')
       })
 
-      client.on('disconnected', () => {
+      client.on('disconnected', (data: unknown) => {
+        const payload = data as { code?: number; reason?: string; wasClean?: boolean } | null
+        const reasonText = payload?.reason
+          ? payload.reason
+          : payload?.code
+            ? `Connection closed (code ${payload.code})`
+            : 'Connection closed'
+
+        clearPingInterval()
+        clearAuthTimeout()
+
+        if (manualDisconnectRef.current || blockReconnectRef.current) {
+          setConnectionState(currentState => ({
+            ...currentState,
+            status: 'disconnected',
+            reconnectAttempt: undefined,
+            disconnectReason: reasonText
+          }))
+          return
+        }
+
         setConnectionState(currentState => ({
           ...currentState,
-          status: 'disconnected'
+          status: 'disconnected',
+          reconnectAttempt: undefined,
+          disconnectReason: reasonText
         }))
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current)
-          pingIntervalRef.current = null
-        }
+
+        scheduleReconnect(reasonText)
       })
-      
-      eventListenersSetUpRef.current = true
     } catch (error) {
       setConnectionState(currentState => ({
         serverUrl,
         status: 'error',
         latency: currentState?.latency,
-        errorMessage: error instanceof Error ? error.message : 'Connection failed'
+        errorMessage: error instanceof Error ? error.message : 'Connection failed',
+        reconnectAttempt: undefined
       }))
-      if (pingIntervalRef.current) {
-        clearInterval(pingIntervalRef.current)
-        pingIntervalRef.current = null
-      }
+      clearPingInterval()
       toast.error('Failed to connect to server')
     }
-  }, [])
+  }, [clearAuthTimeout, clearPingInterval, clearReconnectTimer, scheduleFlush])
+
+  performConnectRef.current = performConnect
+
+  const scheduleReconnect = useCallback((reason?: string) => {
+    if (manualDisconnectRef.current || blockReconnectRef.current) {
+      return
+    }
+    const credentials = lastCredentialsRef.current
+    if (!credentials) {
+      return
+    }
+    if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      setConnectionState(currentState => ({
+        ...currentState,
+        status: 'error',
+        errorMessage: 'Failed to reconnect after 3 attempts.',
+        reconnectAttempt: undefined,
+        disconnectReason: reason
+      }))
+      return
+    }
+
+    reconnectAttemptRef.current += 1
+    const attempt = reconnectAttemptRef.current
+    const delay = Math.min(10000, RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt - 1))
+
+    setConnectionState(currentState => ({
+      serverUrl: credentials.serverUrl,
+      status: 'connecting',
+      latency: currentState?.latency,
+      errorMessage: undefined,
+      reconnectAttempt: attempt,
+      disconnectReason: reason
+    }))
+
+    clearReconnectTimer()
+    reconnectTimerRef.current = window.setTimeout(() => {
+      const connect = performConnectRef.current
+      if (!connect) {
+        return
+      }
+      void connect(credentials.serverUrl, credentials.username, credentials.authCode, {
+        reconnectAttempt: attempt,
+        isAutoReconnect: true
+      })
+    }, delay)
+  }, [clearReconnectTimer])
+
+  const handleConnect = useCallback((serverUrl: string, username: string, authCode: string) => {
+    reconnectAttemptRef.current = 0
+    clearReconnectTimer()
+    clearAuthTimeout()
+    void performConnect(serverUrl, username, authCode)
+  }, [clearAuthTimeout, clearReconnectTimer, performConnect])
 
   const handleDisconnect = useCallback(() => {
     const client = signalingClient.current
+    manualDisconnectRef.current = true
+    clearReconnectTimer()
+    clearAuthTimeout()
+    clearPingInterval()
+    client.removeAllListeners()
     client.disconnect()
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current)
-      pingIntervalRef.current = null
-    }
-    eventListenersSetUpRef.current = false
     setConnectionState(currentState => ({
       serverUrl: currentState?.serverUrl || '',
       status: 'disconnected',
-      errorMessage: undefined
+      errorMessage: undefined,
+      reconnectAttempt: undefined,
+      disconnectReason: undefined
     }))
     setLatency(undefined)
     setCurrentGroupId(null)
@@ -647,15 +788,14 @@ function App() {
       flushTimeoutRef.current = null
     }
     toast.info('Disconnected from server')
-  }, [])
+  }, [clearAuthTimeout, clearPingInterval, clearReconnectTimer])
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (pingIntervalRef.current) {
-        clearInterval(pingIntervalRef.current)
-        pingIntervalRef.current = null
-      }
+      clearPingInterval()
+      clearAuthTimeout()
+      clearReconnectTimer()
       if (flushTimeoutRef.current) {
         clearTimeout(flushTimeoutRef.current)
         flushTimeoutRef.current = null
@@ -665,7 +805,7 @@ function App() {
         client.disconnect()
       }
     }
-  }, [])
+  }, [clearAuthTimeout, clearPingInterval, clearReconnectTimer])
 
   // Apply audio settings changes to audio systems
   useEffect(() => {

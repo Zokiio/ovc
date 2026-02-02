@@ -11,6 +11,7 @@ export class SignalingClient {
   private username: string = ''
   private currentGroupId: string | null = null
   private lastPingTime: number = 0
+  private lastPongTime: number = 0
   private messageHandlers: Map<string, (data: Record<string, unknown>) => void> = new Map()
   private eventListeners: Map<string, ((data: unknown) => void)[]> = new Map()
   private audioPlaybackCallback: ((userId: string, audioData: string) => void) | null = null
@@ -76,8 +77,12 @@ export class SignalingClient {
           reject(error)
         }
 
-        this.ws.onclose = () => {
-          this.emit('disconnected', null)
+        this.ws.onclose = (event) => {
+          this.emit('disconnected', {
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean
+          })
         }
       } catch (error) {
         reject(error)
@@ -185,6 +190,7 @@ export class SignalingClient {
   private handlePong(data: Record<string, unknown>): void {
     const timestamp = Number(data.timestamp || 0)
     const latency = Date.now() - timestamp
+    this.lastPongTime = Date.now()
     this.emit('latency', { latency })
   }
 
@@ -386,6 +392,10 @@ export class SignalingClient {
 
   public isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+  }
+
+  public getLastPongTime(): number {
+    return this.lastPongTime
   }
 }
 

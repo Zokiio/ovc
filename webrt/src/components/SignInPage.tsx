@@ -77,6 +77,11 @@ export function SignInPage({
               <p className="text-muted-foreground text-sm">
                 Enter your server credentials to connect
               </p>
+              {connectionState.status === 'connecting' && connectionState.reconnectAttempt && (
+                <div className="text-[10px] font-bold uppercase tracking-widest text-amber-300">
+                  Reconnecting (attempt {connectionState.reconnectAttempt}/3)
+                </div>
+              )}
             </div>
 
             {/* Connection Form */}

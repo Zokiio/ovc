@@ -254,6 +254,8 @@ export const ConnectionView = memo(function ConnectionView({
   const { servers, addServer, updateServer, removeServer, markUsed } = useSavedServers()
   
   const isConnected = connectionState.status === 'connected'
+  const reconnectAttempt = connectionState.reconnectAttempt
+  const disconnectReason = connectionState.disconnectReason
 
   // Memoize server options to prevent dropdown sluggishness
   const serverOptions = useMemo(() => {
@@ -609,6 +611,18 @@ export const ConnectionView = memo(function ConnectionView({
           )}
           {connectionState.status === 'connected' ? 'Terminate Session' : 'Establish Link'}
         </button>
+
+        {connectionState.status === 'connecting' && reconnectAttempt && (
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[10px] text-amber-300">
+            Reconnecting (attempt {reconnectAttempt}/3)...
+          </div>
+        )}
+
+        {connectionState.status === 'disconnected' && disconnectReason && (
+          <div className="rounded-lg bg-secondary/30 border border-border/60 p-2 text-[10px] text-muted-foreground">
+            {disconnectReason}
+          </div>
+        )}
 
         {/* Error message */}
         {connectionState.status === 'error' && connectionState.errorMessage && (

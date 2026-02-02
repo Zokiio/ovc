@@ -63,4 +63,6 @@ export interface ConnectionState {
   serverUrl: string
   latency?: number
   errorMessage?: string
+  reconnectAttempt?: number
+  disconnectReason?: string
 }
