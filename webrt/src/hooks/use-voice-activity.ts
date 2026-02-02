@@ -11,6 +11,7 @@ interface VoiceActivityOptions {
   enableAudioCapture?: boolean  // Enable PCM capture for transmission
   onAudioData?: (audioData: string) => void  // Callback for captured audio (base64)
   useVadThreshold?: boolean  // Apply VAD threshold gating to audio transmission (default: true)
+  testMicMode?: boolean  // When true, plays mic back to speakers and mutes transmission
 }
 
 interface VoiceActivityResult {
@@ -21,6 +22,7 @@ interface VoiceActivityResult {
   error: string | null
   startListening: () => Promise<void>
   stopListening: () => void
+  isTestMicActive: boolean  // Whether test mic loopback is active
 }
 
 /**
@@ -51,15 +53,17 @@ function float32ToBase64(float32Array: Float32Array, volumeMultiplier?: number):
 export function useVoiceActivity({
   enabled,
   audioSettings,
-  threshold = 0.15,
-  smoothingTimeConstant = 0.8,
-  minSpeechDuration = 100,
-  minSilenceDuration = 300,
+  threshold = 0.12,           // More sensitive default
+  smoothingTimeConstant = 0.75, // Less smoothing for responsiveness
+  minSpeechDuration = 60,     // Fast attack (60ms)
+  minSilenceDuration = 400,   // Moderate release (400ms)
   enableAudioCapture = false,
   onAudioData,
-  useVadThreshold = true
+  useVadThreshold = true,
+  testMicMode = false
 }: VoiceActivityOptions): VoiceActivityResult {
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [isTestMicActive, setIsTestMicActive] = useState(false)
   const audioLevelRef = useRef(0)  // Use ref instead of state to avoid re-renders
   const [isInitialized, setIsInitialized] = useState(false)
   const [isSwitchingDevice, setIsSwitchingDevice] = useState(false)
@@ -87,6 +91,18 @@ export function useVoiceActivity({
   const enableAudioCaptureRef = useRef(enableAudioCapture)
   const useVadThresholdRef = useRef(useVadThreshold)  // Track VAD threshold gating setting
   
+  // Test mic loopback refs
+  const loopbackGainRef = useRef<GainNode | null>(null)
+  const testMicModeRef = useRef(testMicMode)
+  
+  // Track if processing settings effect has run once (skip first render)
+  const processingSettingsMountedRef = useRef(false)
+  
+  // Refs for attack/release/smoothing so slider changes apply without restart
+  const minSpeechDurationRef = useRef(minSpeechDuration)
+  const minSilenceDurationRef = useRef(minSilenceDuration)
+  const smoothingTimeConstantRef = useRef(smoothingTimeConstant)
+  
   // Update refs when props change
   useEffect(() => {
     onAudioDataRef.current = onAudioData
@@ -101,6 +117,23 @@ export function useVoiceActivity({
     thresholdRef.current = threshold
   }, [threshold])
   
+  // Keep attack/release/smoothing refs updated so slider changes apply live
+  useEffect(() => {
+    minSpeechDurationRef.current = minSpeechDuration
+  }, [minSpeechDuration])
+  
+  useEffect(() => {
+    minSilenceDurationRef.current = minSilenceDuration
+  }, [minSilenceDuration])
+  
+  useEffect(() => {
+    smoothingTimeConstantRef.current = smoothingTimeConstant
+    // Also update the analyser if it exists
+    if (analyserRef.current) {
+      analyserRef.current.smoothingTimeConstant = smoothingTimeConstant
+    }
+  }, [smoothingTimeConstant])
+  
   // Activate/deactivate audio capture based on enableAudioCapture prop
   useEffect(() => {
     enableAudioCaptureRef.current = enableAudioCapture
@@ -109,6 +142,39 @@ export function useVoiceActivity({
       workletNodeRef.current.port.postMessage({ type: 'active', value: enableAudioCapture })
     }
   }, [enableAudioCapture])
+
+  // Test mic loopback: connect mic to speakers when enabled, mute transmission
+  useEffect(() => {
+    testMicModeRef.current = testMicMode
+    
+    if (!audioContextRef.current || !microphoneRef.current) {
+      setIsTestMicActive(false)
+      return
+    }
+    
+    if (testMicMode) {
+      // Create loopback gain node and connect mic to speakers
+      if (!loopbackGainRef.current) {
+        const loopbackGain = audioContextRef.current.createGain()
+        loopbackGain.gain.value = 1.0
+        loopbackGainRef.current = loopbackGain
+      }
+      microphoneRef.current.connect(loopbackGainRef.current)
+      loopbackGainRef.current.connect(audioContextRef.current.destination)
+      setIsTestMicActive(true)
+    } else {
+      // Disconnect loopback
+      if (loopbackGainRef.current) {
+        try {
+          loopbackGainRef.current.disconnect()
+        } catch {
+          // Already disconnected
+        }
+        loopbackGainRef.current = null
+      }
+      setIsTestMicActive(false)
+    }
+  }, [testMicMode])
 
   // Internal cleanup function - can preserve isInitialized state for device switching
   const cleanupAudio = useCallback((resetInitialized: boolean = true) => {
@@ -140,6 +206,17 @@ export function useVoiceActivity({
       workletNodeRef.current.disconnect()
       workletNodeRef.current = null
     }
+
+    // Clean up loopback gain node (test mic)
+    if (loopbackGainRef.current) {
+      try {
+        loopbackGainRef.current.disconnect()
+      } catch {
+        // Already disconnected
+      }
+      loopbackGainRef.current = null
+    }
+    setIsTestMicActive(false)
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop())
@@ -244,6 +321,11 @@ export function useVoiceActivity({
         // Handle audio data from worklet - MUST be set up immediately after node creation
         workletNode.port.onmessage = (event) => {
           if (event.data.type === 'audioData' && onAudioDataRef.current) {
+            // Mute transmission when in test mic mode (loopback only)
+            if (testMicModeRef.current) {
+              return // Don't transmit during mic test
+            }
+            
             // Gate audio transmission: only send when speech is detected above threshold (if VAD threshold is enabled)
             if (useVadThresholdRef.current && !isSpeakingRef.current) {
               return // Discard audio below VAD threshold
@@ -325,12 +407,13 @@ export function useVoiceActivity({
           }
 
           // Start speaking after minSpeechDuration if not already speaking
+          // Use ref so slider changes apply immediately
           if (!isSpeakingRef.current && !speakingTimeoutRef.current) {
             speakingTimeoutRef.current = window.setTimeout(() => {
               setIsSpeaking(true)
               isSpeakingRef.current = true
               speakingTimeoutRef.current = null
-            }, minSpeechDuration)
+            }, minSpeechDurationRef.current)
           }
         } else {
           // Clear speaking timeout if speech stops before threshold
@@ -340,9 +423,10 @@ export function useVoiceActivity({
           }
 
           // Stop speaking after minSilenceDuration since last detected speech
+          // Use ref so slider changes apply immediately
           if (isSpeakingRef.current && !silenceTimeoutRef.current) {
             const timeSinceLastSpeech = now - lastSpeechTimeRef.current
-            const remainingSilence = Math.max(0, minSilenceDuration - timeSinceLastSpeech)
+            const remainingSilence = Math.max(0, minSilenceDurationRef.current - timeSinceLastSpeech)
 
             silenceTimeoutRef.current = window.setTimeout(() => {
               setIsSpeaking(false)
@@ -369,11 +453,9 @@ export function useVoiceActivity({
     audioSettings.echoCancellation,
     audioSettings.noiseSuppression,
     audioSettings.autoGainControl,
-    threshold,
-    smoothingTimeConstant,
-    minSpeechDuration,
-    minSilenceDuration,
     stopListening
+    // Note: threshold, smoothingTimeConstant, minSpeechDuration, minSilenceDuration
+    // are intentionally NOT in deps - they use refs so changes apply without restart
   ])
 
   useEffect(() => {
@@ -412,7 +494,43 @@ export function useVoiceActivity({
         setIsSwitchingDevice(false)
       }
     }
-  }, [audioSettings.inputDevice])
+  }, [audioSettings.inputDevice, enabled, isInitialized, cleanupAudio, startListening])
+
+  // Restart audio when processing settings change (echo/noise/gain) while connected
+  // These require a fresh getUserMedia call to apply
+  useEffect(() => {
+    // Skip first render - only handle actual changes while already running
+    if (!processingSettingsMountedRef.current) {
+      processingSettingsMountedRef.current = true
+      return
+    }
+    
+    // Only restart if currently enabled and initialized
+    if (!enabled || !isInitialized) return
+    
+    setIsSwitchingDevice(true)
+    cleanupAudio(false)
+    
+    deviceSwitchTimerRef.current = window.setTimeout(() => {
+      if (enabled && isInitialized) {
+        startListening().finally(() => {
+          setIsSwitchingDevice(false)
+        })
+      } else {
+        setIsSwitchingDevice(false)
+      }
+      deviceSwitchTimerRef.current = null
+    }, 100)
+    
+    return () => {
+      if (deviceSwitchTimerRef.current) {
+        clearTimeout(deviceSwitchTimerRef.current)
+        deviceSwitchTimerRef.current = null
+        setIsSwitchingDevice(false)
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioSettings.echoCancellation, audioSettings.noiseSuppression, audioSettings.autoGainControl])
 
   useEffect(() => {
     return () => {
@@ -429,6 +547,7 @@ export function useVoiceActivity({
     isSwitchingDevice,
     error,
     startListening,
-    stopListening
+    stopListening,
+    isTestMicActive
   }
 }

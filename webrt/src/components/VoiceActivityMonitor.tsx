@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef, memo } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
-import { WaveformIcon, XCircleIcon, SunDimIcon, BuildingsIcon, WindIcon, LightningIcon, MicrophoneStageIcon, InfoIcon, ChartBarIcon } from '@phosphor-icons/react'
+import { WaveformIcon, XCircleIcon, SunDimIcon, BuildingsIcon, WindIcon, LightningIcon, MicrophoneStageIcon, InfoIcon, ChartBarIcon, HeadphonesIcon } from '@phosphor-icons/react'
 import { AudioSettings, VADSettings } from '@/lib/types'
 import { useVoiceActivity } from '@/hooks/use-voice-activity'
 import { cn } from '@/lib/utils'
@@ -11,15 +11,28 @@ import { toast } from 'sonner'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 
 const VAD_SETTINGS_STORAGE_KEY = 'ovc_vad_settings'
+const VAD_SETTINGS_VERSION_KEY = 'ovc_vad_settings_version'
+const VAD_SETTINGS_VERSION = 2 // Bump to force migration and overwrite all saved settings
+
 const DEFAULT_VAD_SETTINGS: VADSettings = {
-  threshold: 0.15,
-  minSpeechDuration: 100,
-  minSilenceDuration: 300,
-  smoothingTimeConstant: 0.8
+  threshold: 0.12,           // More sensitive default
+  minSpeechDuration: 60,     // Fast attack (60ms) - quick speech detection
+  minSilenceDuration: 400,   // Moderate release (400ms) - prevents cutoff
+  smoothingTimeConstant: 0.75 // Less smoothing for responsiveness
 }
 
 function loadVADSettings(): VADSettings {
   try {
+    const storedVersion = localStorage.getItem(VAD_SETTINGS_VERSION_KEY)
+    const currentVersion = storedVersion ? parseInt(storedVersion, 10) : 0
+    
+    // Force migration: overwrite all saved settings if version is outdated
+    if (currentVersion < VAD_SETTINGS_VERSION) {
+      localStorage.setItem(VAD_SETTINGS_VERSION_KEY, String(VAD_SETTINGS_VERSION))
+      localStorage.setItem(VAD_SETTINGS_STORAGE_KEY, JSON.stringify(DEFAULT_VAD_SETTINGS))
+      return DEFAULT_VAD_SETTINGS
+    }
+    
     const stored = localStorage.getItem(VAD_SETTINGS_STORAGE_KEY)
     if (!stored) {
       return DEFAULT_VAD_SETTINGS
@@ -56,10 +69,10 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
     icon: SunDimIcon,
     description: 'Low background noise, studio or quiet room',
     settings: {
-      threshold: 0.08,
-      minSpeechDuration: 80,
-      minSilenceDuration: 250,
-      smoothingTimeConstant: 0.75
+      threshold: 0.06,          // Very sensitive
+      minSpeechDuration: 40,    // Very fast attack
+      minSilenceDuration: 300,  // Quick release OK in quiet
+      smoothingTimeConstant: 0.70
     }
   },
   {
@@ -67,10 +80,10 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
     icon: BuildingsIcon,
     description: 'Moderate noise, typical office or home',
     settings: {
-      threshold: 0.15,
-      minSpeechDuration: 120,
-      minSilenceDuration: 350,
-      smoothingTimeConstant: 0.8
+      threshold: 0.12,          // Balanced sensitivity
+      minSpeechDuration: 60,    // Fast attack
+      minSilenceDuration: 400,  // Moderate release
+      smoothingTimeConstant: 0.75
     }
   },
   {
@@ -78,15 +91,15 @@ const ENVIRONMENT_PRESETS: EnvironmentPreset[] = [
     icon: WindIcon,
     description: 'High background noise, café or busy area',
     settings: {
-      threshold: 0.28,
-      minSpeechDuration: 150,
-      minSilenceDuration: 400,
+      threshold: 0.22,          // Less sensitive to filter noise
+      minSpeechDuration: 100,   // Slower attack avoids false triggers
+      minSilenceDuration: 500,  // Longer release prevents choppy audio
       smoothingTimeConstant: 0.85
     }
   }
 ]
 
-export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
+export function VoiceActivityMonitor({
   audioSettings,
   onSpeakingChange,
   enableAudioCapture = false,
@@ -106,6 +119,7 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
   const [minSilenceDuration, setMinSilenceDuration] = useState(vadSettings.minSilenceDuration)
   const [smoothingTimeConstant, setSmoothingTimeConstant] = useState(vadSettings.smoothingTimeConstant)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [testMicMode, setTestMicMode] = useState(false)
   const prevSpeakingRef = useRef<boolean>(false)
   const onSpeakingChangeRef = useRef(onSpeakingChange)
   const displayLevelRef = useRef<HTMLDivElement>(null)
@@ -127,7 +141,8 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
     isSwitchingDevice,
     error,
     startListening,
-    stopListening
+    stopListening,
+    isTestMicActive
   } = useVoiceActivity({
     enabled: effectiveEnabled,
     audioSettings,
@@ -137,7 +152,8 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
     smoothingTimeConstant,
     enableAudioCapture,
     onAudioData,
-    useVadThreshold: effectiveVadThreshold
+    useVadThreshold: effectiveVadThreshold,
+    testMicMode
   })
 
 
@@ -321,6 +337,148 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
           className="w-full h-1 bg-secondary rounded-lg appearance-none cursor-pointer accent-destructive disabled:opacity-50"
         />
         <p className="text-[9px] text-muted-foreground italic">Adjust red line to set voice trigger sensitivity.</p>
+
+        {/* Environment Presets */}
+        <div className="pt-2 space-y-2">
+          <Label className="text-[9px] uppercase font-black text-muted-foreground tracking-widest">
+            Environment
+          </Label>
+          <div className="grid grid-cols-3 gap-1.5">
+            {ENVIRONMENT_PRESETS.map((preset) => {
+              const Icon = preset.icon
+              const presetActive = 
+                Math.abs(threshold - preset.settings.threshold) < 0.01 &&
+                Math.abs(minSpeechDuration - preset.settings.minSpeechDuration) < 10 &&
+                Math.abs(minSilenceDuration - preset.settings.minSilenceDuration) < 10
+              
+              return (
+                <Button
+                  key={preset.name}
+                  variant={presetActive ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => applyPreset(preset)}
+                  disabled={isSwitchingDevice}
+                  className={cn(
+                    "h-auto flex-col gap-1 py-1.5 text-[8px] font-black uppercase",
+                    presetActive && "bg-accent/10 text-accent hover:bg-accent/20 border-accent/50"
+                  )}
+                >
+                  <Icon size={12} weight={presetActive ? "fill" : "duotone"} />
+                  <span>{preset.name}</span>
+                </Button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Advanced Settings Collapsible */}
+        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+          <CollapsibleTrigger asChild>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              disabled={isSwitchingDevice}
+              className="w-full justify-between text-[9px] font-semibold h-7 px-2"
+            >
+              <span className="flex items-center gap-1.5">
+                <InfoIcon size={12} weight="fill" />
+                Advanced
+              </span>
+              <span className={cn(
+                "transition-transform duration-200 text-[8px]",
+                advancedOpen && "rotate-180"
+              )}>
+                ▼
+              </span>
+            </Button>
+          </CollapsibleTrigger>
+          
+          <CollapsibleContent className="space-y-3 pt-2">
+            <Separator />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="smoothing-compact" className="text-[10px]">Smoothing</Label>
+                <span className="text-[9px] text-muted-foreground font-mono">
+                  {smoothingTimeConstant.toFixed(2)}
+                </span>
+              </div>
+              <Slider
+                id="smoothing-compact"
+                value={[smoothingTimeConstant * 100]}
+                onValueChange={([value]) => setSmoothingTimeConstant(value / 100)}
+                min={60}
+                max={95}
+                step={1}
+                disabled={isSwitchingDevice}
+                className="w-full"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="attack-compact" className="text-[10px]">Attack</Label>
+                <span className="text-[9px] text-muted-foreground font-mono">
+                  {minSpeechDuration}ms
+                </span>
+              </div>
+              <Slider
+                id="attack-compact"
+                value={[minSpeechDuration]}
+                onValueChange={([value]) => setMinSpeechDuration(value)}
+                min={0}
+                max={300}
+                step={10}
+                disabled={isSwitchingDevice}
+                className="w-full"
+              />
+              <p className="text-[8px] text-muted-foreground">
+                Time before voice triggers
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="release-compact" className="text-[10px]">Release</Label>
+                <span className="text-[9px] text-muted-foreground font-mono">
+                  {minSilenceDuration}ms
+                </span>
+              </div>
+              <Slider
+                id="release-compact"
+                value={[minSilenceDuration]}
+                onValueChange={([value]) => setMinSilenceDuration(value)}
+                min={100}
+                max={1000}
+                step={25}
+                disabled={isSwitchingDevice}
+                className="w-full"
+              />
+              <p className="text-[8px] text-muted-foreground">
+                Time before voice cuts off
+              </p>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+
+        {/* Test Mic Button */}
+        <Button
+          variant={testMicMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => setTestMicMode(!testMicMode)}
+          disabled={isSwitchingDevice}
+          className={cn(
+            "w-full justify-center gap-2 text-[9px] font-bold uppercase h-8",
+            testMicMode && "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border-amber-500/50"
+          )}
+        >
+          <HeadphonesIcon size={14} weight={testMicMode ? "fill" : "duotone"} />
+          {testMicMode ? "Testing... (Muted)" : "Test Mic"}
+        </Button>
+        {testMicMode && (
+          <p className="text-[8px] text-amber-400 text-center">
+            You can hear yourself. Audio is not transmitted.
+          </p>
+        )}
       </div>
     )
   }
@@ -492,7 +650,6 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
                   
                   <CollapsibleContent className="space-y-4 pt-4">
                     <Separator />
-
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <Label htmlFor="smoothing" className="text-sm">Signal Smoothing</Label>
@@ -585,4 +742,4 @@ export const VoiceActivityMonitor = memo(function VoiceActivityMonitor({
       </div>
     </div>
   )
-})
+}

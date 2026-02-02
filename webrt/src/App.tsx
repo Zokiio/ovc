@@ -1015,7 +1015,7 @@ function App() {
                         <div>
                           <h3 className="text-lg font-black">{currentGroup.name}</h3>
                           <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">
-                            {currentGroup.memberCount}/{currentGroup.settings.maxMembers} pilots
+                            {currentGroup.memberCount}/{currentGroup.settings.maxMembers} users
                           </p>
                         </div>
                         <Button
@@ -1045,7 +1045,7 @@ function App() {
                         {groupUsers.length === 0 ? (
                           <div className="text-center py-8 opacity-50">
                             <WarningCircleIcon size={32} className="mx-auto mb-2" />
-                            <p className="text-xs font-bold">No pilots found</p>
+                            <p className="text-xs font-bold">No users found</p>
                           </div>
                         ) : (
                           groupUsers.map(user => (
@@ -1271,7 +1271,7 @@ function App() {
                           <h2 className="text-3xl font-black text-foreground italic">{currentGroup.name.toUpperCase().replace(/ /g, '_')}</h2>
                           <p className="text-muted-foreground text-sm font-medium flex items-center gap-4">
                             <span className="flex items-center gap-1.5 font-mono">
-                              <UsersIcon size={14} weight="fill" /> {currentGroup.memberCount}/{currentGroup.settings.maxMembers} PILOTS
+                              <UsersIcon size={14} weight="fill" /> {currentGroup.memberCount}/{currentGroup.settings.maxMembers} USERS
                             </span>
                             <span className="flex items-center gap-1.5 font-mono">
                               <ActivityIcon size={14} /> RANGE: {currentGroup.settings.proximityRange}m
@@ -1310,7 +1310,7 @@ function App() {
                           <div className="col-span-full py-20 text-center space-y-3 opacity-50">
                             <WarningCircleIcon size={40} className="mx-auto" />
                             <p className="font-bold">
-                              {searchQuery ? `No pilots found matching "${searchQuery}"` : 'No pilots in group yet'}
+                              {searchQuery ? `No users found matching "${searchQuery}"` : 'No users in group yet'}
                             </p>
                           </div>
                         )}
