@@ -477,7 +477,8 @@ export function ConnectionView({
               type="button"
               onClick={() => setShowHost(!showHost)}
               className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              tabIndex={-1}
+              aria-label={showHost ? "Hide host address" : "Show host address"}
+              aria-pressed={showHost}
             >
               {showHost ? <EyeIcon size={14} /> : <EyeSlashIcon size={14} />}
             </button>
@@ -513,7 +514,8 @@ export function ConnectionView({
                 type="button"
                 onClick={() => setShowAuthCode(!showAuthCode)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                tabIndex={-1}
+                aria-label={showAuthCode ? "Hide authentication code" : "Show authentication code"}
+                aria-pressed={showAuthCode}
               >
                 {showAuthCode ? <EyeIcon size={12} /> : <EyeSlashIcon size={12} />}
               </button>

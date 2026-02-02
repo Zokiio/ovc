@@ -19,8 +19,8 @@ export function SignInPage({
   onAudioSettingsChange,
 }: SignInPageProps) {
   return (
-    <div className="flex h-screen w-screen bg-background text-foreground overflow-hidden">
-      <div className="flex flex-col lg:flex-row w-full h-full">
+    <div className="flex min-h-screen w-screen bg-background text-foreground overflow-y-auto">
+      <div className="flex flex-col lg:flex-row w-full">
         {/* Left Side - Branding & Info */}
         <div className="flex-1 flex flex-col items-center justify-center p-8 lg:p-16 bg-gradient-to-br from-card via-background to-background">
           <div className="max-w-lg space-y-8 text-center lg:text-left">
