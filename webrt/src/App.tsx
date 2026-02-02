@@ -891,7 +891,9 @@ function App() {
 
                       <div className="relative">
                         <MagnifyingGlassIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <label htmlFor="search-group-users" className="sr-only">Search group users</label>
                         <Input
+                          id="search-group-users"
                           placeholder="Search..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
@@ -960,7 +962,9 @@ function App() {
                     <h3 className="text-lg font-black">All Users</h3>
                     <div className="relative">
                       <MagnifyingGlassIcon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <label htmlFor="search-all-users" className="sr-only">Search all users</label>
                       <Input
+                        id="search-all-users"
                         placeholder="Search users..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -1082,7 +1086,9 @@ function App() {
 
               <div className="relative w-full max-w-[16rem] sm:max-w-xs">
                 <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+                <label htmlFor="main-search-users" className="sr-only">Search users</label>
                 <Input 
+                  id="main-search-users"
                   type="text" 
                   placeholder="Search users..." 
                   className="bg-card border-border rounded-full pl-10 pr-4 py-1.5 text-xs focus:ring-1 ring-accent w-full"

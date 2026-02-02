@@ -512,10 +512,11 @@ export const ConnectionView = memo(function ConnectionView({
         {/* Server Nickname - show when new or editing */}
         {(!selectedServerId || isEditing) && (
           <div className="space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
+            <label htmlFor="server-nickname" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">
               Nickname {selectedServerId ? '' : '(optional)'}
             </label>
             <input
+              id="server-nickname"
               type="text"
               placeholder="My Server"
               value={serverNickname}
@@ -528,9 +529,10 @@ export const ConnectionView = memo(function ConnectionView({
 
         {/* Host Address */}
         <div className="space-y-1">
-          <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Host Address</label>
+          <label htmlFor="host-address" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Host Address</label>
           <div className="relative">
             <input
+              id="host-address"
               type={showHost ? "text" : "password"}
               placeholder="localhost:24455"
               value={serverUrl}
@@ -553,8 +555,9 @@ export const ConnectionView = memo(function ConnectionView({
         {/* Username and Auth Code side by side */}
         <div className="flex gap-2">
           <div className="flex-1 space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Username</label>
+            <label htmlFor="username" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Username</label>
             <input
+              id="username"
               type="text"
               placeholder="Your username"
               value={username}
@@ -564,9 +567,10 @@ export const ConnectionView = memo(function ConnectionView({
             />
           </div>
           <div className="w-24 space-y-1">
-            <label className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Auth</label>
+            <label htmlFor="auth-code" className="text-[10px] text-muted-foreground uppercase px-1 font-bold tracking-wider">Auth</label>
             <div className="relative">
               <input
+                id="auth-code"
                 type={showAuthCode ? "text" : "password"}
                 placeholder="CODE"
                 value={authCode}
