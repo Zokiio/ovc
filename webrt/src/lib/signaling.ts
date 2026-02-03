@@ -29,6 +29,7 @@ export class SignalingClient {
     this.onMessage('group_list', (data) => this.handleGroupList(data))
     this.onMessage('group_members_updated', (data) => this.handleGroupMembersUpdated(data))
     this.onMessage('user_speaking_status', (data) => this.handleUserSpeakingStatus(data))
+    this.onMessage('user_mute_status', (data) => this.handleUserMuteStatus(data))
     this.onMessage('player_list', (data) => this.handlePlayerList(data))
     this.onMessage('auth_success', (data) => this.handleAuthSuccess(data))
     this.onMessage('pong', (data) => this.handlePong(data))
@@ -183,6 +184,10 @@ export class SignalingClient {
     this.emit('user_speaking_status', data)
   }
 
+  private handleUserMuteStatus(data: Record<string, unknown>): void {
+    this.emit('user_mute_status', data)
+  }
+
   private handlePlayerList(data: Record<string, unknown>): void {
     this.emit('player_list', data)
   }
@@ -308,6 +313,16 @@ export class SignalingClient {
     this.send({
       type: 'user_speaking',
       data: { isSpeaking },
+    })
+  }
+
+  /**
+   * Update microphone mute status
+   */
+  public updateMuteStatus(isMuted: boolean): void {
+    this.send({
+      type: 'user_mute',
+      data: { isMuted },
     })
   }
 

@@ -49,6 +49,8 @@ public class SignalingMessage {
     public static final String TYPE_ANSWER = "answer";
     public static final String TYPE_ICE_CANDIDATE = "ice_candidate";
     public static final String TYPE_AUDIO = "audio";
+    public static final String TYPE_USER_MUTE = "user_mute";
+    public static final String TYPE_USER_MUTE_STATUS = "user_mute_status";
     public static final String TYPE_ERROR = "error";
     public static final String TYPE_DISCONNECT = "disconnect";
 }

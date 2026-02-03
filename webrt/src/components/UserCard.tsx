@@ -64,6 +64,7 @@ function UserCardComponent({ user, onVolumeChange, onToggleMute }: UserCardProps
               {user.name}
             </span>
             {user.isMuted && <SpeakerSlashIcon size={12} className="text-destructive" />}
+            {user.isMicMuted && <MicrophoneSlashIcon size={12} className="text-destructive" />}
             {user.isVoiceConnected === false && (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 border-orange-500/50 bg-orange-500/10 text-orange-500">
                 No Voice

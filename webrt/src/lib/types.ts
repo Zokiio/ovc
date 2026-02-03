@@ -4,6 +4,7 @@ export interface User {
   avatarUrl?: string
   isSpeaking: boolean
   isMuted: boolean
+  isMicMuted?: boolean
   volume: number
   groupId?: string
   position?: PlayerPosition
