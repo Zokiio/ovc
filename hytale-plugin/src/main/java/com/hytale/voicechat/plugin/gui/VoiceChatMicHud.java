@@ -19,7 +19,7 @@ public class VoiceChatMicHud extends CustomUIHud {
 
     @Override
     protected void build(UICommandBuilder builder) {
-        builder.append("#hud-root", HUD_LAYOUT);
+        builder.append(HUD_LAYOUT);
         builder.set("#MicHudRoot.Visible", false);
         builder.set("#MicActive.Visible", false);
         builder.set("#MicMuted.Visible", false);
