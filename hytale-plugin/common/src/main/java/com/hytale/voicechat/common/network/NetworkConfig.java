@@ -43,11 +43,11 @@ public class NetworkConfig {
     
     // SSL/TLS configuration
     private static boolean enableSSL = false;
-    private static String sslCertPath = "/etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem";
-    private static String sslKeyPath = "/etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem";
+    private static String sslCertPath = "/etc/letsencrypt/live/example.com/fullchain.pem";
+    private static String sslKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem";
     
     // CORS allowed origins
-    private static String allowedOrigins = "https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173";
+    private static String allowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173";
     
     // Voice chat proximity settings - initialized from constants
     private static double defaultProximityDistance = DEFAULT_PROXIMITY_DISTANCE;
