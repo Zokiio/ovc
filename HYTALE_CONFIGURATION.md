@@ -39,7 +39,7 @@ Whether to enable SSL/TLS for WebSocket connections.
 ### `SSLCertPath` (String)
 Path to the SSL certificate file (PEM format).
 
-- **Default**: `/etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem`
+- **Default**: `/etc/letsencrypt/live/example.com/fullchain.pem`
 - **Used when**: `EnableSSL = true`
 - **Format**: PEM-encoded X.509 certificate
 - **Example**: `SSLCertPath = "/etc/letsencrypt/live/example.com/fullchain.pem"`
@@ -48,7 +48,7 @@ Path to the SSL certificate file (PEM format).
 ### `SSLKeyPath` (String)
 Path to the SSL private key file (PEM format).
 
-- **Default**: `/etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem`
+- **Default**: `/etc/letsencrypt/live/example.com/privkey.pem`
 - **Used when**: `EnableSSL = true`
 - **Format**: PEM-encoded RSA private key (unencrypted)
 - **Example**: `SSLKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem"`
@@ -57,7 +57,7 @@ Path to the SSL private key file (PEM format).
 ### `AllowedOrigins` (String)
 Comma-separated list of domains allowed to connect via WebSocket (CORS).
 
-- **Default**: `https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173`
+- **Default**: `https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173`
 - **Format**: Comma-separated domain URLs
 - **Wildcard**: Use `"*"` to allow all origins (NOT recommended for production)
 - **Example**:

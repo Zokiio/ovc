@@ -5,7 +5,7 @@ Since your SSL certificate is automatically managed (Cloudflare, hosting provide
 ## Architecture
 
 ```
-Web Client (https://voice.techynoodle.com)
+Web Client (https://voice.example.com)
     ↓ wss:// (SSL encrypted)
 Nginx/Apache/Cloud Proxy
     ↓ ws:// (no SSL - internal only)
@@ -16,7 +16,7 @@ Java Plugin (localhost:24455)
 
 - **Java Plugin**: Listens on `ws://localhost:24455` (SSL disabled)
 - **Reverse Proxy**: Handles SSL termination and forwards to plugin
-- **Web Client**: Connects to `wss://voice.techynoodle.com/voice`
+- **Web Client**: Connects to `wss://voice.example.com/voice`
 
 ---
 
@@ -44,7 +44,7 @@ upstream voice_backend {
 
 server {
     listen 443 ssl http2;
-    server_name voice.techynoodle.com;
+    server_name voice.example.com;
     
     # SSL certificate (automatically managed by your hosting provider)
     # Usually these are already configured if your site has HTTPS
@@ -89,7 +89,7 @@ server {
 # Redirect HTTP to HTTPS
 server {
     listen 80;
-    server_name voice.techynoodle.com;
+    server_name voice.example.com;
     return 301 https://$server_name$request_uri;
 }
 ```
@@ -164,7 +164,7 @@ Edit `/etc/apache2/sites-available/voice-websocket.conf`:
 
 ```apache
 <VirtualHost *:443>
-    ServerName voice.techynoodle.com
+    ServerName voice.example.com
     
     SSLEngine on
     SSLCertificateFile /path/to/cert.pem
@@ -184,8 +184,8 @@ Edit `/etc/apache2/sites-available/voice-websocket.conf`:
 </VirtualHost>
 
 <VirtualHost *:80>
-    ServerName voice.techynoodle.com
-    Redirect permanent / https://voice.techynoodle.com/
+    ServerName voice.example.com
+    Redirect permanent / https://voice.example.com/
 </VirtualHost>
 ```
 
@@ -202,10 +202,10 @@ sudo systemctl reload apache2
 ### 1. Deploy Java Plugin
 ```bash
 # Copy the built JAR to your server
-scp hytale-plugin/build/libs/*.jar user@voice.techynoodle.com:/opt/voice-chat/
+scp hytale-plugin/build/libs/*.jar user@voice.example.com:/opt/voice-chat/
 
 # SSH to server
-ssh user@voice.techynoodle.com
+ssh user@voice.example.com
 
 # Start the plugin (it will listen on ws://localhost:24455)
 cd /opt/voice-chat
@@ -218,7 +218,7 @@ Choose one of the options above (Nginx, Cloudflare, or Apache)
 ### 3. Test Connection
 From your browser console:
 ```javascript
-const ws = new WebSocket('wss://voice.techynoodle.com/voice');
+const ws = new WebSocket('wss://voice.example.com/voice');
 ws.onopen = () => console.log('✅ Connected via reverse proxy!');
 ws.onerror = (e) => console.error('❌ Connection failed:', e);
 ```
@@ -299,7 +299,7 @@ If your hosting provider manages SSL automatically, you may not need to specify 
 
 Your web client should connect to:
 ```typescript
-const serverUrl = 'wss://voice.techynoodle.com/voice';
+const serverUrl = 'wss://voice.example.com/voice';
 const ws = new WebSocket(serverUrl);
 ```
 

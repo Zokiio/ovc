@@ -14,20 +14,20 @@ EnableSSL = false
 # SSL Certificate file path (PEM format)
 # Required only if EnableSSL is true
 # For Let's Encrypt: /etc/letsencrypt/live/your-domain/fullchain.pem
-# Default: /etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem
-SSLCertPath = "/etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem"
+# Default: /etc/letsencrypt/live/example.com/fullchain.pem
+SSLCertPath = "/etc/letsencrypt/live/example.com/fullchain.pem"
 
 # SSL Private Key file path (PEM format)
 # Required only if EnableSSL is true
 # For Let's Encrypt: /etc/letsencrypt/live/your-domain/privkey.pem
-# Default: /etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem
-SSLKeyPath = "/etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem"
+# Default: /etc/letsencrypt/live/example.com/privkey.pem
+SSLKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem"
 
 # Allowed origins for WebSocket CORS (comma-separated)
 # Add the domains that will connect to this voice chat server
 # Use "*" to allow all origins (not recommended for production)
-# Default: https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
-AllowedOrigins = "https://hytale.techynoodle.com,https://voice.techynoodle.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+# Default: https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
+AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
 
 # Default proximity range for voice chat (in blocks/meters)
 # This is the maximum hearing distance when a player is NOT in a group

@@ -25,15 +25,16 @@ The web client is a **browser-based voice chat interface** that requires no inst
 ### Quick Start
 
 ```bash
-cd web-client
+cd webrt
 
-# Serve files with any static web server
-python3 -m http.server 8080
+# Install dependencies and start dev server
+npm install
+npm run dev
 
-# Then open http://localhost:8080 in your browser
+# Then open http://localhost:5173 in your browser
 ```
 
-**📖 Full documentation:** [`web-client/README.md`](web-client/README.md)
+**📖 Full documentation:** [`webrt/README.md`](webrt/README.md)
 
 ---
 
@@ -71,21 +72,17 @@ cd hytale-plugin
 
 ```text
 hytale-voice-chat/
-├── web-client/            # Browser-based WebRTC client
-│   ├── js/                # JavaScript modules
-│   ├── css/               # Stylesheets
-│   ├── index.html         # Main web page
+├── webrt/                 # Browser-based React WebRTC client
+│   ├── src/               # TypeScript source code
+│   ├── components/        # React components
+│   ├── public/            # Static assets
 │   └── README.md          # Web client documentation
 │
 ├── hytale-plugin/         # Java server plugin (WebRTC SFU)
 │   ├── src/               # Plugin source code
 │   ├── common/            # Shared Java models
-│   ├── docs/              # Plugin documentation
 │   ├── build.gradle       # Build configuration
 │   └── gradlew            # Gradle wrapper
-│
-├── docs/                  # Architecture documentation
-│   └── WEBRTC_ARCHITECTURE.md  # WebRTC design docs
 │
 ├── .gitignore
 └── README.md              # This file
@@ -101,11 +98,11 @@ hytale-voice-chat/
 
 1. Navigate to the hosted web client URL (provided by your server admin)
 2. Enter your Hytale username
-3. Enter the server address (e.g., `hytale.techynoodle.com`)
+3. Enter the server address (e.g., `voice.example.com`)
 4. Click "Connect" and allow microphone access when prompted
 5. Start talking - players within proximity will hear you!
 
-See [`web-client/README.md`](web-client/README.md) for detailed instructions.
+See [`webrt/README.md`](webrt/README.md) for detailed instructions.
 
 ### For Server Admins (Plugin Setup)
 
@@ -118,11 +115,7 @@ See [`web-client/README.md`](web-client/README.md) for detailed instructions.
   
 2. Copy JAR from `hytale-plugin/build/libs/` to your Hytale server's `mods/` folder
 3. Start/restart the Hytale server
-4. Configure settings in `config/voicechat.yml` (if needed)
-
-**Keeping Updated:** The plugin uses the Hytale Server API from Maven. To check for and update to new API versions, run `hytale-plugin/check-hytale-version.ps1` or edit `hytale_server_version` in `hytale-plugin/gradle.properties`. See [`hytale-plugin/docs/HYTALE_VERSION_MANAGEMENT.md`](hytale-plugin/docs/HYTALE_VERSION_MANAGEMENT.md) for details.
-
-See [`hytale-plugin/docs/SETUP.md`](hytale-plugin/docs/SETUP.md) for detailed instructions.
+4. Configure settings in `ovc.conf` (if needed)
 
 ---
 
@@ -146,10 +139,10 @@ SignalingPort = 24455
 # Enable SSL (false for reverse proxy, true for direct SSL) (default: false)
 EnableSSL = false
 
-# SSL certificate path (PEM format) (default: /etc/letsencrypt/live/hytale.techynoodle.com/fullchain.pem)
+# SSL certificate path (PEM format) (default: /etc/letsencrypt/live/example.com/fullchain.pem)
 SSLCertPath = "/etc/letsencrypt/live/example.com/fullchain.pem"
 
-# SSL private key path (PEM format) (default: /etc/letsencrypt/live/hytale.techynoodle.com/privkey.pem)
+# SSL private key path (PEM format) (default: /etc/letsencrypt/live/example.com/privkey.pem)
 SSLKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem"
 
 # Comma-separated list of allowed origins for WebSocket connections
@@ -166,19 +159,12 @@ AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost
 
 ---
 
-- **Hytale Plugin**: See [`hytale-plugin/docs/`](hytale-plugin/docs/) directory for detailed guides:
-  - [Setup Guide](hytale-plugin/docs/SETUP.md)
-  - [Testing Guide](hytale-plugin/docs/TEST.md)
-  - [WebRTC Architecture](docs/WEBRTC_ARCHITECTURE.md)
-
----
-
 ## 🛠️ Development
 
 ### Prerequisites
 
-- **Web Client**: Node.js 18+, npm (for development server and build tools)
-- **Hytale Plugin**: Java 25, Gradle (no local Hytale API files needed - uses Maven)
+- **Web Client**: Node.js 18+, npm
+- **Hytale Plugin**: Java 25, Gradle
 
 ### Building
 
@@ -187,7 +173,7 @@ AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost
 cd hytale-plugin && ./gradlew build
 
 # Develop web client (with hot reload)
-cd web-client && npm install && npm run dev
+cd webrt && npm install && npm run dev
 ```
 
 ---
@@ -195,11 +181,6 @@ cd web-client && npm install && npm run dev
 ## 📝 License
 
 This project is for educational/personal use with Hytale.
-
-
-# WebRTC SFU Migration: Progress Summary
-
-## ✅ COMPLETED: Phase 1 - Clean House (Native Client Removal)
 
 ### What Was Done
 

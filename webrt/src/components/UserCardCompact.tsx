@@ -1,7 +1,7 @@
 import { useMemo, memo, useRef, useEffect } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
-import { SpeakerHighIcon, SpeakerSlashIcon } from '@phosphor-icons/react'
+import { SpeakerHighIcon, SpeakerSlashIcon, MicrophoneSlashIcon } from '@phosphor-icons/react'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { useAnimationTicker } from '@/hooks/use-mobile'
@@ -86,6 +86,7 @@ function UserCardCompactComponent({ user, onToggleMute }: UserCardCompactProps) 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <div className="text-xs font-medium truncate leading-tight">{user.name}</div>
+            {user.isMicMuted && <MicrophoneSlashIcon size={10} className="text-destructive shrink-0" />}
             {user.isVoiceConnected === false && (
               <div className="shrink-0 w-1.5 h-1.5 rounded-full bg-orange-500" title="Not voice connected" />
             )}

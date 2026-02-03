@@ -400,6 +400,7 @@ function App() {
           console.warn('[App] Failed to initialize audio playback:', err)
         })
 
+        client.updateMuteStatus(isMuted)
         client.listGroups()
         client.listPlayers()
 
@@ -413,7 +414,7 @@ function App() {
       })
 
       client.on('group_list', (data: unknown) => {
-        const payload = data as { groups?: Array<{id: string, name: string, memberCount: number, maxMembers: number, proximityRange: number, members?: Array<{id: string, username: string, isSpeaking?: boolean}>}> }
+        const payload = data as { groups?: Array<{id: string, name: string, memberCount: number, maxMembers: number, proximityRange: number, members?: Array<{id: string, username: string, isSpeaking?: boolean, isMuted?: boolean, volume?: number, isVoiceConnected?: boolean}>}> }
         const groupsData = payload.groups || []
         const groupsList = groupsData.map(g => ({
           id: g.id,
@@ -432,8 +433,16 @@ function App() {
         setGroups(groupsList.filter(g => g.memberCount > 0))
 
         // Update group membership info for users (don't delete users not in groups)
-        const membersFromGroups = groupsList.flatMap(group =>
-          (group.members || []).map(member => ({ ...member, groupId: group.id }))
+        const membersFromGroups = groupsData.flatMap(group =>
+          (group.members || []).map(member => ({
+            id: member.id,
+            name: member.username,
+            isSpeaking: member.isSpeaking,
+            isMuted: member.isMuted,
+            volume: member.volume,
+            isVoiceConnected: member.isVoiceConnected,
+            groupId: group.id
+          }))
         )
 
         if (membersFromGroups.length > 0) {
@@ -448,8 +457,10 @@ function App() {
                 groupId: member.groupId,
                 isSpeaking: member.isSpeaking ?? existing?.isSpeaking ?? false,
                 isMuted: existing?.isMuted ?? false,
-                volume: existing?.volume ?? 100,
-                position: existing?.position
+                isMicMuted: member.isMuted ?? existing?.isMicMuted ?? false,
+                volume: member.volume ?? existing?.volume ?? 100,
+                position: existing?.position,
+                isVoiceConnected: member.isVoiceConnected ?? existing?.isVoiceConnected
               })
             })
 
@@ -460,7 +471,7 @@ function App() {
       
       // Handle player list (all connected players, independent of groups)
       client.on('player_list', (data: unknown) => {
-        const payload = data as { players?: Array<{id: string, username: string, isSpeaking?: boolean, groupId?: string}> }
+        const payload = data as { players?: Array<{id: string, username: string, isSpeaking?: boolean, isMuted?: boolean, groupId?: string}> }
         const players = payload.players || []
         
         setUsers(currentUsers => {
@@ -476,8 +487,10 @@ function App() {
               groupId: player.groupId,
               isSpeaking: player.isSpeaking ?? existing?.isSpeaking ?? false,
               isMuted: existing?.isMuted ?? false,
+              isMicMuted: player.isMuted ?? existing?.isMicMuted ?? false,
               volume: existing?.volume ?? 100,
-              position: existing?.position
+              position: existing?.position,
+              isVoiceConnected: existing?.isVoiceConnected
             })
           })
           
@@ -580,13 +593,17 @@ function App() {
               })
               // Then add/update the current members
               payload.members!.forEach(m => {
+                const existing = newUsers.get(m.id)
                 newUsers.set(m.id, {
                   id: m.id,
                   name: m.username,
                   isSpeaking: m.isSpeaking,
-                  isMuted: m.isMuted,
+                  isMuted: existing?.isMuted ?? false,
+                  isMicMuted: m.isMuted,
                   volume: m.volume,
-                  groupId: payload.groupId
+                  groupId: payload.groupId,
+                  position: existing?.position,
+                  isVoiceConnected: existing?.isVoiceConnected
                 })
               })
               return newUsers
@@ -602,6 +619,34 @@ function App() {
           updateQueueRef.current.speaking.set(payload.userId, payload.isSpeaking || false)
           scheduleFlush()
         }
+      })
+
+      client.on('user_mute_status', (data: unknown) => {
+        const payload = data as { userId?: string, username?: string, isMuted?: boolean }
+        if (!payload.userId) {
+          return
+        }
+        setUsers(currentUsers => {
+          const newUsers = new Map(currentUsers)
+          const existing = newUsers.get(payload.userId)
+          if (existing) {
+            newUsers.set(payload.userId, {
+              ...existing,
+              name: payload.username ?? existing.name,
+              isMicMuted: payload.isMuted ?? false
+            })
+          } else {
+            newUsers.set(payload.userId, {
+              id: payload.userId,
+              name: payload.username || payload.userId,
+              isSpeaking: false,
+              isMuted: false,
+              isMicMuted: payload.isMuted ?? false,
+              volume: 100
+            })
+          }
+          return newUsers
+        })
       })
 
       client.on('position_update', (data: unknown) => {
@@ -705,7 +750,7 @@ function App() {
       clearPingInterval()
       toast.error('Failed to connect to server')
     }
-  }, [clearAuthTimeout, clearPingInterval, clearReconnectTimer, scheduleFlush])
+  }, [clearAuthTimeout, clearPingInterval, clearReconnectTimer, scheduleFlush, isMuted])
 
   performConnectRef.current = performConnect
 
@@ -846,6 +891,23 @@ function App() {
   const handleToggleMute = () => {
     const nextMuted = !isMuted
     setIsMuted(nextMuted)
+    setUsers(currentUsers => {
+      const currentUserId = currentUserIdRef.current
+      if (!currentUserId) {
+        return currentUsers
+      }
+      const user = currentUsers.get(currentUserId)
+      if (!user) {
+        return currentUsers
+      }
+      const newUsers = new Map(currentUsers)
+      newUsers.set(currentUserId, { ...user, isMicMuted: nextMuted })
+      return newUsers
+    })
+    const client = signalingClient.current
+    if (client.isConnected()) {
+      client.updateMuteStatus(nextMuted)
+    }
     if (nextMuted) {
       toast.info('Microphone muted')
     } else {

@@ -274,6 +274,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         WebRTCClient client = clients.get(clientId);
         return client != null && client.isConnected();
     }
+
+    /**
+     * Check if a web client's microphone is muted
+     */
+    public boolean isWebClientMuted(java.util.UUID clientId) {
+        WebRTCClient client = clients.get(clientId);
+        return client != null && client.isMuted();
+    }
     
     /**
      * Get all connected web clients
@@ -595,6 +603,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         break;
                     case "user_speaking":
                         handleUserSpeakingStatus(ctx, message);
+                        break;
+                    case "user_mute":
+                        handleUserMuteStatus(ctx, message);
                         break;
                     case "ping":
                         handlePing(ctx, message);
@@ -1023,6 +1034,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
                     playerObj.addProperty("username", client.getUsername());
                     playerObj.addProperty("isSpeaking", client.isSpeaking());
+                    playerObj.addProperty("isMuted", client.isMuted());
                     
                     // Include group info if player is in a group
                     UUID groupId = groupStateManager.getClientGroup(client.getClientId());
@@ -1086,6 +1098,29 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 broadcastData.addProperty("username", client.getUsername());
                 SignalingMessage broadcastMsg = new SignalingMessage("user_speaking_status", broadcastData);
                 groupStateManager.broadcastToGroup(groupId, broadcastMsg, client.getClientId());
+            }
+        }
+
+        private void handleUserMuteStatus(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            boolean isMuted = data.has("isMuted") && data.get("isMuted").getAsBoolean();
+
+            client.setMuted(isMuted);
+
+            UUID groupId = groupStateManager.getClientGroup(client.getClientId());
+            if (groupId != null) {
+                JsonObject broadcastData = new JsonObject();
+                broadcastData.addProperty("userId", clientIdMapper.getObfuscatedId(client.getClientId()));
+                broadcastData.addProperty("username", client.getUsername());
+                broadcastData.addProperty("isMuted", isMuted);
+                SignalingMessage broadcastMsg = new SignalingMessage("user_mute_status", broadcastData);
+                groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
             }
         }
 
