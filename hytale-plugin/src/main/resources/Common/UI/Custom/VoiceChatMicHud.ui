@@ -1,0 +1,20 @@
+$C = "../Common.ui";
+
+@MicActiveTexture = PatchStyle(TexturePath: "mic_active.png");
+@MicMutedTexture = PatchStyle(TexturePath: "mic_muted.png");
+
+Group #MicHudRoot {
+  Anchor: (Left: 20, Bottom: 20, Width: 72, Height: 72);
+
+  Group #MicActive {
+    Anchor: (Width: 72, Height: 72);
+    Background: @MicActiveTexture;
+    Visible: true;
+  }
+
+  Group #MicMuted {
+    Anchor: (Width: 72, Height: 72);
+    Background: @MicMutedTexture;
+    Visible: false;
+  }
+}

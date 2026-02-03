@@ -11,6 +11,7 @@ import com.hytale.voicechat.plugin.config.IceServerConfig;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
+import com.hytale.voicechat.plugin.event.VoiceChatHudTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.AuthCodeStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
@@ -23,6 +24,8 @@ import javax.annotation.Nonnull;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Hytale Plugin for Voice Chat (WebRTC SFU)
@@ -42,6 +45,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private GroupManager groupManager;
     private AuthCodeStore authCodeStore;
     private double proximityDistance = NetworkConfig.getDefaultProximityDistance();
+    private final Set<UUID> hudHidden = ConcurrentHashMap.newKeySet();
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -88,6 +92,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, null));
             EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
             EntityStore.REGISTRY.registerSystem(new UIRefreshTickingSystem());
+            EntityStore.REGISTRY.registerSystem(new VoiceChatHudTickingSystem(this));
             
             // Initialize and start WebRTC signaling server
             signalingServer = new WebRTCSignalingServer(NetworkConfig.getSignalingPort());
@@ -242,6 +247,38 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     public AuthCodeStore getAuthCodeStore() {
         return authCodeStore;
+    }
+
+    /**
+     * Check if the mic HUD is hidden for a player.
+     */
+    public boolean isHudHidden(UUID playerId) {
+        return hudHidden.contains(playerId);
+    }
+
+    /**
+     * Set whether the mic HUD is hidden for a player.
+     */
+    public void setHudHidden(UUID playerId, boolean hidden) {
+        if (hidden) {
+            hudHidden.add(playerId);
+        } else {
+            hudHidden.remove(playerId);
+        }
+    }
+
+    /**
+     * Toggle the mic HUD hidden state.
+     *
+     * @return true if hidden after toggle, false if shown.
+     */
+    public boolean toggleHudHidden(UUID playerId) {
+        if (hudHidden.contains(playerId)) {
+            hudHidden.remove(playerId);
+            return false;
+        }
+        hudHidden.add(playerId);
+        return true;
     }
 
     // TODO: Register Hytale event listeners when API becomes available

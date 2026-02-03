@@ -38,6 +38,7 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
         addSubCommand(new LeaveSubCommand(groupManager));
         addSubCommand(new ListSubCommand(groupManager));
         addSubCommand(new GuiSubCommand(groupManager, plugin));
+        addSubCommand(new HudSubCommand(plugin));
         addSubCommand(new IsolatedSubCommand(groupManager));
         addSubCommand(new ProximitySubCommand(plugin));
         addSubCommand(new LoginSubCommand(plugin));
@@ -259,6 +260,47 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
                     context.sendMessage(Message.raw("An error occurred while opening the voice chat GUI. Please try again later."));
                 }
             }, world);
+        }
+    }
+
+    // HUD subcommand
+    static class HudSubCommand extends CommandBase {
+        private final HytaleVoiceChatPlugin plugin;
+        private final OptionalArg<Boolean> enabledArg;
+
+        HudSubCommand(HytaleVoiceChatPlugin plugin) {
+            super("hud", "Toggle voice chat mic HUD");
+            this.plugin = plugin;
+            this.enabledArg = withOptionalArg("enabled", "true/false", ArgTypes.BOOLEAN);
+        }
+
+        @Override
+        protected boolean canGeneratePermission() {
+            return false;
+        }
+
+        @Override
+        protected void executeSync(CommandContext context) {
+            if (!(context.sender() instanceof Player player)) {
+                context.sendMessage(Message.raw("Only players can use this command."));
+                return;
+            }
+
+            UUID playerId = player.getUuid();
+            if (playerId == null) {
+                context.sendMessage(Message.raw("Only players can use this command."));
+                return;
+            }
+
+            if (!context.provided(enabledArg)) {
+                boolean hidden = plugin.toggleHudHidden(playerId);
+                context.sendMessage(Message.raw("Voice HUD " + (hidden ? "hidden" : "shown") + "."));
+                return;
+            }
+
+            boolean enabled = context.get(enabledArg);
+            plugin.setHudHidden(playerId, !enabled);
+            context.sendMessage(Message.raw("Voice HUD " + (enabled ? "enabled" : "hidden") + "."));
         }
     }
 
