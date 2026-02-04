@@ -16,6 +16,11 @@ public class WebRTCClient {
     private final Channel channel;
     private volatile boolean authenticated;
     private volatile boolean speaking = false; // VAD state
+    /**
+     * Microphone mute status. When true, the client's microphone is muted.
+     * Note: This is sent to other clients as "isMuted" in signaling messages,
+     * which represents microphone mute (not speaker/output mute).
+     */
     private volatile boolean muted = false;
     private volatile int volume = 100; // 0-200%
     
@@ -50,10 +55,20 @@ public class WebRTCClient {
         this.speaking = speaking;
     }
     
+    /**
+     * Returns whether this client's microphone is muted.
+     * Note: This value is transmitted to other clients as "isMuted" in signaling messages.
+     * The client-side uses "isMicMuted" for microphone mute and "isMuted" for speaker/output mute.
+     * @return true if the client's microphone is muted, false otherwise
+     */
     public boolean isMuted() {
         return muted;
     }
     
+    /**
+     * Sets whether this client's microphone is muted.
+     * @param muted true to mute the client's microphone, false to unmute
+     */
     public void setMuted(boolean muted) {
         this.muted = muted;
     }

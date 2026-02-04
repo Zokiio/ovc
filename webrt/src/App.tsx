@@ -473,6 +473,8 @@ function App() {
                 groupId: member.groupId,
                 isSpeaking: member.isSpeaking ?? existing?.isSpeaking ?? false,
                 isMuted: existing?.isMuted ?? false,
+                // Server sends "isMuted" which represents microphone mute status
+                // Map it to "isMicMuted" to distinguish from local speaker mute (isMuted)
                 isMicMuted: member.isMuted ?? existing?.isMicMuted ?? false,
                 volume: member.volume ?? existing?.volume ?? 100,
                 position: existing?.position,
@@ -615,6 +617,8 @@ function App() {
                   name: m.username,
                   isSpeaking: m.isSpeaking,
                   isMuted: existing?.isMuted ?? false,
+                  // Server sends "isMuted" which represents microphone mute status
+                  // Map it to "isMicMuted" to distinguish from local speaker mute (isMuted)
                   isMicMuted: m.isMuted,
                   volume: m.volume,
                   groupId: payload.groupId,
