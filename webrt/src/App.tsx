@@ -1,10 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Badge } from '@/components/ui/badge'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import { Toaster } from '@/components/ui/sonner'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { 
@@ -12,14 +8,11 @@ import {
   PlusIcon, 
   UsersIcon, 
   SignOutIcon, 
-  UserListIcon, 
-  StackIcon, 
   HashIcon,
   BroadcastIcon,
   ShieldIcon,
   WifiHighIcon,
   GearIcon,
-  PowerIcon,
   ActivityIcon,
   WarningCircleIcon,
   SpeakerHighIcon,
@@ -646,19 +639,20 @@ function App() {
         if (!payload.userId) {
           return
         }
+        const userId = payload.userId
         setUsers(currentUsers => {
           const newUsers = new Map(currentUsers)
-          const existing = newUsers.get(payload.userId)
+          const existing = newUsers.get(userId)
           if (existing) {
-            newUsers.set(payload.userId, {
+            newUsers.set(userId, {
               ...existing,
               name: payload.username ?? existing.name,
               isMicMuted: payload.isMuted ?? false
             })
           } else {
-            newUsers.set(payload.userId, {
-              id: payload.userId,
-              name: payload.username || payload.userId,
+            newUsers.set(userId, {
+              id: userId,
+              name: payload.username || userId,
               isSpeaking: false,
               isMuted: false,
               isMicMuted: payload.isMuted ?? false,
@@ -1134,7 +1128,6 @@ function App() {
                             <UserCardCompact
                               key={user.id}
                               user={user}
-                              onVolumeChange={handleVolumeChange}
                               onToggleMute={handleToggleUserMute}
                             />
                           ))
@@ -1205,7 +1198,6 @@ function App() {
                           <UserCardCompact
                             key={user.id}
                             user={user}
-                            onVolumeChange={handleVolumeChange}
                             onToggleMute={handleToggleUserMute}
                           />
                         ))}

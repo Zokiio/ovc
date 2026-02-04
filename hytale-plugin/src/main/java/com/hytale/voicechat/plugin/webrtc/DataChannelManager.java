@@ -108,16 +108,35 @@ public class DataChannelManager {
 
     private DataChannel parseOpenMessage(short streamId, byte[] payload) {
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN);
+        
+        // DCEP OPEN header: 1 (type) + 1 (channelType) + 2 (priority) + 4 (reliability) + 2 (labelLen) + 2 (protocolLen)
+        final int minimumHeaderSize = 1 + 1 + 2 + 4 + 2 + 2;
+        if (buffer.remaining() < minimumHeaderSize) {
+            logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": insufficient header bytes");
+            return new DataChannel(streamId, (byte) 0, (short) 0, 0, "", "");
+        }
+        
         buffer.get(); // message type
         byte channelType = buffer.get();
         short priority = buffer.getShort();
         int reliabilityParameter = buffer.getInt();
-        short labelLength = buffer.getShort();
-        short protocolLength = buffer.getShort();
-
+        
+        // labelLength and protocolLength are unsigned 16-bit values in DCEP
+        int labelLength = Short.toUnsignedInt(buffer.getShort());
+        int protocolLength = Short.toUnsignedInt(buffer.getShort());
+        
+        int remaining = buffer.remaining();
+        int totalLength = labelLength + protocolLength;
+        
+        if (totalLength > remaining) {
+            logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": not enough bytes for label/protocol (expected "
+                    + totalLength + ", remaining " + remaining + ")");
+            return new DataChannel(streamId, channelType, priority, reliabilityParameter, "", "");
+        }
+        
         byte[] labelBytes = new byte[labelLength];
         buffer.get(labelBytes);
-
+        
         byte[] protocolBytes = new byte[protocolLength];
         buffer.get(protocolBytes);
 
