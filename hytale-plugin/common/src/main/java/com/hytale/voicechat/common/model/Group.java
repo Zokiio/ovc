@@ -18,8 +18,13 @@ public class Group {
     private final long createdAt;
     private UUID creatorUuid;
     private boolean isIsolated;
+    private GroupSettings settings;
 
     public Group(UUID groupId, String name, boolean isPermanent, UUID creatorUuid) {
+        this(groupId, name, isPermanent, creatorUuid, new GroupSettings());
+    }
+
+    public Group(UUID groupId, String name, boolean isPermanent, UUID creatorUuid, GroupSettings settings) {
         this.groupId = groupId;
         this.name = name;
         this.isPermanent = isPermanent;
@@ -27,6 +32,7 @@ public class Group {
         this.members = ConcurrentHashMap.newKeySet();
         this.createdAt = System.currentTimeMillis();
         this.isIsolated = NetworkConfig.DEFAULT_GROUP_IS_ISOLATED;
+        this.settings = settings != null ? settings : new GroupSettings();
     }
 
     public UUID getGroupId() {
@@ -89,6 +95,14 @@ public class Group {
         this.isIsolated = isolated;
     }
 
+    public GroupSettings getSettings() {
+        return settings;
+    }
+
+    public void setSettings(GroupSettings settings) {
+        this.settings = settings != null ? settings : new GroupSettings();
+    }
+
     @Override
     public String toString() {
         return "Group{" +
@@ -98,6 +112,7 @@ public class Group {
                 ", isPermanent=" + isPermanent +
                 ", creatorUuid=" + creatorUuid +
                 ", isIsolated=" + isIsolated +
+                ", settings=" + settings +
                 '}';
     }
 }

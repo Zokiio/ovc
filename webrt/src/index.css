@@ -1,0 +1,371 @@
+@import 'tailwindcss';
+@import "tw-animate-css";
+
+@layer base {
+  * {
+    @apply border-border
+  }
+  
+  html,
+  body {
+    @apply overflow-x-hidden;
+    width: 100%;
+    max-width: 100vw;
+    position: relative;
+  }
+  
+  body {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+  }
+  
+  #root {
+    @apply overflow-x-hidden;
+    width: 100%;
+    max-width: 100vw;
+  }
+  
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* VOX_COMM Theme - Futuristic Dark Slate with Indigo Accents */
+:root {
+  /* Base: Slate-950 (deep dark) */
+  --background: oklch(0.08 0.01 265);
+  /* Foreground: Light slate */
+  --foreground: oklch(0.93 0.01 250);
+
+  /* Card: Slate-900 */
+  --card: oklch(0.12 0.015 260);
+  --card-foreground: oklch(0.93 0.01 250);
+  
+  /* Popover: Slate-900 */
+  --popover: oklch(0.12 0.015 260);
+  --popover-foreground: oklch(0.93 0.01 250);
+
+  /* Primary: Indigo-600 */
+  --primary: oklch(0.55 0.20 265);
+  --primary-foreground: oklch(0.98 0.005 265);
+
+  /* Secondary: Slate-800 */
+  --secondary: oklch(0.18 0.02 255);
+  --secondary-foreground: oklch(0.93 0.01 250);
+
+  /* Muted: Slate-800/Slate-500 */
+  --muted: oklch(0.18 0.02 255);
+  --muted-foreground: oklch(0.55 0.015 250);
+
+  /* Accent: Indigo-500 */
+  --accent: oklch(0.60 0.22 265);
+  --accent-foreground: oklch(0.98 0.005 265);
+
+  /* Destructive: Red-500 */
+  --destructive: oklch(0.55 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 250);
+
+  /* Success: Emerald-500 */
+  --success: oklch(0.65 0.17 160);
+  --success-foreground: oklch(0.98 0.01 250);
+
+  /* Warning: Amber-400 */
+  --warning: oklch(0.75 0.16 85);
+  --warning-foreground: oklch(0.15 0.02 85);
+
+  /* Border: Slate-800 */
+  --border: oklch(0.22 0.02 260);
+  /* Input: Slate-800 */
+  --input: oklch(0.22 0.02 260);
+  /* Ring: Indigo-500 */
+  --ring: oklch(0.60 0.22 265);
+
+  /* Border radius - rounded-xl for modern look */
+  --radius: 0.5rem;
+
+  --spacing: 0.25rem;
+  
+  /* Shadow colors for glows */
+  --shadow-indigo: oklch(0.55 0.20 265 / 0.25);
+  --shadow-emerald: oklch(0.65 0.17 160 / 0.25);
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.5);
+  --radius-xl: calc(var(--radius) * 2);
+  --radius-2xl: calc(var(--radius) * 3);
+  --radius-full: 9999px;
+}
+
+.speaking-glow {
+  animation: speaking-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes speaking-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 oklch(0.60 0.22 265 / 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px oklch(0.60 0.22 265 / 0);
+  }
+}
+
+/* Active speaking ring animation (like the template ping animation) */
+.speaking-ring {
+  animation: speaking-ring-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes speaking-ring-ping {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.6;
+  }
+  75%, 100% {
+    transform: scale(1.3);
+    opacity: 0;
+  }
+}
+
+/* Status indicator pulse */
+.status-live {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Card hover glow effect */
+.card-glow:hover {
+  box-shadow: 0 0 20px oklch(0.55 0.20 265 / 0.15);
+}
+
+/* Connection success indicator */
+.connected-indicator {
+  animation: connected-glow 2s ease-in-out infinite;
+}
+
+@keyframes connected-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px oklch(0.65 0.17 160 / 0.4);
+  }
+  50% {
+    box-shadow: 0 0 12px oklch(0.65 0.17 160 / 0.6);
+  }
+}
+
+.vad-waveform-bar {
+  animation: waveform-bounce 0.3s ease-in-out;
+}
+
+@keyframes waveform-bounce {
+  0%, 100% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(0.9);
+  }
+}
+
+.threshold-indicator-pulse {
+  animation: threshold-pulse 2s ease-in-out infinite;
+}
+
+@keyframes threshold-pulse {
+  0%, 100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.haptic-bounce {
+  animation: haptic-bounce-animation 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes haptic-bounce-animation {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.15);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+  70% {
+    transform: scale(1.05);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.haptic-bounce-bar {
+  animation: haptic-bar-bounce 0.25s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes haptic-bar-bounce {
+  0% {
+    transform: scaleY(1);
+  }
+  40% {
+    transform: scaleY(1.25);
+  }
+  70% {
+    transform: scaleY(0.9);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+.peak-pulse {
+  animation: peak-pulse-animation 0.6s ease-out;
+}
+
+@keyframes peak-pulse-animation {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scaleX(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px) scaleX(1.02);
+  }
+  100% {
+    opacity: 0.6;
+    transform: translateY(0) scaleX(1);
+  }
+}
+
+/* VOX_COMM Utility Classes */
+
+/* Tech label styling - uppercase, tracking-widest, tiny text */
+.tech-label {
+  font-size: 0.625rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-foreground);
+}
+
+/* Panel/container with inner shadow */
+.panel-inset {
+  background: oklch(0.10 0.015 260 / 0.6);
+  border: 1px solid oklch(0.22 0.02 260 / 0.5);
+  box-shadow: inset 0 2px 4px oklch(0 0 0 / 0.2);
+}
+
+/* Active state glow for buttons/cards */
+.active-glow {
+  box-shadow: 0 0 20px var(--shadow-indigo), 0 4px 12px oklch(0 0 0 / 0.3);
+}
+
+/* Accent button with shadow */
+.btn-accent-glow {
+  box-shadow: 0 4px 14px var(--shadow-indigo);
+}
+
+/* Status badges */
+.badge-live {
+  background: oklch(0.65 0.17 160 / 0.1);
+  color: oklch(0.70 0.17 160);
+  border: 1px solid oklch(0.65 0.17 160 / 0.3);
+}
+
+.badge-active {
+  background: oklch(0.60 0.22 265 / 0.1);
+  color: oklch(0.70 0.20 265);
+  border: 1px solid oklch(0.60 0.22 265 / 0.5);
+}
+
+.badge-full {
+  background: oklch(0.55 0.22 25 / 0.1);
+  color: oklch(0.65 0.20 25);
+  border: 1px solid oklch(0.55 0.22 25 / 0.3);
+}
+
+/* User avatar with speaking border */
+.avatar-speaking {
+  border: 2px solid oklch(0.60 0.22 265);
+}
+
+.avatar-idle {
+  border: 2px solid oklch(0.30 0.02 260);
+}
+
+/* Connection status dot */
+.status-dot-connected {
+  background: oklch(0.65 0.17 160);
+}
+
+.status-dot-disconnected {
+  background: oklch(0.40 0.02 260);
+}
+
+/* Subtle text shadow for headings */
+.text-glow {
+  text-shadow: 0 0 20px oklch(0.60 0.22 265 / 0.3);
+}
+
+/* Focus ring override to match theme */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+}
+
+/* Scrollbar styling for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: oklch(0.10 0.01 260);
+}
+
+::-webkit-scrollbar-thumb {
+  background: oklch(0.25 0.02 260);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.30 0.02 260);
+}
+
+/* Selection styling */
+::selection {
+  background: oklch(0.60 0.22 265 / 0.3);
+}

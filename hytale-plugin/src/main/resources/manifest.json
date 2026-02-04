@@ -1,8 +1,8 @@
 {
   "Group": "com.zottik.voicechat",
   "Name": "HytaleVoiceChat",
-  "Version": "1.0.0",
-  "Description": "Proximity-based voice chat system for Hytale",
+  "Version": "2.0.0-webrtc-alpha",
+  "Description": "Proximity-based voice chat system for Hytale with WebRTC SFU",
   "Authors": [
     {
       "Name": "Zokiio"

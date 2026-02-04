@@ -1,6 +1,8 @@
 package com.hytale.voicechat.plugin.event;
 
 import com.hypixel.hytale.component.Store;
+import com.hypixel.hytale.component.ArchetypeChunk;
+import com.hypixel.hytale.component.CommandBuffer;
 import com.hypixel.hytale.component.query.Query;
 import com.hypixel.hytale.component.system.QuerySystem;
 import com.hypixel.hytale.component.system.tick.TickingSystem;
@@ -19,11 +21,14 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Samples player movement and updates the position tracker with a small throttle
  * to keep positional audio accurate without spamming updates.
+ * 
+ * Performance: Updates throttled to max 10Hz per player (100ms minimum interval)
+ * or when player moves >0.5 blocks to balance accuracy vs CPU usage.
  */
 public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements QuerySystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
-    private static final double MIN_DISTANCE_DELTA = 0.5; // blocks
-    private static final long MIN_INTERVAL_MS = 100; // throttle per player
+    private static final double MIN_DISTANCE_DELTA = 0.5; // blocks - update if moved this far
+    private static final long MIN_INTERVAL_MS = 100; // 10Hz max update rate per player
 
     private final PlayerPositionTracker positionTracker;
     private final Map<UUID, Sample> lastSamples = new ConcurrentHashMap<>();
@@ -36,7 +41,7 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
     public void tick(float deltaSeconds, int tickCount, @Nonnull Store<EntityStore> store) {
         var seen = ConcurrentHashMap.newKeySet();
 
-        store.forEachChunk(getQuery(), (chunk, commandBuffer) -> {
+        store.forEachChunk(getQuery(), (java.util.function.BiConsumer<ArchetypeChunk<EntityStore>, CommandBuffer<EntityStore>>) (chunk, commandBuffer) -> {
             int size = chunk.size();
             for (int i = 0; i < size; i++) {
                 PlayerRef playerRef = chunk.getComponent(i, PlayerRef.getComponentType());
@@ -91,16 +96,9 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             yaw = chooseDegrees(yawRaw, altY, altZ);
             pitch = chooseDegrees(pitchRaw, altX, null);
 
-            logger.atInfo().log("[ROT_CAPTURE] player=" + username
-                    + " yawRaw=" + safeD(yawRaw)
-                    + " pitchRaw=" + safeD(pitchRaw)
-                    + " altX=" + safeD(altX)
-                    + " altY=" + safeD(altY)
-                    + " altZ=" + safeD(altZ)
-                    + " yawDeg=" + String.format("%.2f", yaw)
-                    + " pitchDeg=" + String.format("%.2f", pitch)
-                    + " rotClass=" + rot.getClass().getSimpleName()
-                    + " rot=" + rot.toString());
+            // Rotation capture logging disabled for performance (was causing audio stutters)
+            // Uncomment for debugging rotation issues:
+            // logger.atFine().log("[ROT_CAPTURE] player=" + username + " yaw=" + String.format("%.2f", yaw) + " pitch=" + String.format("%.2f", pitch));
         } else {
             logger.atWarning().log("TransformComponent.getRotation() is NULL for player " + username);
         }
@@ -121,7 +119,7 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             }
         }
 
-        lastSamples.put(playerUUID, new Sample(x, y, z, now, worldId));
+        lastSamples.put(playerUUID, new Sample(x, y, z, now));
         positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
     }
 
@@ -135,14 +133,12 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         final double y;
         final double z;
         final long timestamp;
-        final String worldId;
 
-        Sample(double x, double y, double z, long timestamp, String worldId) {
+        Sample(double x, double y, double z, long timestamp) {
             this.x = x;
             this.y = y;
             this.z = z;
             this.timestamp = timestamp;
-            this.worldId = worldId;
         }
     }
 

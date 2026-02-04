@@ -2,10 +2,12 @@ package com.hytale.voicechat.plugin;
 
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hytale.voicechat.common.model.Group;
+import com.hytale.voicechat.common.model.GroupSettings;
 import com.hytale.voicechat.common.network.NetworkConfig;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Manages group voice chat operations and state
@@ -18,6 +20,33 @@ public class GroupManager {
 
     private final Map<UUID, Group> groups = new ConcurrentHashMap<>();
     private final Map<UUID, UUID> playerGroupMapping = new ConcurrentHashMap<>(); // playerId -> groupId
+    
+    // Event listeners for group changes
+    public interface GroupEventListener {
+        void onGroupCreated(Group group, UUID creatorId);
+        void onPlayerJoinedGroup(UUID playerId, Group group);
+        void onPlayerLeftGroup(UUID playerId, Group group, boolean groupDeleted);
+        void onGroupDeleted(Group group);
+    }
+    
+    private final List<GroupEventListener> eventListeners = new CopyOnWriteArrayList<>();
+    
+    /**
+     * Register a listener for group events
+     */
+    public void registerGroupEventListener(GroupEventListener listener) {
+        if (!eventListeners.contains(listener)) {
+            eventListeners.add(listener);
+            logger.atFine().log("Registered group event listener: " + listener.getClass().getSimpleName());
+        }
+    }
+    
+    /**
+     * Unregister a listener for group events
+     */
+    public void unregisterGroupEventListener(GroupEventListener listener) {
+        eventListeners.remove(listener);
+    }
 
     /**
      * Create a new voice group
@@ -28,6 +57,19 @@ public class GroupManager {
      * @return The created Group, or null if validation fails
      */
     public synchronized Group createGroup(String groupName, boolean isPermanent, UUID creatorUuid) {
+        return createGroup(groupName, isPermanent, creatorUuid, new GroupSettings());
+    }
+
+    /**
+     * Create a new voice group with custom settings
+     * 
+     * @param groupName The name of the group
+     * @param isPermanent Whether the group persists when empty
+     * @param creatorUuid The UUID of the player creating the group
+     * @param settings Custom group settings
+     * @return The created Group, or null if validation fails
+     */
+    public synchronized Group createGroup(String groupName, boolean isPermanent, UUID creatorUuid, GroupSettings settings) {
         // Validate group name
         if (!isValidGroupName(groupName)) {
             logger.atWarning().log("Invalid group name: " + groupName);
@@ -41,10 +83,14 @@ public class GroupManager {
         }
 
         UUID groupId = UUID.randomUUID();
-        Group group = new Group(groupId, groupName, isPermanent, creatorUuid);
+        Group group = new Group(groupId, groupName, isPermanent, creatorUuid, settings);
         groups.put(groupId, group);
         
-        logger.atInfo().log("Created group: " + groupName + " (permanent=" + isPermanent + ", creator=" + creatorUuid + ")");
+        logger.atInfo().log("Created group: " + groupName + " (permanent=" + isPermanent + ", creator=" + creatorUuid + ", settings=" + settings + ")");
+        
+        // Notify listeners
+        eventListeners.forEach(listener -> listener.onGroupCreated(group, creatorUuid));
+        
         return group;
     }
 
@@ -68,17 +114,23 @@ public class GroupManager {
             // Re-entrant synchronized call: safe because Java intrinsic locks are reentrant
             leaveGroup(playerId);
             // Re-check if the target group still exists after leaving the previous group
-            group = groups.get(groupId);
-            if (group == null) {
+            final Group updatedGroup = groups.get(groupId);
+            if (updatedGroup == null) {
                 logger.atWarning().log("Group no longer exists: " + groupId);
                 return false;
             }
+            group = updatedGroup;
         }
 
-        group.addMember(playerId);
+        final Group finalGroup = group;
+        finalGroup.addMember(playerId);
         playerGroupMapping.put(playerId, groupId);
         
-        logger.atInfo().log("Player " + playerId + " joined group " + group.getName());
+        logger.atInfo().log("Player " + playerId + " joined group " + finalGroup.getName());
+        
+        // Notify listeners
+        eventListeners.forEach(listener -> listener.onPlayerJoinedGroup(playerId, finalGroup));
+        
         return true;
     }
 
@@ -117,9 +169,20 @@ public class GroupManager {
             logger.atInfo().log("Player " + playerId + " left group " + group.getName());
 
             // Auto-disband non-permanent empty groups
+            final boolean groupDeleted;
             if (group.isEmpty() && !group.isPermanent()) {
                 groups.remove(groupId);
                 logger.atInfo().log("Group auto-disbanded: " + group.getName());
+                groupDeleted = true;
+            } else {
+                groupDeleted = false;
+            }
+            
+            // Notify listeners
+            final Group finalGroup = group;
+            eventListeners.forEach(listener -> listener.onPlayerLeftGroup(playerId, finalGroup, groupDeleted));
+            if (groupDeleted) {
+                eventListeners.forEach(listener -> listener.onGroupDeleted(finalGroup));
             }
             
             return newOwner;
@@ -150,7 +213,49 @@ public class GroupManager {
     }
 
     /**
-     * Update group settings (isolation mode)
+     * Get members of a group
+     * 
+     * @param groupId The group ID
+     * @return List of member UUIDs, or empty list if group not found
+     */
+    public List<UUID> getGroupMembers(UUID groupId) {
+        Group group = groups.get(groupId);
+        if (group == null) {
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(group.getMembers());
+    }
+
+    /**
+     * Update group settings (for group API)
+     * Only the group creator can modify settings
+     * 
+     * @param groupId The group to update
+     * @param requesterId The player requesting the change
+     * @param newSettings The new group settings
+     * @return true if successful, false if permission denied or group not found
+     */
+    public synchronized boolean updateGroupSettings(UUID groupId, UUID requesterId, GroupSettings newSettings) {
+        Group group = groups.get(groupId);
+        if (group == null) {
+            logger.atWarning().log("Group not found: " + groupId);
+            return false;
+        }
+
+        // Check if requester is the creator
+        if (!group.isCreator(requesterId)) {
+            logger.atWarning().log("Player " + requesterId + " attempted to modify group " + group.getName() + " without permission");
+            return false;
+        }
+
+        group.setSettings(newSettings);
+        logger.atInfo().log("Updated group " + group.getName() + " settings: " + newSettings);
+        
+        return true;
+    }
+
+    /**
+     * Update group isolation settings (legacy method)
      * Only the group creator can modify settings
      * 
      * @param groupId The group to update

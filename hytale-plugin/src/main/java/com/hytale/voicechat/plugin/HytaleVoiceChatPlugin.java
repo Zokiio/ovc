@@ -6,41 +6,58 @@ import com.hypixel.hytale.server.core.plugin.JavaPluginInit;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.common.model.PlayerPosition;
 import com.hytale.voicechat.common.network.NetworkConfig;
-import com.hytale.voicechat.plugin.audio.OpusCodec;
 import com.hytale.voicechat.plugin.command.VoiceGroupCommand;
+import com.hytale.voicechat.plugin.config.IceServerConfig;
 import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
+import com.hytale.voicechat.plugin.event.VoiceChatHudTickingSystem;
 import com.hytale.voicechat.plugin.listener.PlayerEventListener;
-import com.hytale.voicechat.plugin.network.UDPSocketManager;
+import com.hytale.voicechat.plugin.tracker.AuthCodeStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
+import com.hytale.voicechat.plugin.webrtc.DataChannelAudioHandler;
+import com.hytale.voicechat.plugin.webrtc.WebRTCAudioBridge;
+import com.hytale.voicechat.plugin.webrtc.WebRTCPeerManager;
+import com.hytale.voicechat.plugin.webrtc.WebRTCSignalingServer;
 
 import javax.annotation.Nonnull;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Hytale Plugin for Voice Chat
- * Tracks player positions and handles voice data routing
+ * Hytale Plugin for Voice Chat (WebRTC SFU)
+ * Tracks player positions and handles WebRTC media routing
  * 
- * This plugin combines position tracking with voice server functionality
+ * This plugin combines position tracking with WebRTC SFU functionality
  * for proximity-based voice chat.
  */
 public class HytaleVoiceChatPlugin extends JavaPlugin {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+    private static HytaleVoiceChatPlugin instance;
     
-    private UDPSocketManager udpServer;
-    private OpusCodec opusCodec;
+    private WebRTCSignalingServer signalingServer;
+    private WebRTCAudioBridge webRtcAudioBridge;
     private PlayerPositionTracker positionTracker;
     private PlayerEventListener eventListener;
     private GroupManager groupManager;
-    private int voicePort;
-    private double proximityDistance = NetworkConfig.DEFAULT_PROXIMITY_DISTANCE;
-    // EntityStore reference not required currently for voice auth gating
+    private AuthCodeStore authCodeStore;
+    private double proximityDistance = NetworkConfig.getDefaultProximityDistance();
+    private final Set<UUID> hudHidden = ConcurrentHashMap.newKeySet();
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);
-        this.voicePort = NetworkConfig.DEFAULT_VOICE_PORT;
-        logger.atInfo().log("Hytale Voice Chat Plugin initialized - version " + this.getManifest().getVersion());
+        instance = this;
+        logger.atInfo().log("Hytale Voice Chat Plugin (WebRTC SFU) initialized - version " + this.getManifest().getVersion());
+    }
+    
+    /**
+     * Get the plugin instance
+     */
+    public static HytaleVoiceChatPlugin instance() {
+        return instance;
     }
 
     /**
@@ -48,43 +65,81 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     @Override
     protected void setup() {
-        logger.atInfo().log("Setting up Hytale Voice Chat Plugin...");
+        logger.atInfo().log("Setting up Hytale Voice Chat Plugin (WebRTC SFU)...");
         
         try {
-            // Initialize Opus codec
-            opusCodec = new OpusCodec();
+            // Voice configuration is loaded automatically via VoiceConfig static initialization
+            // Config file: ovc.conf (or path specified by -Dvoice.config.file)
+            logger.atInfo().log("Voice Chat Configuration loaded from: ovc.conf or system properties");
+            
+            // Get data directory for persistent storage
+            Path dataDir = Path.of("plugins", "voicechat");
+            
+            // Initialize auth code store with file persistence
+            authCodeStore = new AuthCodeStore(dataDir);
+            logger.atInfo().log("Initialized AuthCodeStore with file persistence");
             
             // Initialize group manager
             groupManager = new GroupManager();
-            // No default groups: users create/join groups as needed
             
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
             
-            // Initialize and start UDP voice server
-            udpServer = new UDPSocketManager(voicePort);
-            udpServer.setProximityDistance(proximityDistance);
-            udpServer.setPositionTracker(positionTracker);
-            
             // Initialize event listener
             eventListener = new PlayerEventListener(positionTracker);
-            udpServer.setEventListener(eventListener);
-            udpServer.setGroupManager(groupManager);
             
-            // Register event system for player join/quit tracking (with udpServer reference for disconnection)
-            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, udpServer));
+            // Register event systems for player tracking
+            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, null));
             EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
             EntityStore.REGISTRY.registerSystem(new UIRefreshTickingSystem());
+            EntityStore.REGISTRY.registerSystem(new VoiceChatHudTickingSystem(this));
             
-            udpServer.start();
+            // Initialize and start WebRTC signaling server
+            signalingServer = new WebRTCSignalingServer(NetworkConfig.getSignalingPort());
+            signalingServer.setPositionTracker(positionTracker);
+            signalingServer.setPlugin(this);
+            
+            // Create and set group state manager for group operations
+            com.hytale.voicechat.plugin.webrtc.GroupStateManager groupStateManager = new com.hytale.voicechat.plugin.webrtc.GroupStateManager();
+            signalingServer.setGroupStateManager(groupStateManager);
+            signalingServer.setGroupManager(groupManager);
+            
+            webRtcAudioBridge = new WebRTCAudioBridge(null, positionTracker, signalingServer.getClientMap());
+            webRtcAudioBridge.setProximityDistance(proximityDistance);
+            webRtcAudioBridge.setGroupManager(groupManager);
+            webRtcAudioBridge.setGroupStateManager(groupStateManager);
+            signalingServer.setAudioBridge(webRtcAudioBridge);
+            DataChannelAudioHandler dataChannelAudioHandler = new DataChannelAudioHandler(webRtcAudioBridge);
+            IceServerConfig iceServerConfig = IceServerConfig.defaults();
+            WebRTCPeerManager peerManager = new WebRTCPeerManager(
+                iceServerConfig.getStunServers(),
+                dataChannelAudioHandler
+            );
+            signalingServer.setPeerManager(peerManager);
+            logger.atInfo().log("WebRTC audio bridge initialized (proximity=" + proximityDistance + ")");
+            signalingServer.setClientListener(new WebRTCSignalingServer.WebRTCClientListener() {
+                @Override
+                public void onClientConnected(java.util.UUID clientId, String username) {
+                    logger.atInfo().log("WebRTC client connected: " + username + " (" + clientId + ")");
+                    if (positionTracker != null) {
+                        logger.atInfo().log("Web client added to position tracker for GUI updates");
+                    }
+                }
+                
+                @Override
+                public void onClientDisconnected(java.util.UUID clientId, String username) {
+                    logger.atInfo().log("WebRTC client disconnected: " + username + " (" + clientId + ")");
+                }
+            });
+            signalingServer.start();
             
             // Start position tracking
             positionTracker.start();
             
-            // Register consolidated voice command
+            // Register voice group command
             getCommandRegistry().registerCommand(new VoiceGroupCommand(groupManager, this));
             
-            logger.atInfo().log("Hytale Voice Chat Plugin setup complete - listening on port " + voicePort + " (proximity=" + proximityDistance + ")");
+            logger.atInfo().log("Hytale Voice Chat Plugin setup complete - WebSocket signaling on port " + NetworkConfig.getSignalingPort() + " (proximity=" + proximityDistance + ")");
         } catch (Exception e) {
             logger.atSevere().log("Failed to setup Hytale Voice Chat Plugin: " + e.getMessage());
             e.printStackTrace();
@@ -104,20 +159,6 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         } catch (Exception e) {
             logger.atFine().log("Failed to clear voice chat pages: " + e.getMessage());
         }
-        
-        // Notify clients of graceful shutdown before stopping the UDP server
-        if (udpServer != null) {
-            try {
-                udpServer.broadcastShutdown("Plugin disabled - server shutting down");
-                // Allow time for shutdown packets to be delivered before closing the channel
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.atFine().log("Interrupted while waiting for shutdown broadcast");
-            } catch (Exception e) {
-                logger.atFine().log("Failed to broadcast shutdown: " + e.getMessage());
-            }
-        }
 
         if (positionTracker != null) {
             positionTracker.stop();
@@ -127,13 +168,8 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             groupManager.shutdown();
         }
         
-        if (udpServer != null) {
-            udpServer.stop();
-        }
-        
-        if (opusCodec != null) {
-            opusCodec.close();
-            opusCodec = null;
+        if (signalingServer != null) {
+            signalingServer.shutdown();
         }
         
         logger.atInfo().log("Hytale Voice Chat Plugin shutdown complete");
@@ -176,19 +212,12 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     }
 
     /**
-     * Configure the voice server port
-     */
-    public void configure(int voicePort) {
-        this.voicePort = voicePort;
-    }
-
-    /**
      * Configure proximity distance (blocks)
      */
     public void configureProximity(double proximityDistance) {
         this.proximityDistance = Math.max(1.0, Math.min(proximityDistance, NetworkConfig.MAX_VOICE_DISTANCE));
-        if (udpServer != null) {
-            udpServer.setProximityDistance(this.proximityDistance);
+        if (webRtcAudioBridge != null) {
+            webRtcAudioBridge.setProximityDistance(this.proximityDistance);
         }
     }
 
@@ -200,10 +229,10 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     }
 
     /**
-     * Get the UDP socket manager
+     * Get the WebRTC signaling server
      */
-    public UDPSocketManager getUdpServer() {
-        return udpServer;
+    public WebRTCSignalingServer getWebRTCServer() {
+        return signalingServer;
     }
 
     /**
@@ -211,6 +240,45 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      */
     public PlayerPositionTracker getPositionTracker() {
         return positionTracker;
+    }
+    
+    /**
+     * Get the auth code store
+     */
+    public AuthCodeStore getAuthCodeStore() {
+        return authCodeStore;
+    }
+
+    /**
+     * Check if the mic HUD is hidden for a player.
+     */
+    public boolean isHudHidden(UUID playerId) {
+        return hudHidden.contains(playerId);
+    }
+
+    /**
+     * Set whether the mic HUD is hidden for a player.
+     */
+    public void setHudHidden(UUID playerId, boolean hidden) {
+        if (hidden) {
+            hudHidden.add(playerId);
+        } else {
+            hudHidden.remove(playerId);
+        }
+    }
+
+    /**
+     * Toggle the mic HUD hidden state.
+     *
+     * @return true if hidden after toggle, false if shown.
+     */
+    public boolean toggleHudHidden(UUID playerId) {
+        if (hudHidden.contains(playerId)) {
+            hudHidden.remove(playerId);
+            return false;
+        }
+        hudHidden.add(playerId);
+        return true;
     }
 
     // TODO: Register Hytale event listeners when API becomes available

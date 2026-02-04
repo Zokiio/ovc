@@ -1,0 +1,93 @@
+# Hytale Voice Chat Configuration File
+# Copy this file to ovc.conf in the mods config folder and edit as needed
+
+# WebSocket signaling server port
+# Default: 24455
+SignalingPort = 24455
+
+# Enable SSL/TLS for WebSocket connections
+# Set to false if using a reverse proxy (Nginx/Traefik) that handles SSL (RECOMMENDED)
+# Set to true only if the Java application needs to handle SSL directly
+# Default: false
+EnableSSL = false
+
+# SSL Certificate file path (PEM format)
+# Required only if EnableSSL is true
+# For Let's Encrypt: /etc/letsencrypt/live/your-domain/fullchain.pem
+# Default: /etc/letsencrypt/live/example.com/fullchain.pem
+SSLCertPath = "/etc/letsencrypt/live/example.com/fullchain.pem"
+
+# SSL Private Key file path (PEM format)
+# Required only if EnableSSL is true
+# For Let's Encrypt: /etc/letsencrypt/live/your-domain/privkey.pem
+# Default: /etc/letsencrypt/live/example.com/privkey.pem
+SSLKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem"
+
+# Allowed origins for WebSocket CORS (comma-separated)
+# Add the domains that will connect to this voice chat server
+# Use "*" to allow all origins (not recommended for production)
+# Default: https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
+AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
+
+# Default proximity range for voice chat (in blocks/meters)
+# This is the maximum hearing distance when a player is NOT in a group
+# Groups can have their own proximity range configured separately
+# Audio at full volume up to 70% of this range, then fades to silence
+# Example: At 50.0, full volume 0-35m, fades 35-50m (controlled by PROXIMITY_FADE_START_RATIO)
+# Range: 5.0 - 100.0
+# Default: 50.0
+DefaultProximityRange = 50.0
+
+# Distance where volume fade begins (in blocks/meters)
+# NOTE: This is now calculated automatically as 70% of DefaultProximityRange (PROXIMITY_FADE_START_RATIO)
+# This setting is kept for backward compatibility but will be overridden in code
+# The fade ratio ensures consistent behavior across all proximity settings
+# Default: 35.0 (70% of 50.0)
+ProximityFadeStart = 35.0
+
+# Volume rolloff factor - controls how quickly volume decreases with distance
+# 1.0 = linear decrease (gradual fade)
+# 1.5 = slightly faster fade (recommended)
+# 2.0 = quadratic decrease (rapid fade)
+# Higher values = faster volume falloff
+# Default: 1.5
+ProximityRolloffFactor = 1.5
+
+# Maximum voice transmission distance (in blocks/meters)
+# Hard cap on how far voice can travel, even with group settings
+# Prevents abuse with extremely high proximity range values
+# Default: 100.0
+MaxVoiceDistance = 100.0
+
+# Volume processing mode: where distance-based volume adjustment happens
+# Options:
+#   server - Audio volume is adjusted server-side before sending (more CPU on server)
+#   client - Distance sent to client, volume adjusted client-side (less server load)
+#   both   - Both server and client adjust volume (double processing, not recommended)
+# Default: server
+VolumeProcessingMode = "server"
+
+# Group voice is global: group members can always hear each other regardless of distance
+# When true: Group members hear each other across any distance
+#            - Within proximity range: spatial audio with volume scaling (minimum volume floor)
+#            - Outside proximity range: full volume (always audible)
+# When false: Group members only hear each other within the group's proximity range
+# Default: true
+GroupGlobalVoice = true
+
+# Apply spatial volume to group voice: volume scales with distance even for groups
+# When true AND within proximity range: Group members further away sound quieter (realistic spatial audio)
+#          Volume never drops below GroupMinVolume to keep group members audible
+# When true AND outside proximity range: Full volume (global voice)
+# When false: Group members are always at full volume regardless of distance
+# Only applies when GroupGlobalVoice is true
+# Default: true
+GroupSpatialAudio = true
+
+# Minimum volume for group voice within proximity range (when GroupSpatialAudio is enabled)
+# Prevents group members from fading to silence within the proximity range
+# This ensures group members are always clearly audible even at max proximity distance
+# Outside proximity range, full volume is used (global voice)
+# Range: 0.0 (silent) to 1.0 (full volume)
+# Default: 0.3 (30% volume minimum within proximity, full volume outside proximity)
+GroupMinVolume = 0.3

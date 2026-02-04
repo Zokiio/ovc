@@ -42,6 +42,10 @@ allprojects {
         mavenCentral()
         maven { url = 'https://maven.maxhenkel.de/repository/public' }
         maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+        maven { 
+            name = "Jitsi"
+            url = 'https://github.com/jitsi/jitsi-maven-repository/raw/master/releases/' 
+        }
     }
     
     java {
@@ -82,11 +86,38 @@ dependencies {
     compileOnly "com.hypixel.hytale:Server:${hytale_server_version}"
     
     // Voice server dependencies
-    implementation "de.maxhenkel.opus4j:opus4j:${opus4j_version}"
     implementation "io.netty:netty-all:${netty_version}"
+
+    // WebRTC SFU dependencies
+    implementation 'org.jitsi:ice4j:3.2-12-gc2cbf61'
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.77'
+    implementation 'org.bouncycastle:bctls-jdk18on:1.77'
+    implementation 'org.jitsi:jitsi-utils:1.0-96-g34a49d5'
+    
+    // SCTP/DataChannel transport (Phase 2.5)
+    // jitsi-dcsctp wraps Google's dcSCTP (same implementation used in Chrome WebRTC)
+    implementation 'org.jitsi:jitsi-dcsctp:1.0-7-gb548df2'
     
     // JSON processing
     implementation "com.google.code.gson:gson:${gson_version}"
+    
+    // Testing (root project)
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    
+    // Test dependencies for WebRTC classes
+    testImplementation 'org.jitsi:ice4j:3.2-12-gc2cbf61'
+    testImplementation 'org.bouncycastle:bcprov-jdk18on:1.77'
+    testImplementation 'org.bouncycastle:bctls-jdk18on:1.77'
+    testImplementation 'org.jitsi:jitsi-utils:1.0-96-g34a49d5'
+    testImplementation 'org.jitsi:jitsi-dcsctp:1.0-7-gb548df2'
+    testImplementation "io.netty:netty-all:${netty_version}"
+    testImplementation 'com.google.code.gson:gson:${gson_version}'
+}
+
+// Configure test framework for root project
+test {
+    useJUnitPlatform()
 }
 
 // Configure JAR to include dependencies (fat JAR)
@@ -95,6 +126,7 @@ jar {
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
+    exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
