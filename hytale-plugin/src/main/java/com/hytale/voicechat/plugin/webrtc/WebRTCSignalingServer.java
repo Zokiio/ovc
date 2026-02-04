@@ -297,7 +297,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         if (notifyClient) {
             JsonObject data = new JsonObject();
             data.addProperty("isMuted", muted);
-            SignalingMessage message = new SignalingMessage("set_mic_mute", data);
+            SignalingMessage message = new SignalingMessage(SignalingMessage.TYPE_SET_MIC_MUTE, data);
             client.sendMessage(message.toJson());
         }
 

@@ -312,6 +312,22 @@ function App() {
     }
   }, [])
 
+  const updateCurrentUserMicMuted = useCallback((nextMuted: boolean) => {
+    setUsers(currentUsers => {
+      const currentUserId = currentUserIdRef.current
+      if (!currentUserId) {
+        return currentUsers
+      }
+      const user = currentUsers.get(currentUserId)
+      if (!user) {
+        return currentUsers
+      }
+      const newUsers = new Map(currentUsers)
+      newUsers.set(currentUserId, { ...user, isMicMuted: nextMuted })
+      return newUsers
+    })
+  }, [])
+
   const performConnect = useCallback(async (
     serverUrl: string,
     username: string,
@@ -898,22 +914,6 @@ function App() {
 
   const handleAudioSettingsChange = useCallback((settings: AudioSettings) => {
     setAudioSettings(settings)
-  }, [])
-
-  const updateCurrentUserMicMuted = useCallback((nextMuted: boolean) => {
-    setUsers(currentUsers => {
-      const currentUserId = currentUserIdRef.current
-      if (!currentUserId) {
-        return currentUsers
-      }
-      const user = currentUsers.get(currentUserId)
-      if (!user) {
-        return currentUsers
-      }
-      const newUsers = new Map(currentUsers)
-      newUsers.set(currentUserId, { ...user, isMicMuted: nextMuted })
-      return newUsers
-    })
   }, [])
 
   const handleToggleMute = () => {
@@ -1535,4 +1535,6 @@ function App() {
       />
     </div>
   )
-}export default App
+}
+
+export default App
