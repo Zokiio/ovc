@@ -649,6 +649,18 @@ function App() {
         })
       })
 
+      client.on('set_mic_mute', (data: unknown) => {
+        const payload = data as { isMuted?: boolean }
+        const nextMuted = !!payload.isMuted
+        setIsMuted(nextMuted)
+        updateCurrentUserMicMuted(nextMuted)
+        if (nextMuted) {
+          toast.info('Microphone muted')
+        } else {
+          toast.success('Microphone unmuted')
+        }
+      })
+
       client.on('position_update', (data: unknown) => {
         const payload = data as { 
           positions?: Array<{
@@ -750,7 +762,7 @@ function App() {
       clearPingInterval()
       toast.error('Failed to connect to server')
     }
-  }, [clearAuthTimeout, clearPingInterval, clearReconnectTimer, scheduleFlush, isMuted])
+  }, [clearAuthTimeout, clearPingInterval, clearReconnectTimer, scheduleFlush, isMuted, updateCurrentUserMicMuted])
 
   performConnectRef.current = performConnect
 
@@ -888,9 +900,7 @@ function App() {
     setAudioSettings(settings)
   }, [])
 
-  const handleToggleMute = () => {
-    const nextMuted = !isMuted
-    setIsMuted(nextMuted)
+  const updateCurrentUserMicMuted = useCallback((nextMuted: boolean) => {
     setUsers(currentUsers => {
       const currentUserId = currentUserIdRef.current
       if (!currentUserId) {
@@ -904,6 +914,12 @@ function App() {
       newUsers.set(currentUserId, { ...user, isMicMuted: nextMuted })
       return newUsers
     })
+  }, [])
+
+  const handleToggleMute = () => {
+    const nextMuted = !isMuted
+    setIsMuted(nextMuted)
+    updateCurrentUserMicMuted(nextMuted)
     const client = signalingClient.current
     if (client.isConnected()) {
       client.updateMuteStatus(nextMuted)

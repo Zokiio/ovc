@@ -282,6 +282,44 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         WebRTCClient client = clients.get(clientId);
         return client != null && client.isMuted();
     }
+
+    /**
+     * Set a client's microphone mute state and optionally notify the client.
+     */
+    public boolean setClientMuted(java.util.UUID clientId, boolean muted, boolean notifyClient) {
+        WebRTCClient client = clients.get(clientId);
+        if (client == null || !client.isConnected()) {
+            return false;
+        }
+
+        client.setMuted(muted);
+
+        if (notifyClient) {
+            JsonObject data = new JsonObject();
+            data.addProperty("isMuted", muted);
+            SignalingMessage message = new SignalingMessage("set_mic_mute", data);
+            client.sendMessage(message.toJson());
+        }
+
+        broadcastMuteStatus(client, muted);
+        return true;
+    }
+
+    private void broadcastMuteStatus(WebRTCClient client, boolean isMuted) {
+        if (groupStateManager == null || client == null) {
+            return;
+        }
+        UUID groupId = groupStateManager.getClientGroup(client.getClientId());
+        if (groupId == null) {
+            return;
+        }
+        JsonObject broadcastData = new JsonObject();
+        broadcastData.addProperty("userId", clientIdMapper.getObfuscatedId(client.getClientId()));
+        broadcastData.addProperty("username", client.getUsername());
+        broadcastData.addProperty("isMuted", isMuted);
+        SignalingMessage broadcastMsg = new SignalingMessage("user_mute_status", broadcastData);
+        groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
+    }
     
     /**
      * Get all connected web clients
@@ -1113,15 +1151,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
             client.setMuted(isMuted);
 
-            UUID groupId = groupStateManager.getClientGroup(client.getClientId());
-            if (groupId != null) {
-                JsonObject broadcastData = new JsonObject();
-                broadcastData.addProperty("userId", clientIdMapper.getObfuscatedId(client.getClientId()));
-                broadcastData.addProperty("username", client.getUsername());
-                broadcastData.addProperty("isMuted", isMuted);
-                SignalingMessage broadcastMsg = new SignalingMessage("user_mute_status", broadcastData);
-                groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
-            }
+            broadcastMuteStatus(client, isMuted);
         }
 
         private void handlePing(ChannelHandlerContext ctx, SignalingMessage message) {

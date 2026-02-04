@@ -30,6 +30,7 @@ export class SignalingClient {
     this.onMessage('group_members_updated', (data) => this.handleGroupMembersUpdated(data))
     this.onMessage('user_speaking_status', (data) => this.handleUserSpeakingStatus(data))
     this.onMessage('user_mute_status', (data) => this.handleUserMuteStatus(data))
+    this.onMessage('set_mic_mute', (data) => this.handleSetMicMute(data))
     this.onMessage('player_list', (data) => this.handlePlayerList(data))
     this.onMessage('auth_success', (data) => this.handleAuthSuccess(data))
     this.onMessage('pong', (data) => this.handlePong(data))
@@ -186,6 +187,10 @@ export class SignalingClient {
 
   private handleUserMuteStatus(data: Record<string, unknown>): void {
     this.emit('user_mute_status', data)
+  }
+
+  private handleSetMicMute(data: Record<string, unknown>): void {
+    this.emit('set_mic_mute', data)
   }
 
   private handlePlayerList(data: Record<string, unknown>): void {
