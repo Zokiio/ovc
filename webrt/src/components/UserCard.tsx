@@ -1,13 +1,10 @@
 import { useMemo, memo } from 'react'
-import { Card } from '@/components/ui/card'
 import { Slider } from '@/components/ui/slider'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SpeakerHighIcon, SpeakerSlashIcon, MicrophoneIcon, MicrophoneSlashIcon } from '@phosphor-icons/react'
 import { User } from '@/lib/types'
 import { cn } from '@/lib/utils'
-import { AudioLevelMeter } from '@/components/AudioLevelMeter'
 
 interface UserCardProps {
   user: User

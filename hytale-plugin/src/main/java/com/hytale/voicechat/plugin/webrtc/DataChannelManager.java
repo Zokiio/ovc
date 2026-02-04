@@ -108,17 +108,44 @@ public class DataChannelManager {
 
     private DataChannel parseOpenMessage(short streamId, byte[] payload) {
         ByteBuffer buffer = ByteBuffer.wrap(payload).order(ByteOrder.BIG_ENDIAN);
+        
+        // DCEP OPEN header: 1 (type) + 1 (channelType) + 2 (priority) + 4 (reliability) + 2 (labelLen) + 2 (protocolLen)
+        final int minimumHeaderSize = 1 + 1 + 2 + 4 + 2 + 2;
+        if (buffer.remaining() < minimumHeaderSize) {
+            logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": insufficient header bytes");
+            return new DataChannel(streamId, (byte) 0, (short) 0, 0, "", "");
+        }
+        
         buffer.get(); // message type
         byte channelType = buffer.get();
         short priority = buffer.getShort();
         int reliabilityParameter = buffer.getInt();
-        short labelLength = buffer.getShort();
-        short protocolLength = buffer.getShort();
-
-        byte[] labelBytes = new byte[labelLength];
+        
+        // labelLength and protocolLength are unsigned 16-bit values in DCEP
+        int labelLength = Short.toUnsignedInt(buffer.getShort());
+        int protocolLength = Short.toUnsignedInt(buffer.getShort());
+        
+        int remaining = buffer.remaining();
+        long totalLengthLong = (long) labelLength + (long) protocolLength;
+        if (totalLengthLong > Integer.MAX_VALUE) {
+            logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": combined label/protocol length overflow");
+            return new DataChannel(streamId, channelType, priority, reliabilityParameter, "", "");
+        }
+        
+        int totalLength = (int) totalLengthLong;
+        if (totalLength > remaining) {
+            logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": not enough bytes for label/protocol (expected "
+                    + totalLength + ", remaining " + remaining + ")");
+            totalLength = remaining;
+        }
+        
+        int safeLabelLength = Math.min(labelLength, totalLength);
+        int safeProtocolLength = Math.min(protocolLength, totalLength - safeLabelLength);
+        
+        byte[] labelBytes = new byte[safeLabelLength];
         buffer.get(labelBytes);
-
-        byte[] protocolBytes = new byte[protocolLength];
+        
+        byte[] protocolBytes = new byte[safeProtocolLength];
         buffer.get(protocolBytes);
 
         String label = new String(labelBytes, StandardCharsets.UTF_8);
