@@ -297,7 +297,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         if (notifyClient) {
             JsonObject data = new JsonObject();
             data.addProperty("isMuted", muted);
-            SignalingMessage message = new SignalingMessage("set_mic_mute", data);
+            SignalingMessage message = new SignalingMessage(SignalingMessage.TYPE_SET_MIC_MUTE, data);
             client.sendMessage(message.toJson());
         }
 
@@ -316,6 +316,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         JsonObject broadcastData = new JsonObject();
         broadcastData.addProperty("userId", clientIdMapper.getObfuscatedId(client.getClientId()));
         broadcastData.addProperty("username", client.getUsername());
+        // Note: "isMuted" represents microphone mute status (not speaker/output mute)
+        // Clients map this to "isMicMuted" to distinguish from local speaker mute
         broadcastData.addProperty("isMuted", isMuted);
         SignalingMessage broadcastMsg = new SignalingMessage("user_mute_status", broadcastData);
         groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
@@ -1072,6 +1074,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
                     playerObj.addProperty("username", client.getUsername());
                     playerObj.addProperty("isSpeaking", client.isSpeaking());
+                    // Note: "isMuted" represents microphone mute status (not speaker/output mute)
+                    // Clients map this to "isMicMuted" to distinguish from local speaker mute
                     playerObj.addProperty("isMuted", client.isMuted());
                     
                     // Include group info if player is in a group

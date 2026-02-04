@@ -164,6 +164,8 @@ public class GroupStateManager {
             memberObj.addProperty("id", id);
             memberObj.addProperty("username", client.getUsername());
             memberObj.addProperty("isSpeaking", client.isSpeaking());
+            // Note: "isMuted" represents microphone mute status (not speaker/output mute)
+            // Clients map this to "isMicMuted" to distinguish from local speaker mute
             memberObj.addProperty("isMuted", client.isMuted());
             memberObj.addProperty("volume", client.getVolume());
             memberObj.addProperty("isVoiceConnected", client.isConnected());

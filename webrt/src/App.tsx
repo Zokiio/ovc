@@ -312,6 +312,22 @@ function App() {
     }
   }, [])
 
+  const updateCurrentUserMicMuted = useCallback((nextMuted: boolean) => {
+    setUsers(currentUsers => {
+      const currentUserId = currentUserIdRef.current
+      if (!currentUserId) {
+        return currentUsers
+      }
+      const user = currentUsers.get(currentUserId)
+      if (!user) {
+        return currentUsers
+      }
+      const newUsers = new Map(currentUsers)
+      newUsers.set(currentUserId, { ...user, isMicMuted: nextMuted })
+      return newUsers
+    })
+  }, [])
+
   const performConnect = useCallback(async (
     serverUrl: string,
     username: string,
@@ -457,6 +473,8 @@ function App() {
                 groupId: member.groupId,
                 isSpeaking: member.isSpeaking ?? existing?.isSpeaking ?? false,
                 isMuted: existing?.isMuted ?? false,
+                // Server sends "isMuted" which represents microphone mute status
+                // Map it to "isMicMuted" to distinguish from local speaker mute (isMuted)
                 isMicMuted: member.isMuted ?? existing?.isMicMuted ?? false,
                 volume: member.volume ?? existing?.volume ?? 100,
                 position: existing?.position,
@@ -599,6 +617,8 @@ function App() {
                   name: m.username,
                   isSpeaking: m.isSpeaking,
                   isMuted: existing?.isMuted ?? false,
+                  // Server sends "isMuted" which represents microphone mute status
+                  // Map it to "isMicMuted" to distinguish from local speaker mute (isMuted)
                   isMicMuted: m.isMuted,
                   volume: m.volume,
                   groupId: payload.groupId,
@@ -898,22 +918,6 @@ function App() {
 
   const handleAudioSettingsChange = useCallback((settings: AudioSettings) => {
     setAudioSettings(settings)
-  }, [])
-
-  const updateCurrentUserMicMuted = useCallback((nextMuted: boolean) => {
-    setUsers(currentUsers => {
-      const currentUserId = currentUserIdRef.current
-      if (!currentUserId) {
-        return currentUsers
-      }
-      const user = currentUsers.get(currentUserId)
-      if (!user) {
-        return currentUsers
-      }
-      const newUsers = new Map(currentUsers)
-      newUsers.set(currentUserId, { ...user, isMicMuted: nextMuted })
-      return newUsers
-    })
   }, [])
 
   const handleToggleMute = () => {
@@ -1535,4 +1539,6 @@ function App() {
       />
     </div>
   )
-}export default App
+}
+
+export default App
