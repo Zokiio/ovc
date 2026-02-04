@@ -16,15 +16,27 @@ public class GroupSettings {
     public static final boolean DEFAULT_ALLOW_INVITES = true;
     public static final int DEFAULT_MAX_MEMBERS = 50;
 
+    // Validation bounds
+    public static final int MIN_VOLUME = 0;
+    public static final int MAX_VOLUME = 200;
+    public static final int MIN_MAX_MEMBERS = 2;
+
     public GroupSettings() {
         this(DEFAULT_VOLUME, DEFAULT_PROXIMITY_RANGE, DEFAULT_ALLOW_INVITES, DEFAULT_MAX_MEMBERS);
     }
 
+    /**
+     * Create group settings with validation.
+     * Invalid values are clamped to valid ranges as a defensive measure:
+     * - defaultVolume: clamped to [MIN_VOLUME, MAX_VOLUME] (0-200)
+     * - proximityRange: reset to DEFAULT_PROXIMITY_RANGE if <= 0
+     * - maxMembers: clamped to minimum of MIN_MAX_MEMBERS (2)
+     */
     public GroupSettings(int defaultVolume, double proximityRange, boolean allowInvites, int maxMembers) {
-        this.defaultVolume = defaultVolume > 0 ? defaultVolume : DEFAULT_VOLUME;
+        this.defaultVolume = Math.max(MIN_VOLUME, Math.min(MAX_VOLUME, defaultVolume));
         this.proximityRange = proximityRange > 0 ? proximityRange : DEFAULT_PROXIMITY_RANGE;
         this.allowInvites = allowInvites;
-        this.maxMembers = maxMembers > 0 ? maxMembers : DEFAULT_MAX_MEMBERS;
+        this.maxMembers = Math.max(MIN_MAX_MEMBERS, maxMembers);
     }
 
     public int getDefaultVolume() {

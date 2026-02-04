@@ -8,7 +8,6 @@ import { useAnimationTicker } from '@/hooks/use-mobile'
 
 interface UserCardCompactProps {
   user: User
-  onVolumeChange: (userId: string, volume: number) => void
   onToggleMute: (userId: string) => void
 }
 

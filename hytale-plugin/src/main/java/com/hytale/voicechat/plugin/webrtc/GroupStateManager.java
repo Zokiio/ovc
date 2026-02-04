@@ -24,11 +24,14 @@ public class GroupStateManager {
      * Add a client to a group
      */
     public void addClientToGroup(UUID clientId, WebRTCClient client, UUID groupId) {
-        // Remove from old group if exists
-        UUID previousGroupId = clientGroupMapping.put(clientId, groupId);
+        // Remove from old group if exists (must be done before updating mapping)
+        UUID previousGroupId = clientGroupMapping.get(clientId);
         if (previousGroupId != null && !previousGroupId.equals(groupId)) {
             removeClientFromGroup(clientId, previousGroupId);
         }
+
+        // Update mapping to new group
+        clientGroupMapping.put(clientId, groupId);
 
         // Add to new group
         groupMembers.computeIfAbsent(groupId, k -> ConcurrentHashMap.newKeySet())
@@ -48,7 +51,14 @@ public class GroupStateManager {
                 groupMembers.remove(groupId);
             }
         }
-        clientGroupMapping.remove(clientId);
+        
+        // Only remove the client->group mapping if it still points to this groupId.
+        // This prevents accidentally deleting a new mapping written by addClientToGroup
+        // when moving a client between groups.
+        UUID mappedGroupId = clientGroupMapping.get(clientId);
+        if (groupId.equals(mappedGroupId)) {
+            clientGroupMapping.remove(clientId);
+        }
         
         logger.atFine().log("Removed client " + clientId + " from group " + groupId);
     }

@@ -53,16 +53,13 @@ public class Ice4jDatagramTransport implements DatagramTransport {
             throw new IOException("Ice4j Component socket not available");
         }
         
+        int originalTimeout = socket.getSoTimeout();
         try {
             // Set socket timeout for this receive operation
-            int originalTimeout = socket.getSoTimeout();
             socket.setSoTimeout(waitMillis);
             
             DatagramPacket packet = new DatagramPacket(buf, off, Math.min(len, receiveLimit));
             socket.receive(packet);
-            
-            // Restore original timeout
-            socket.setSoTimeout(originalTimeout);
             
             int received = packet.getLength();
             logger.atFine().log("Received " + received + " bytes via Ice4j Component");
@@ -75,6 +72,12 @@ public class Ice4jDatagramTransport implements DatagramTransport {
         } catch (IOException e) {
             logger.atWarning().log("Error receiving from Ice4j Component: " + e.getMessage());
             throw e;
+        } finally {
+            try {
+                socket.setSoTimeout(originalTimeout);
+            } catch (IOException restoreException) {
+                logger.atWarning().log("Failed to restore Ice4j Component socket timeout: " + restoreException.getMessage());
+            }
         }
     }
     

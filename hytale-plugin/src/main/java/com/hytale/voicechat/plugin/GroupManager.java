@@ -7,6 +7,7 @@ import com.hytale.voicechat.common.network.NetworkConfig;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Manages group voice chat operations and state
@@ -28,7 +29,7 @@ public class GroupManager {
         void onGroupDeleted(Group group);
     }
     
-    private final List<GroupEventListener> eventListeners = new ArrayList<>();
+    private final List<GroupEventListener> eventListeners = new CopyOnWriteArrayList<>();
     
     /**
      * Register a listener for group events
