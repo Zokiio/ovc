@@ -126,13 +126,8 @@ public class DataChannelManager {
         int protocolLength = Short.toUnsignedInt(buffer.getShort());
         
         int remaining = buffer.remaining();
-        long totalLengthLong = (long) labelLength + (long) protocolLength;
-        if (totalLengthLong > Integer.MAX_VALUE) {
-            logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": combined label/protocol length overflow");
-            return new DataChannel(streamId, channelType, priority, reliabilityParameter, "", "");
-        }
+        int totalLength = labelLength + protocolLength;
         
-        int totalLength = (int) totalLengthLong;
         if (totalLength > remaining) {
             logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": not enough bytes for label/protocol (expected "
                     + totalLength + ", remaining " + remaining + ")");
