@@ -27,13 +27,10 @@ public class GroupSettings {
 
     /**
      * Create group settings with validation.
-     * Invalid values are silently clamped to valid ranges:
+     * Invalid values are clamped to valid ranges as a defensive measure:
      * - defaultVolume: clamped to [MIN_VOLUME, MAX_VOLUME] (0-200)
      * - proximityRange: reset to DEFAULT_PROXIMITY_RANGE if <= 0
      * - maxMembers: clamped to minimum of MIN_MAX_MEMBERS (2)
-     * 
-     * Note: Callers should validate and log before calling this constructor
-     * if they need to notify users about adjusted values.
      */
     public GroupSettings(int defaultVolume, double proximityRange, boolean allowInvites, int maxMembers) {
         this.defaultVolume = Math.max(MIN_VOLUME, Math.min(MAX_VOLUME, defaultVolume));

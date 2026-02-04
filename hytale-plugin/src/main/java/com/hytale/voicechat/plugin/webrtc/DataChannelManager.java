@@ -131,16 +131,13 @@ public class DataChannelManager {
         if (totalLength > remaining) {
             logger.atWarning().log("Malformed DCEP OPEN message for client " + clientId + ": not enough bytes for label/protocol (expected "
                     + totalLength + ", remaining " + remaining + ")");
-            totalLength = remaining;
+            return new DataChannel(streamId, channelType, priority, reliabilityParameter, "", "");
         }
         
-        int safeLabelLength = Math.min(labelLength, totalLength);
-        int safeProtocolLength = Math.min(protocolLength, totalLength - safeLabelLength);
-        
-        byte[] labelBytes = new byte[safeLabelLength];
+        byte[] labelBytes = new byte[labelLength];
         buffer.get(labelBytes);
         
-        byte[] protocolBytes = new byte[safeProtocolLength];
+        byte[] protocolBytes = new byte[protocolLength];
         buffer.get(protocolBytes);
 
         String label = new String(labelBytes, StandardCharsets.UTF_8);
