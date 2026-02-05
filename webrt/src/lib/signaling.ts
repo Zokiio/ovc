@@ -160,7 +160,9 @@ export class SignalingClient {
       username: this.username,
       pending: Boolean(data.pending),
       pendingMessage: data.pendingMessage,
-      pendingTimeoutSeconds: data.pendingTimeoutSeconds
+      pendingTimeoutSeconds: data.pendingTimeoutSeconds,
+      transportMode: data.transportMode,
+      stunServers: data.stunServers
     })
   }
 
@@ -256,6 +258,38 @@ export class SignalingClient {
         groupName,
         settings: groupSettings,
       },
+    })
+  }
+
+  public sendOffer(sdp: string): void {
+    this.send({
+      type: 'offer',
+      data: { sdp }
+    })
+  }
+
+  public sendIceCandidate(candidate: RTCIceCandidateInit): void {
+    this.send({
+      type: 'ice_candidate',
+      data: {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid ?? null,
+        sdpMLineIndex: candidate.sdpMLineIndex ?? null
+      }
+    })
+  }
+
+  public sendIceCandidateComplete(): void {
+    this.send({
+      type: 'ice_candidate',
+      data: { complete: true }
+    })
+  }
+
+  public startDataChannel(): void {
+    this.send({
+      type: 'start_datachannel',
+      data: {}
     })
   }
 

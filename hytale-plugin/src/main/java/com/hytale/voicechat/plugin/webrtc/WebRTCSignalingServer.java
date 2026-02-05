@@ -1,5 +1,6 @@
 package com.hytale.voicechat.plugin.webrtc;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.hytale.voicechat.common.model.Group;
 import com.hytale.voicechat.common.model.GroupSettings;
@@ -130,7 +131,24 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
     public void setPeerManager(WebRTCPeerManager peerManager) {
         this.peerManager = peerManager;
+        if (this.peerManager != null) {
+            this.peerManager.setIceCandidateListener(new WebRTCPeerManager.IceCandidateListener() {
+                @Override
+                public void onLocalCandidate(UUID clientId, String candidate, String sdpMid, int sdpMLineIndex) {
+                    sendIceCandidateToClient(clientId, candidate, sdpMid, sdpMLineIndex);
+                }
+
+                @Override
+                public void onIceGatheringComplete(UUID clientId) {
+                    sendIceCandidateCompleteToClient(clientId);
+                }
+            });
+        }
         logger.atInfo().log("WebRTC peer manager set");
+    }
+
+    public ClientIdMapper getClientIdMapper() {
+        return clientIdMapper;
     }
     
     public void setClientListener(WebRTCClientListener listener) {
@@ -565,6 +583,37 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         client.sendMessage(errorMessage.toJson());
     }
 
+    private void sendIceCandidateToClient(UUID clientId, String candidate, String sdpMid, int sdpMLineIndex) {
+        WebRTCClient client = clients.get(clientId);
+        if (client == null) {
+            return;
+        }
+
+        JsonObject data = new JsonObject();
+        data.addProperty("candidate", candidate);
+        if (sdpMid != null) {
+            data.addProperty("sdpMid", sdpMid);
+        }
+        if (sdpMLineIndex >= 0) {
+            data.addProperty("sdpMLineIndex", sdpMLineIndex);
+        }
+
+        SignalingMessage message = new SignalingMessage(SignalingMessage.TYPE_ICE_CANDIDATE, data);
+        client.sendMessage(message.toJson());
+    }
+
+    private void sendIceCandidateCompleteToClient(UUID clientId) {
+        WebRTCClient client = clients.get(clientId);
+        if (client == null) {
+            return;
+        }
+
+        JsonObject data = new JsonObject();
+        data.addProperty("complete", true);
+        SignalingMessage message = new SignalingMessage(SignalingMessage.TYPE_ICE_CANDIDATE, data);
+        client.sendMessage(message.toJson());
+    }
+
     private void schedulePendingAuthDisconnect(UUID clientId) {
         if (pendingAuthScheduler == null) {
             return;
@@ -923,14 +972,20 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("clientId", obfuscatedId);
             responseData.addProperty("username", username);
             responseData.addProperty("pending", !playerOnline);
+            responseData.addProperty("transportMode", NetworkConfig.getWebRtcTransportMode());
+            JsonArray stunServers = new JsonArray();
+            for (String server : NetworkConfig.getStunServers()) {
+                stunServers.add(server);
+            }
+            responseData.add("stunServers", stunServers);
             if (!playerOnline) {
-            int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
-            String messageText = timeoutSeconds > 0
-                    ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
-                    : "Waiting for game session...";
-            responseData.addProperty("pendingMessage", messageText);
-            responseData.addProperty("pendingTimeoutSeconds", timeoutSeconds);
-        }
+                int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
+                String messageText = timeoutSeconds > 0
+                        ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
+                        : "Waiting for game session...";
+                responseData.addProperty("pendingMessage", messageText);
+                responseData.addProperty("pendingTimeoutSeconds", timeoutSeconds);
+            }
             
             SignalingMessage response = new SignalingMessage(
                     SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
@@ -979,6 +1034,10 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 sendError(ctx, "Not authenticated");
                 return;
             }
+            if ("websocket".equalsIgnoreCase(NetworkConfig.getWebRtcTransportMode())) {
+                sendError(ctx, "WebRTC transport disabled");
+                return;
+            }
             if (peerManager == null) {
                 sendError(ctx, "WebRTC peer manager not available");
                 return;
@@ -1011,12 +1070,19 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
 
             JsonObject data = message.getData();
+            if (data.has("complete") && data.get("complete").getAsBoolean()) {
+                peerManager.handleIceCandidateComplete(client.getClientId());
+                return;
+            }
             if (!data.has("candidate")) {
                 sendError(ctx, "Missing ICE candidate");
                 return;
             }
 
             String candidate = data.get("candidate").getAsString();
+            if (candidate == null || candidate.isEmpty()) {
+                return;
+            }
             String sdpMid = data.has("sdpMid") ? data.get("sdpMid").getAsString() : null;
             int sdpMLineIndex = data.has("sdpMLineIndex") ? data.get("sdpMLineIndex").getAsInt() : -1;
 

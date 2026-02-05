@@ -57,11 +57,17 @@ public class DataChannelAudioHandler {
     /**
      * Send Opus audio to a specific client via its DataChannel sender.
      */
-    public void sendToClient(UUID clientId, byte[] opusFrame) {
+    public boolean sendToClient(UUID clientId, byte[] opusFrame) {
         DataChannelSender sender = senders.get(clientId);
         if (sender == null || !sender.isOpen()) {
-            return;
+            return false;
         }
         sender.send(opusFrame);
+        return true;
+    }
+
+    public boolean isClientOpen(UUID clientId) {
+        DataChannelSender sender = senders.get(clientId);
+        return sender != null && sender.isOpen();
     }
 }

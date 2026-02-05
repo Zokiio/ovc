@@ -329,6 +329,39 @@ export class AudioPlaybackManager {
   }
 
   /**
+   * Play audio data for a user (raw Int16 PCM ArrayBuffer)
+   */
+  public async playUserAudioBinary(userId: string, audioData: ArrayBuffer): Promise<void> {
+    await this.ensureReady()
+
+    const state = this.getOrCreateUserState(userId)
+    if (state.isMuted || this.masterMuted) {
+      return
+    }
+
+    try {
+      if (!state.isPlaybackInitialized) {
+        await this.initializeUserPlayback(userId)
+      }
+
+      const byteLength = audioData.byteLength
+      if (byteLength < 2) {
+        return
+      }
+
+      const int16Array = new Int16Array(audioData, 0, Math.floor(byteLength / 2))
+      const float32Array = new Float32Array(int16Array.length)
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / (int16Array[i] < 0 ? 0x8000 : 0x7FFF)
+      }
+
+      this.writeToPlaybackBuffer(userId, float32Array)
+    } catch (err) {
+      console.error('[AudioPlayback] Error playing binary audio:', err)
+    }
+  }
+
+  /**
    * Initialize continuous playback buffer for a user
    */
   private async initializeUserPlayback(userId: string): Promise<void> {

@@ -66,6 +66,28 @@ Comma-separated list of domains allowed to connect via WebSocket (CORS).
   ```
 - **System Property**: `-Dvoice.allowed.origins=https://example.com,https://voice.example.com`
 
+### `WebRtcTransportMode` (String)
+Controls the audio transport mode between client and SFU.
+
+- **Default**: `auto`
+- **Options**: `auto` (prefer WebRTC DataChannel, fallback to WebSocket), `webrtc` (require WebRTC DataChannel), `websocket` (disable WebRTC and use WebSocket audio only)
+- **Example**: `WebRtcTransportMode = "auto"`
+- **System Property**: `-Dvoice.webrtc.transport.mode=auto`
+
+### `StunServers` (String)
+Comma-separated list of STUN server URLs for ICE candidate gathering.
+
+- **Default**: `stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53`
+- **Example**: `StunServers = "stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302"`
+- **System Property**: `-Dvoice.webrtc.stun.servers=stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302`
+
+### `TurnServers` (String)
+Comma-separated list of TURN server URLs. (Not used yet, reserved for future.)
+
+- **Default**: (empty)
+- **Example**: `TurnServers = "turn:turn.example.com:3478?transport=udp"`
+- **System Property**: `-Dvoice.webrtc.turn.servers=turn:turn.example.com:3478?transport=udp`
+
 ## Configuration Example
 
 ### HOCON Format (ovc.conf)
@@ -81,6 +103,11 @@ SSLKeyPath = "/etc/letsencrypt/live/voice.example.com/privkey.pem"
 
 # Allowed origins for WebSocket connections
 AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173"
+
+# WebRTC transport mode and ICE servers
+WebRtcTransportMode = "auto"
+StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
+TurnServers = ""
 ```
 
 ### System Properties via JVM Arguments

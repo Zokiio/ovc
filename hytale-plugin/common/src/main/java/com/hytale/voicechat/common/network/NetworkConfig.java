@@ -1,5 +1,9 @@
 package com.hytale.voicechat.common.network;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Configuration for voice chat networking (WebRTC SFU)
  * Values can be set via Hytale config system or legacy VoiceConfig fallback
@@ -23,6 +27,11 @@ public class NetworkConfig {
     public static final double PROXIMITY_ROLLOFF_FACTOR = 1.5;
     public static final double PROXIMITY_FADE_START_RATIO = 0.7;   // Fade starts at 70% of max range
     public static final double MAX_VOICE_DISTANCE = 100.0;
+
+    // WebRTC transport defaults
+    public static final String DEFAULT_WEBRTC_TRANSPORT_MODE = "auto"; // auto | webrtc | websocket
+    public static final String DEFAULT_STUN_SERVERS = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53";
+    public static final String DEFAULT_TURN_SERVERS = "";
     
     // Group management limits
     public static final int MAX_GROUP_NAME_LENGTH = 32;
@@ -57,6 +66,13 @@ public class NetworkConfig {
     
     // Volume processing mode: "server", "client", or "both"
     private static String volumeProcessingMode = "server";
+
+    // WebRTC transport configuration
+    private static String webRtcTransportMode = DEFAULT_WEBRTC_TRANSPORT_MODE;
+    private static String stunServers = DEFAULT_STUN_SERVERS;
+    private static String turnServers = DEFAULT_TURN_SERVERS;
+    private static List<String> stunServerList = List.of();
+    private static List<String> turnServerList = List.of();
     
     // Group voice settings - initialized from constants
     private static boolean groupGlobalVoice = true;
@@ -87,6 +103,9 @@ public class NetworkConfig {
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("GroupMinVolume", groupMinVolume);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("GameQuitGraceSeconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("PendingGameJoinTimeoutSeconds", pendingGameJoinTimeoutSeconds);
+            webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("WebRtcTransportMode", webRtcTransportMode);
+            stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("StunServers", stunServers);
+            turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("TurnServers", turnServers);
             
             // Fallback to old property names for backward compatibility
             signalingPort = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.signaling.port", signalingPort);
@@ -104,9 +123,15 @@ public class NetworkConfig {
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.group.minvolume", groupMinVolume);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.quit.grace.seconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.join.pending.timeout.seconds", pendingGameJoinTimeoutSeconds);
+            webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.transport.mode", webRtcTransportMode);
+            stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.stun.servers", stunServers);
+            turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.turn.servers", turnServers);
         } catch (Exception e) {
             System.err.println("[NetworkConfig] Failed to load VoiceConfig: " + e.getMessage());
         }
+
+        stunServerList = parseServerList(stunServers);
+        turnServerList = parseServerList(turnServers);
     }
 
     private NetworkConfig() {
@@ -179,6 +204,27 @@ public class NetworkConfig {
      */
     public static String getVolumeProcessingMode() {
         return volumeProcessingMode;
+    }
+
+    /**
+     * Get WebRTC transport mode: auto | webrtc | websocket
+     */
+    public static String getWebRtcTransportMode() {
+        return webRtcTransportMode;
+    }
+
+    /**
+     * Get configured STUN servers.
+     */
+    public static List<String> getStunServers() {
+        return stunServerList;
+    }
+
+    /**
+     * Get configured TURN servers (unused for now).
+     */
+    public static List<String> getTurnServers() {
+        return turnServerList;
     }
     
     /**
@@ -254,5 +300,35 @@ public class NetworkConfig {
      */
     public static int frameSizeForSampleRate(int sampleRate) {
         return (sampleRate * FRAME_DURATION_MS) / 1000;
+    }
+
+    private static List<String> parseServerList(String raw) {
+        if (raw == null) {
+            return List.of();
+        }
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+
+        String[] parts = trimmed.split(",");
+        List<String> servers = new ArrayList<>();
+        for (String part : parts) {
+            String server = part.trim();
+            if (server.isEmpty()) {
+                continue;
+            }
+            if (server.startsWith("\"") && server.endsWith("\"") && server.length() >= 2) {
+                server = server.substring(1, server.length() - 1);
+            }
+            if (!server.isEmpty()) {
+                servers.add(server);
+            }
+        }
+
+        return servers.isEmpty() ? List.of() : Collections.unmodifiableList(servers);
     }
 }

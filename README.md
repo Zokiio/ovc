@@ -147,6 +147,11 @@ SSLKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem"
 
 # Comma-separated list of allowed origins for WebSocket connections
 AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173"
+
+# WebRTC transport mode and ICE servers (SFU-only)
+WebRtcTransportMode = "auto"
+StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
+TurnServers = ""
 ```
 
 ### Configuration Priority

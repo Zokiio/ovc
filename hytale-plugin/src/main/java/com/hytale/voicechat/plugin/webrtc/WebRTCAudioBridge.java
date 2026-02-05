@@ -6,6 +6,7 @@ import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -24,6 +25,9 @@ public class WebRTCAudioBridge {
     private final Map<UUID, WebRTCClient> clients;
     private GroupStateManager groupStateManager;
     private GroupManager groupManager;
+    private DataChannelAudioHandler dataChannelAudioHandler;
+    private ClientIdMapper clientIdMapper;
+    private static final byte AUDIO_PAYLOAD_VERSION = 1;
     
     // Audio buffering and routing
     private final BlockingQueue<AudioFrame> audioQueue;
@@ -55,6 +59,14 @@ public class WebRTCAudioBridge {
     
     public void setGroupManager(GroupManager groupManager) {
         this.groupManager = groupManager;
+    }
+
+    public void setDataChannelAudioHandler(DataChannelAudioHandler handler) {
+        this.dataChannelAudioHandler = handler;
+    }
+
+    public void setClientIdMapper(ClientIdMapper mapper) {
+        this.clientIdMapper = mapper;
     }
     
     /**
@@ -280,11 +292,6 @@ public class WebRTCAudioBridge {
      * @param maxRange The maximum range for this audio
      */
     private void routeAudioToWebRTC(UUID senderId, UUID recipientId, byte[] audioData, double distance, double maxRange) {
-        WebRTCClient client = clients.get(recipientId);
-        if (client == null) {
-            return;
-        }
-        
         byte[] processedAudio = audioData;
         
         // Apply server-side volume scaling if enabled
@@ -296,7 +303,7 @@ public class WebRTCAudioBridge {
         }
         
         // Send via data channel or WebSocket
-        client.sendAudio(senderId, processedAudio);
+        sendAudioToClient(senderId, recipientId, processedAudio);
     }
     
     /**
@@ -308,13 +315,8 @@ public class WebRTCAudioBridge {
      * @param audioData The audio data
      */
     private void routeAudioToWebRTCFullVolume(UUID senderId, UUID recipientId, byte[] audioData) {
-        WebRTCClient client = clients.get(recipientId);
-        if (client == null) {
-            return;
-        }
-        
         // Send at full volume without any processing
-        client.sendAudio(senderId, audioData);
+        sendAudioToClient(senderId, recipientId, audioData);
     }
     
     /**
@@ -328,11 +330,6 @@ public class WebRTCAudioBridge {
      * @param maxRange The maximum range for volume scaling
      */
     private void routeAudioToWebRTCWithMinVolume(UUID senderId, UUID recipientId, byte[] audioData, double distance, double maxRange) {
-        WebRTCClient client = clients.get(recipientId);
-        if (client == null) {
-            return;
-        }
-        
         byte[] processedAudio = audioData;
         
         // Apply server-side volume scaling if enabled
@@ -348,7 +345,41 @@ public class WebRTCAudioBridge {
         }
         
         // Send via data channel or WebSocket
-        client.sendAudio(senderId, processedAudio);
+        sendAudioToClient(senderId, recipientId, processedAudio);
+    }
+
+    private void sendAudioToClient(UUID senderId, UUID recipientId, byte[] audioData) {
+        String senderToken = clientIdMapper != null ? clientIdMapper.getObfuscatedId(senderId) : senderId.toString();
+        if (dataChannelAudioHandler != null) {
+            byte[] payload = buildDataChannelPayload(senderToken, audioData);
+            if (payload != null && dataChannelAudioHandler.sendToClient(recipientId, payload)) {
+                return;
+            }
+        }
+
+        WebRTCClient client = clients.get(recipientId);
+        if (client != null) {
+            client.sendAudio(senderToken, audioData);
+        }
+    }
+
+    private byte[] buildDataChannelPayload(String senderToken, byte[] audioData) {
+        if (senderToken == null || senderToken.isEmpty()) {
+            return null;
+        }
+
+        byte[] senderBytes = senderToken.getBytes(StandardCharsets.UTF_8);
+        if (senderBytes.length > 255) {
+            return null;
+        }
+
+        int headerSize = 2 + senderBytes.length;
+        byte[] payload = new byte[headerSize + audioData.length];
+        payload[0] = AUDIO_PAYLOAD_VERSION;
+        payload[1] = (byte) senderBytes.length;
+        System.arraycopy(senderBytes, 0, payload, 2, senderBytes.length);
+        System.arraycopy(audioData, 0, payload, headerSize, audioData.length);
+        return payload;
     }
     
     /**

@@ -48,7 +48,8 @@ interface VoiceActivityMonitorProps {
   audioSettings: AudioSettings
   onSpeakingChange?: (isSpeaking: boolean) => void
   enableAudioCapture?: boolean
-  onAudioData?: (audioData: string) => void
+  onAudioData?: (audioData: string | ArrayBuffer) => void
+  audioOutputFormat?: 'base64' | 'binary'
   variant?: 'full' | 'compact'
   enabled?: boolean
   onEnabledChange?: (enabled: boolean) => void
@@ -104,6 +105,7 @@ export function VoiceActivityMonitor({
   onSpeakingChange,
   enableAudioCapture = false,
   onAudioData,
+  audioOutputFormat = 'base64',
   variant = 'full',
   enabled,
   onEnabledChange,
@@ -153,7 +155,8 @@ export function VoiceActivityMonitor({
     enableAudioCapture,
     onAudioData,
     useVadThreshold: effectiveVadThreshold,
-    testMicMode
+    testMicMode,
+    audioOutputFormat
   })
 
 
