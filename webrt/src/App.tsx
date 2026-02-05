@@ -44,7 +44,8 @@ const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   outputVolume: 80,
   echoCancellation: false,
   noiseSuppression: false,
-  autoGainControl: false
+  autoGainControl: false,
+  spatialAudioEnabled: true
 }
 
 function loadAudioSettings(): AudioSettings {
@@ -110,6 +111,11 @@ function App() {
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [activeTab, setActiveTab] = useState<'current-group' | 'groups' | 'all-users'>('groups')
   const [audioMenuOpen, setAudioMenuOpen] = useState(false)
+  const connectionStatusRef = useRef<ConnectionState['status']>(connectionState.status)
+
+  useEffect(() => {
+    connectionStatusRef.current = connectionState.status
+  }, [connectionState.status])
 
   // Audio transmission hook - captures and sends audio when speaking
   const { onAudioData } = useAudioTransmission({
@@ -332,6 +338,7 @@ function App() {
       status: 'connecting',
       latency: currentState?.latency,
       errorMessage: undefined,
+      pendingMessage: undefined,
       reconnectAttempt: options?.reconnectAttempt,
       disconnectReason: undefined
     }))
@@ -357,7 +364,8 @@ function App() {
         setConnectionState(currentState => ({
           ...currentState,
           status: 'error',
-          errorMessage: 'Authentication timed out. Please reconnect.'
+          errorMessage: 'Authentication timed out. Please reconnect.',
+          pendingMessage: undefined
         }))
         client.disconnect()
       }, AUTH_TIMEOUT_MS)
@@ -385,24 +393,15 @@ function App() {
         speakingTimeoutsRef.current.set(userId, timeout)
       })
 
-      client.on('authenticated', (data: unknown) => {
-        clearAuthTimeout()
-        reconnectAttemptRef.current = 0
-        blockReconnectRef.current = false
-
-        const payload = data as { clientId?: string }
-        if (payload.clientId) {
-          setCurrentUserId(payload.clientId)
-          currentUserIdRef.current = payload.clientId
-        }
-
+      const activateSession = (activeServerUrl: string) => {
         setConnectionState(currentState => ({
-          serverUrl,
+          serverUrl: activeServerUrl,
           status: 'connected',
           latency: currentState?.latency,
           errorMessage: undefined,
           reconnectAttempt: undefined,
-          disconnectReason: undefined
+          disconnectReason: undefined,
+          pendingMessage: undefined
         }))
 
         audioPlayback.current.initialize().catch(err => {
@@ -420,6 +419,48 @@ function App() {
         }, 5000)
 
         toast.success('Connected to server')
+      }
+
+      client.on('authenticated', (data: unknown) => {
+        clearAuthTimeout()
+        reconnectAttemptRef.current = 0
+        blockReconnectRef.current = false
+
+        const payload = data as { clientId?: string; pending?: boolean; pendingMessage?: string }
+        if (payload.clientId) {
+          setCurrentUserId(payload.clientId)
+          currentUserIdRef.current = payload.clientId
+        }
+
+        if (payload.pending) {
+          setConnectionState(currentState => ({
+            serverUrl,
+            status: 'pending',
+            latency: currentState?.latency,
+            errorMessage: undefined,
+            reconnectAttempt: undefined,
+            disconnectReason: undefined,
+            pendingMessage: payload.pendingMessage || 'Waiting for game session...'
+          }))
+          toast.info('Waiting for game session...')
+          return
+        }
+
+        activateSession(serverUrl)
+      })
+
+      client.on('pending_game_session', (data: unknown) => {
+        const payload = data as { message?: string }
+        setConnectionState(currentState => ({
+          ...currentState,
+          status: 'pending',
+          pendingMessage: payload.message || 'Waiting for game session...'
+        }))
+      })
+
+      client.on('game_session_ready', () => {
+        const activeServerUrl = lastCredentialsRef.current?.serverUrl || serverUrl
+        activateSession(activeServerUrl)
       })
 
       client.on('group_list', (data: unknown) => {
@@ -687,10 +728,37 @@ function App() {
             pitch: number
             worldId: string
           }>
+          listener?: {
+            userId: string
+            x: number
+            y: number
+            z: number
+            yaw: number
+            pitch: number
+            worldId: string
+          }
+        }
+        if (payload.listener?.userId) {
+          audioPlayback.current.setListenerPose({
+            x: payload.listener.x,
+            y: payload.listener.y,
+            z: payload.listener.z,
+            yaw: payload.listener.yaw,
+            pitch: payload.listener.pitch,
+            worldId: payload.listener.worldId
+          })
         }
         if (payload.positions && payload.positions.length > 0) {
           // Batch position updates
           payload.positions.forEach(pos => {
+            audioPlayback.current.updateUserPosition(pos.userId, {
+              x: pos.x,
+              y: pos.y,
+              z: pos.z,
+              yaw: pos.yaw,
+              pitch: pos.pitch,
+              worldId: pos.worldId
+            })
             updateQueueRef.current.positions.set(pos.userId, {
               x: pos.x,
               y: pos.y,
@@ -717,7 +785,8 @@ function App() {
         setConnectionState(currentState => ({
           ...currentState,
           status: 'error',
-          errorMessage: payload.message || 'Server rejected the connection.'
+          errorMessage: payload.message || 'Server rejected the connection.',
+          pendingMessage: undefined
         }))
         client.disconnect()
       })
@@ -729,7 +798,8 @@ function App() {
         setConnectionState(currentState => ({
           ...currentState,
           status: 'error',
-          errorMessage: 'Connection failed: ' + (error instanceof Error ? error.message : 'Unknown error')
+          errorMessage: 'Connection failed: ' + (error instanceof Error ? error.message : 'Unknown error'),
+          pendingMessage: undefined
         }))
         clearPingInterval()
         toast.error('Connection failed')
@@ -737,22 +807,40 @@ function App() {
 
       client.on('disconnected', (data: unknown) => {
         const payload = data as { code?: number; reason?: string; wasClean?: boolean } | null
-        const reasonText = payload?.reason
+        const wasPending = connectionStatusRef.current === 'pending'
+        let reasonText = payload?.reason
           ? payload.reason
           : payload?.code
             ? `Connection closed (code ${payload.code})`
             : 'Connection closed'
+        const isGameEnded = payload?.code === 4001
+          || payload?.code === 4002
+          || (payload?.reason && payload.reason.toLowerCase().includes('game session ended'))
+          || (payload?.reason && payload.reason.toLowerCase().includes('game session not found'))
+
+        if (isGameEnded || wasPending) {
+          blockReconnectRef.current = true
+          if (!payload?.reason) {
+            reasonText = 'Game session not found'
+          }
+        }
 
         clearPingInterval()
         clearAuthTimeout()
 
         if (manualDisconnectRef.current || blockReconnectRef.current) {
-          setConnectionState(currentState => ({
-            ...currentState,
-            status: 'disconnected',
-            reconnectAttempt: undefined,
-            disconnectReason: reasonText
-          }))
+          setConnectionState(currentState => {
+            if (blockReconnectRef.current && currentState.status === 'error') {
+              return currentState
+            }
+            return {
+              ...currentState,
+              status: 'disconnected',
+              reconnectAttempt: undefined,
+              disconnectReason: reasonText,
+              pendingMessage: undefined
+            }
+          })
           return
         }
 
@@ -760,7 +848,8 @@ function App() {
           ...currentState,
           status: 'disconnected',
           reconnectAttempt: undefined,
-          disconnectReason: reasonText
+          disconnectReason: reasonText,
+          pendingMessage: undefined
         }))
 
         scheduleReconnect(reasonText)
@@ -771,6 +860,7 @@ function App() {
         status: 'error',
         latency: currentState?.latency,
         errorMessage: error instanceof Error ? error.message : 'Connection failed',
+        pendingMessage: undefined,
         reconnectAttempt: undefined
       }))
       clearPingInterval()
@@ -793,6 +883,7 @@ function App() {
         ...currentState,
         status: 'error',
         errorMessage: 'Failed to reconnect after 3 attempts.',
+        pendingMessage: undefined,
         reconnectAttempt: undefined,
         disconnectReason: reason
       }))
@@ -808,6 +899,7 @@ function App() {
       status: 'connecting',
       latency: currentState?.latency,
       errorMessage: undefined,
+      pendingMessage: undefined,
       reconnectAttempt: attempt,
       disconnectReason: reason
     }))
@@ -845,7 +937,8 @@ function App() {
       status: 'disconnected',
       errorMessage: undefined,
       reconnectAttempt: undefined,
-      disconnectReason: undefined
+      disconnectReason: undefined,
+      pendingMessage: undefined
     }))
     setLatency(undefined)
     setCurrentGroupId(null)
@@ -899,7 +992,9 @@ function App() {
     }
     // Apply master volume
     playback.setMasterVolume(audioSettings.outputVolume)
-  }, [audioSettings.outputDevice, audioSettings.outputVolume])
+    // Apply spatial audio setting
+    playback.setSpatialEnabled(audioSettings.spatialAudioEnabled)
+  }, [audioSettings.outputDevice, audioSettings.outputVolume, audioSettings.spatialAudioEnabled])
 
   // Persist audio settings locally
   useEffect(() => {

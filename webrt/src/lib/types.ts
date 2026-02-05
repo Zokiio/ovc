@@ -62,6 +62,7 @@ export interface AudioSettings {
   echoCancellation: boolean
   noiseSuppression: boolean
   autoGainControl: boolean
+  spatialAudioEnabled: boolean
 }
 
 export interface VADSettings {
@@ -72,10 +73,11 @@ export interface VADSettings {
 }
 
 export interface ConnectionState {
-  status: 'disconnected' | 'connecting' | 'connected' | 'error'
+  status: 'disconnected' | 'connecting' | 'connected' | 'pending' | 'error'
   serverUrl: string
   latency?: number
   errorMessage?: string
   reconnectAttempt?: number
   disconnectReason?: string
+  pendingMessage?: string
 }

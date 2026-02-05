@@ -57,6 +57,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private Channel serverChannel;
     private SslContext sslContext;
     private java.util.concurrent.ScheduledExecutorService positionBroadcastScheduler;
+    private java.util.concurrent.ScheduledExecutorService pendingAuthScheduler;
+    private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.concurrent.ScheduledFuture<?>> pendingAuthDisconnects = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long POSITION_BROADCAST_INTERVAL_MS = 100; // 10 Hz
     private final java.util.Set<String> allowedOrigins;
     
@@ -183,6 +185,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             
             // Start position broadcast scheduler
             startPositionBroadcaster();
+
+            if (pendingAuthScheduler == null) {
+                pendingAuthScheduler = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread t = new Thread(r, "PendingAuthScheduler");
+                    t.setDaemon(true);
+                    return t;
+                });
+            }
         } catch (Exception e) {
             logger.atSevere().log("Failed to start WebRTC signaling server", e);
             shutdown();
@@ -234,6 +244,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             positionBroadcastScheduler.shutdownNow();
             positionBroadcastScheduler = null;
         }
+
+        if (pendingAuthScheduler != null) {
+            pendingAuthScheduler.shutdownNow();
+            pendingAuthScheduler = null;
+        }
+        pendingAuthDisconnects.clear();
         
         // Shutdown audio bridge first
         if (audioBridge != null && audioBridge.isRunning()) {
@@ -246,6 +262,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 if (positionTracker != null) {
                     positionTracker.removePlayer(client.getClientId());
                 }
+                cancelPendingAuthDisconnect(client.getClientId());
                 client.disconnect();
             } catch (Exception e) {
                 logger.atWarning().log("Error disconnecting client: " + e.getMessage());
@@ -273,6 +290,27 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     public boolean isWebClientConnected(java.util.UUID clientId) {
         WebRTCClient client = clients.get(clientId);
         return client != null && client.isConnected();
+    }
+
+    /**
+     * Disconnect a web client with a close reason and code.
+     */
+    public void disconnectClient(UUID clientId, String reason, int closeCode) {
+        WebRTCClient client = clients.get(clientId);
+        if (client == null) {
+            return;
+        }
+
+        Channel channel = client.getChannel();
+        if (channel != null && channel.isActive()) {
+            try {
+                channel.writeAndFlush(new CloseWebSocketFrame(closeCode, reason));
+            } catch (Exception e) {
+                logger.atWarning().log("Failed to send close frame to client " + clientId + ": " + e.getMessage());
+            }
+        }
+
+        cleanupClient(client, true);
     }
 
     /**
@@ -432,7 +470,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         com.google.gson.JsonArray playersArray = new com.google.gson.JsonArray();
         
         for (WebRTCClient client : clients.values()) {
-            if (client != null && client.isConnected()) {
+            if (client != null && client.isConnected() && !client.isPendingGameSession()) {
                 JsonObject playerObj = new JsonObject();
                 playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
                 playerObj.addProperty("username", client.getUsername());
@@ -453,6 +491,130 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         SignalingMessage message = new SignalingMessage("player_list", data);
         broadcastToAll(message);
+    }
+
+    private boolean shouldRemoveFromPositionTracker(UUID clientId) {
+        if (plugin == null) {
+            return true;
+        }
+        return !plugin.isPlayerOnline(clientId);
+    }
+
+    private void cleanupClient(WebRTCClient client, boolean removeFromPositionTracker) {
+        if (client == null) {
+            return;
+        }
+
+        UUID clientId = client.getClientId();
+        WebRTCClient existing = clients.remove(clientId);
+        if (existing == null) {
+            return;
+        }
+
+        cancelPendingAuthDisconnect(clientId);
+
+        // Remove from group state
+        if (groupStateManager != null) {
+            groupStateManager.removeClientFromAllGroups(clientId);
+        }
+
+        // Notify listener of client disconnection
+        if (clientListener != null) {
+            clientListener.onClientDisconnected(clientId, existing.getUsername());
+        }
+
+        // Close peer connection if present
+        if (peerManager != null) {
+            peerManager.closePeerConnection(clientId);
+        }
+
+        // Remove from position tracker only if player is offline
+        if (removeFromPositionTracker && positionTracker != null) {
+            positionTracker.removePlayer(clientId);
+            logger.atInfo().log("Removed WebRTC client from position tracker: " + clientId);
+        }
+
+        // Remove obfuscated ID mapping
+        clientIdMapper.removeMapping(clientId);
+
+        logger.atInfo().log("WebRTC client disconnected: " + clientId);
+
+        // Broadcast updated player list to all remaining clients
+        broadcastPlayerList();
+    }
+
+    private void sendPendingStatus(ChannelHandlerContext ctx, WebRTCClient client) {
+        JsonObject data = new JsonObject();
+        int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
+        String messageText = timeoutSeconds > 0
+                ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
+                : "Waiting for game session...";
+        data.addProperty("message", messageText);
+        data.addProperty("timeoutSeconds", timeoutSeconds);
+        SignalingMessage message = new SignalingMessage("pending_game_session", data);
+        ctx.channel().writeAndFlush(new TextWebSocketFrame(message.toJson()));
+    }
+
+    private void sendErrorToClient(WebRTCClient client, String error) {
+        if (client == null) {
+            return;
+        }
+        JsonObject errorData = new JsonObject();
+        errorData.addProperty("message", error);
+        SignalingMessage errorMessage = new SignalingMessage(SignalingMessage.TYPE_ERROR, errorData);
+        client.sendMessage(errorMessage.toJson());
+    }
+
+    private void schedulePendingAuthDisconnect(UUID clientId) {
+        if (pendingAuthScheduler == null) {
+            return;
+        }
+        int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
+        if (timeoutSeconds <= 0) {
+            return;
+        }
+
+        java.util.concurrent.ScheduledFuture<?> existing = pendingAuthDisconnects.remove(clientId);
+        if (existing != null) {
+            existing.cancel(false);
+        }
+
+        java.util.concurrent.ScheduledFuture<?> future = pendingAuthScheduler.schedule(() -> {
+            pendingAuthDisconnects.remove(clientId);
+            WebRTCClient client = clients.get(clientId);
+            if (client != null && client.isPendingGameSession()) {
+                sendErrorToClient(client, "Game session not found. Please join the game to continue.");
+                disconnectClient(clientId, "Game session not found", 4002);
+            }
+        }, timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
+        pendingAuthDisconnects.put(clientId, future);
+    }
+
+    private void cancelPendingAuthDisconnect(UUID clientId) {
+        java.util.concurrent.ScheduledFuture<?> existing = pendingAuthDisconnects.remove(clientId);
+        if (existing != null) {
+            existing.cancel(false);
+        }
+    }
+
+    /**
+     * Promote a pending client when their game session becomes available.
+     */
+    public void activatePendingClient(UUID clientId) {
+        WebRTCClient client = clients.get(clientId);
+        if (client == null || !client.isPendingGameSession()) {
+            return;
+        }
+
+        client.setPendingGameSession(false);
+        cancelPendingAuthDisconnect(clientId);
+
+        JsonObject data = new JsonObject();
+        data.addProperty("message", "Game session ready");
+        SignalingMessage message = new SignalingMessage("game_session_ready", data);
+        client.sendMessage(message.toJson());
+
+        broadcastPlayerList();
     }
     
     /**
@@ -539,6 +701,15 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 if (positionsArray.size() > 0) {
                     JsonObject data = new JsonObject();
                     data.add("positions", positionsArray);
+                    JsonObject listenerObj = new JsonObject();
+                    listenerObj.addProperty("userId", clientIdMapper.getObfuscatedId(client.getClientId()));
+                    listenerObj.addProperty("x", viewerPos.getX());
+                    listenerObj.addProperty("y", viewerPos.getY());
+                    listenerObj.addProperty("z", viewerPos.getZ());
+                    listenerObj.addProperty("yaw", viewerPos.getYaw());
+                    listenerObj.addProperty("pitch", viewerPos.getPitch());
+                    listenerObj.addProperty("worldId", viewerPos.getWorldId());
+                    data.add("listener", listenerObj);
                     data.addProperty("timestamp", System.currentTimeMillis());
                     
                     SignalingMessage message = new SignalingMessage("position_update", data);
@@ -618,6 +789,16 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             try {
                 SignalingMessage message = SignalingMessage.fromJson(json);
                 logger.atFine().log("Received signaling message: " + message.getType());
+
+                if (!SignalingMessage.TYPE_AUTHENTICATE.equals(message.getType())) {
+                    WebRTCClient pendingClient = ctx.channel().attr(CLIENT_ATTR).get();
+                    if (pendingClient != null && pendingClient.isPendingGameSession()) {
+                        if (!SignalingMessage.TYPE_DISCONNECT.equals(message.getType()) && !"ping".equals(message.getType())) {
+                            sendPendingStatus(ctx, pendingClient);
+                            return;
+                        }
+                    }
+                }
                 
                 switch (message.getType()) {
                     case SignalingMessage.TYPE_AUTHENTICATE:
@@ -712,19 +893,23 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 sendError(ctx, "Player not found. Please log in to the game first.");
                 return;
             }
-            
+
             logger.atInfo().log("WebRTC auth validated for " + username + " (UUID: " + clientId + ")");
             
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
+            boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
+            client.setPendingGameSession(!playerOnline);
             clients.put(clientId, client);
             ctx.channel().attr(CLIENT_ATTR).set(client);
             
-            // Add to position tracker with default position (0, 0, 0)
-            // Position will be updated when player joins the game
-            if (positionTracker != null) {
+            if (playerOnline && positionTracker != null) {
+                // Add to position tracker with default position (0, 0, 0)
+                // Position will be updated when player joins the game
                 PlayerPosition position = new PlayerPosition(clientId, username, 0, 0, 0, 0, 0, "overworld");
                 positionTracker.addPlayer(position);
                 logger.atInfo().log("Added WebRTC client to position tracker: " + username);
+            } else if (!playerOnline) {
+                schedulePendingAuthDisconnect(clientId);
             }
             
             // Notify listener of client connection
@@ -737,13 +922,24 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             JsonObject responseData = new JsonObject();
             responseData.addProperty("clientId", obfuscatedId);
             responseData.addProperty("username", username);
+            responseData.addProperty("pending", !playerOnline);
+            if (!playerOnline) {
+            int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
+            String messageText = timeoutSeconds > 0
+                    ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
+                    : "Waiting for game session...";
+            responseData.addProperty("pendingMessage", messageText);
+            responseData.addProperty("pendingTimeoutSeconds", timeoutSeconds);
+        }
             
             SignalingMessage response = new SignalingMessage(
                     SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
             sendMessage(ctx, response);
             
-            // Broadcast updated player list to all clients
-            broadcastPlayerList();
+            // Broadcast updated player list to all clients only when player is online
+            if (playerOnline) {
+                broadcastPlayerList();
+            }
             
             logger.atInfo().log("WebRTC client authenticated: " + username + " (obfuscated: " + obfuscatedId + ")");
         }
@@ -858,28 +1054,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         private void handleDisconnect(ChannelHandlerContext ctx) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client != null) {
-                // Remove from group state
-                groupStateManager.removeClientFromAllGroups(client.getClientId());
-                
-                // Notify listener of client disconnection
-                if (clientListener != null) {
-                    clientListener.onClientDisconnected(client.getClientId(), client.getUsername());
-                }
-                
-                // Remove from position tracker
-                if (positionTracker != null) {
-                    positionTracker.removePlayer(client.getClientId());
-                    logger.atInfo().log("Removed WebRTC client from position tracker: " + client.getClientId());
-                }
-                
-                // Remove obfuscated ID mapping
-                clientIdMapper.removeMapping(client.getClientId());
-                
-                clients.remove(client.getClientId());
-                logger.atInfo().log("WebRTC client disconnected: " + client.getClientId());
-                
-                // Broadcast updated player list to all remaining clients
-                broadcastPlayerList();
+                boolean removeFromPositionTracker = shouldRemoveFromPositionTracker(client.getClientId());
+                cleanupClient(client, removeFromPositionTracker);
             }
         }
         
@@ -1069,7 +1245,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             com.google.gson.JsonArray playersArray = new com.google.gson.JsonArray();
             
             for (WebRTCClient client : clients.values()) {
-                if (client != null && client.isConnected()) {
+                if (client != null && client.isConnected() && !client.isPendingGameSession()) {
                     JsonObject playerObj = new JsonObject();
                     playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
                     playerObj.addProperty("username", client.getUsername());
@@ -1208,6 +1384,16 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             logger.atSevere().log("WebSocket error: " + cause.toString());
             logger.atSevere().log("WebSocket stack trace:\n" + stackTrace);
             ctx.close();
+        }
+
+        @Override
+        public void channelInactive(ChannelHandlerContext ctx) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client != null) {
+                boolean removeFromPositionTracker = shouldRemoveFromPositionTracker(client.getClientId());
+                cleanupClient(client, removeFromPositionTracker);
+            }
+            ctx.fireChannelInactive();
         }
         
         private String getWebSocketLocation(FullHttpRequest req) {

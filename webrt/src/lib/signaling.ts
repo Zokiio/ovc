@@ -33,6 +33,8 @@ export class SignalingClient {
     this.onMessage('set_mic_mute', (data) => this.handleSetMicMute(data))
     this.onMessage('player_list', (data) => this.handlePlayerList(data))
     this.onMessage('auth_success', (data) => this.handleAuthSuccess(data))
+    this.onMessage('pending_game_session', (data) => this.handlePendingGameSession(data))
+    this.onMessage('game_session_ready', (data) => this.handleGameSessionReady(data))
     this.onMessage('pong', (data) => this.handlePong(data))
     this.onMessage('audio', (data) => this.handleAudio(data))
     this.onMessage('position_update', (data) => this.handlePositionUpdate(data))
@@ -153,7 +155,21 @@ export class SignalingClient {
 
   private handleAuthSuccess(data: Record<string, unknown>): void {
     this.clientId = String(data.clientId || '')
-    this.emit('authenticated', { clientId: this.clientId, username: this.username })
+    this.emit('authenticated', {
+      clientId: this.clientId,
+      username: this.username,
+      pending: Boolean(data.pending),
+      pendingMessage: data.pendingMessage,
+      pendingTimeoutSeconds: data.pendingTimeoutSeconds
+    })
+  }
+
+  private handlePendingGameSession(data: Record<string, unknown>): void {
+    this.emit('pending_game_session', data)
+  }
+
+  private handleGameSessionReady(data: Record<string, unknown>): void {
+    this.emit('game_session_ready', data)
   }
 
   private handleGroupCreated(data: Record<string, unknown>): void {

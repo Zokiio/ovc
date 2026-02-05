@@ -62,6 +62,11 @@ public class NetworkConfig {
     private static boolean groupGlobalVoice = true;
     private static boolean groupSpatialAudio = true;
     private static double groupMinVolume = DEFAULT_GROUP_MIN_VOLUME;
+
+    // Grace period before disconnecting web client after game quit
+    private static int gameQuitGraceSeconds = 10;
+    // Timeout for pending web client waiting for game session
+    private static int pendingGameJoinTimeoutSeconds = 60;
     
     // Legacy fallback to custom VoiceConfig for backward compatibility
     static {
@@ -80,6 +85,8 @@ public class NetworkConfig {
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupGlobalVoice", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupSpatialAudio", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("GroupMinVolume", groupMinVolume);
+            gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("GameQuitGraceSeconds", gameQuitGraceSeconds);
+            pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("PendingGameJoinTimeoutSeconds", pendingGameJoinTimeoutSeconds);
             
             // Fallback to old property names for backward compatibility
             signalingPort = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.signaling.port", signalingPort);
@@ -95,6 +102,8 @@ public class NetworkConfig {
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.global", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.spatial", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.group.minvolume", groupMinVolume);
+            gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.quit.grace.seconds", gameQuitGraceSeconds);
+            pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.join.pending.timeout.seconds", pendingGameJoinTimeoutSeconds);
         } catch (Exception e) {
             System.err.println("[NetworkConfig] Failed to load VoiceConfig: " + e.getMessage());
         }
@@ -205,6 +214,20 @@ public class NetworkConfig {
      */
     public static double getGroupMinVolume() {
         return groupMinVolume;
+    }
+
+    /**
+     * Grace period before disconnecting web client after game quit (seconds).
+     */
+    public static int getGameQuitGraceSeconds() {
+        return gameQuitGraceSeconds;
+    }
+
+    /**
+     * Timeout for pending web clients waiting for game session (seconds).
+     */
+    public static int getPendingGameJoinTimeoutSeconds() {
+        return pendingGameJoinTimeoutSeconds;
     }
 
     /**

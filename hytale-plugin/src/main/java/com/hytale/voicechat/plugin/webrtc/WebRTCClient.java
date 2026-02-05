@@ -23,6 +23,7 @@ public class WebRTCClient {
      */
     private volatile boolean muted = false;
     private volatile int volume = 100; // 0-200%
+    private volatile boolean pendingGameSession = false;
     
     public WebRTCClient(UUID clientId, String username, Channel channel) {
         this.clientId = clientId;
@@ -80,6 +81,17 @@ public class WebRTCClient {
     public void setVolume(int volume) {
         // Clamp volume between 0 and 200%
         this.volume = Math.max(0, Math.min(200, volume));
+    }
+
+    /**
+     * Whether this client is waiting for a matching in-game session.
+     */
+    public boolean isPendingGameSession() {
+        return pendingGameSession;
+    }
+
+    public void setPendingGameSession(boolean pendingGameSession) {
+        this.pendingGameSession = pendingGameSession;
     }
     
     public void sendMessage(String message) {
