@@ -149,12 +149,14 @@ public class DtlsTransport {
                     };
                     org.bouncycastle.tls.Certificate tlsCert = new org.bouncycastle.tls.Certificate(chain);
                     TlsCryptoParameters params = new TlsCryptoParameters(context);
+                    SignatureAndHashAlgorithm sigAlg =
+                        new SignatureAndHashAlgorithm(HashAlgorithm.sha256, SignatureAlgorithm.rsa);
                     return new JcaDefaultTlsCredentialedSigner(
                         params,
                         jcaCrypto,
                         privateKey,
                         tlsCert,
-                        null
+                        sigAlg
                     );
                 } catch (Exception e) {
                     throw new TlsFatalAlert(AlertDescription.internal_error, e);
