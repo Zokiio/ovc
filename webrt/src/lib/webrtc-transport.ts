@@ -18,6 +18,7 @@ export class WebRTCTransport {
   private destroyed = false
   private readonly stunServers: string[]
   private readonly textDecoder = new TextDecoder()
+  private readonly logPrefix = '[WebRTC]'
 
   constructor(signaling: SignalingClient, stunServers?: string[]) {
     this.signaling = signaling
@@ -43,6 +44,9 @@ export class WebRTCTransport {
       return
     }
 
+    console.info(`${this.logPrefix} Starting transport`, {
+      stunServers: this.stunServers
+    })
     this.updateState('connecting')
 
     this.pc = new RTCPeerConnection({
@@ -53,14 +57,27 @@ export class WebRTCTransport {
 
     this.pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.debug(`${this.logPrefix} Local ICE candidate`, {
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex
+        })
         this.signaling.sendIceCandidate({
           candidate: event.candidate.candidate,
           sdpMid: event.candidate.sdpMid,
           sdpMLineIndex: event.candidate.sdpMLineIndex
         })
       } else {
+        console.info(`${this.logPrefix} ICE gathering complete`)
         this.signaling.sendIceCandidateComplete()
       }
+    }
+
+    this.pc.onicegatheringstatechange = () => {
+      if (!this.pc) {
+        return
+      }
+      console.info(`${this.logPrefix} ICE gathering state`, this.pc.iceGatheringState)
     }
 
     this.pc.oniceconnectionstatechange = () => {
@@ -68,9 +85,11 @@ export class WebRTCTransport {
         return
       }
       const state = this.pc.iceConnectionState
+      console.info(`${this.logPrefix} ICE connection state`, state)
       if (state === 'connected' || state === 'completed') {
         if (!this.hasRequestedStart) {
           this.hasRequestedStart = true
+          console.info(`${this.logPrefix} ICE connected, requesting DataChannel start`)
           this.signaling.startDataChannel()
         }
       }
@@ -84,6 +103,7 @@ export class WebRTCTransport {
         return
       }
       const state = this.pc.connectionState
+      console.info(`${this.logPrefix} Peer connection state`, state)
       if (state === 'failed') {
         this.updateState('failed')
       }
@@ -92,7 +112,15 @@ export class WebRTCTransport {
       }
     }
 
+    this.pc.onsignalingstatechange = () => {
+      if (!this.pc) {
+        return
+      }
+      console.info(`${this.logPrefix} Signaling state`, this.pc.signalingState)
+    }
+
     this.pc.ondatachannel = (event) => {
+      console.info(`${this.logPrefix} DataChannel received`, event.channel.label)
       if (!this.dataChannel) {
         this.setupDataChannel(event.channel)
       }
@@ -105,6 +133,7 @@ export class WebRTCTransport {
 
     const offer = await this.pc.createOffer()
     await this.pc.setLocalDescription(offer)
+    console.info(`${this.logPrefix} Local description set, sending offer`)
     this.signaling.sendOffer(offer.sdp || '')
 
     this.signaling.on('message:answer', this.handleAnswer)
@@ -116,6 +145,7 @@ export class WebRTCTransport {
       return
     }
     this.destroyed = true
+    console.info(`${this.logPrefix} Closing transport`)
     this.signaling.off('message:answer', this.handleAnswer)
     this.signaling.off('message:ice_candidate', this.handleRemoteCandidate)
 
@@ -156,11 +186,12 @@ export class WebRTCTransport {
     }
 
     try {
+      console.info(`${this.logPrefix} Received answer, applying remote description`)
       await this.pc.setRemoteDescription({ type: 'answer', sdp: payload.sdp })
       this.hasRemoteDescription = true
       this.flushPendingCandidates()
     } catch (err) {
-      console.warn('[WebRTC] Failed to set remote description:', err)
+      console.warn(`${this.logPrefix} Failed to set remote description:`, err)
       this.updateState('failed')
     }
   }
@@ -171,6 +202,7 @@ export class WebRTCTransport {
     }
     const payload = data as { candidate?: string; sdpMid?: string | null; sdpMLineIndex?: number | null; complete?: boolean }
     if (payload?.complete) {
+      console.info(`${this.logPrefix} Remote ICE candidates complete`)
       try {
         await this.pc.addIceCandidate()
       } catch {
@@ -190,14 +222,16 @@ export class WebRTCTransport {
     }
 
     if (!this.hasRemoteDescription) {
+      console.debug(`${this.logPrefix} Queueing remote ICE candidate (no remote description yet)`)
       this.pendingCandidates.push(candidate)
       return
     }
 
     try {
+      console.debug(`${this.logPrefix} Adding remote ICE candidate`)
       await this.pc.addIceCandidate(candidate)
     } catch (err) {
-      console.warn('[WebRTC] Failed to add ICE candidate:', err)
+      console.warn(`${this.logPrefix} Failed to add ICE candidate:`, err)
     }
   }
 
@@ -217,16 +251,19 @@ export class WebRTCTransport {
     channel.binaryType = 'arraybuffer'
 
     channel.onopen = () => {
+      console.info(`${this.logPrefix} DataChannel open`, channel.label)
       this.updateState('connected')
     }
 
     channel.onclose = () => {
+      console.info(`${this.logPrefix} DataChannel closed`, channel.label)
       if (this.state !== 'closed') {
         this.updateState('closed')
       }
     }
 
     channel.onerror = () => {
+      console.warn(`${this.logPrefix} DataChannel error`, channel.label)
       this.updateState('failed')
     }
 

@@ -3,6 +3,11 @@ package com.hytale.voicechat.plugin.webrtc;
 import com.hypixel.hytale.logger.HytaleLogger;
 import org.bouncycastle.tls.*;
 import org.bouncycastle.tls.crypto.TlsCrypto;
+import org.bouncycastle.tls.crypto.TlsCryptoParameters;
+import org.bouncycastle.tls.crypto.TlsCertificate;
+import org.bouncycastle.tls.crypto.impl.jcajce.JcaDefaultTlsCredentialedSigner;
+import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCertificate;
+import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCrypto;
 import org.bouncycastle.tls.crypto.impl.jcajce.JcaTlsCryptoProvider;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
@@ -29,6 +34,8 @@ public class DtlsTransport {
     
     private final String clientId;
     private final boolean isServer;
+    private final X509Certificate certificate;
+    private final PrivateKey privateKey;
     private final TlsCrypto crypto;
     
     private DTLSServerProtocol serverProtocol;
@@ -52,6 +59,8 @@ public class DtlsTransport {
     public DtlsTransport(String clientId, X509Certificate certificate, PrivateKey privateKey, boolean isServer) {
         this.clientId = clientId;
         this.isServer = isServer;
+        this.certificate = certificate;
+        this.privateKey = privateKey;
         
         // Initialize crypto provider
         this.crypto = new JcaTlsCryptoProvider().create(new SecureRandom());
@@ -125,6 +134,31 @@ public class DtlsTransport {
             @Override
             public void notifyHandshakeComplete() {
                 logger.atInfo().log("DTLS server handshake complete for client " + clientId);
+            }
+
+            @Override
+            protected TlsCredentialedSigner getRSASignerCredentials() throws IOException {
+                if (certificate == null || privateKey == null) {
+                    throw new TlsFatalAlert(AlertDescription.internal_error);
+                }
+
+                try {
+                    JcaTlsCrypto jcaCrypto = (JcaTlsCrypto) crypto;
+                    TlsCertificate[] chain = new TlsCertificate[] {
+                        new JcaTlsCertificate(jcaCrypto, certificate)
+                    };
+                    org.bouncycastle.tls.Certificate tlsCert = new org.bouncycastle.tls.Certificate(chain);
+                    TlsCryptoParameters params = new TlsCryptoParameters(context);
+                    return new JcaDefaultTlsCredentialedSigner(
+                        params,
+                        jcaCrypto,
+                        privateKey,
+                        tlsCert,
+                        null
+                    );
+                } catch (Exception e) {
+                    throw new TlsFatalAlert(AlertDescription.internal_error, e);
+                }
             }
         };
         

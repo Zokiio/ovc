@@ -845,7 +845,7 @@ public class WebRTCPeerManager {
                 answer.append("a=ice-ufrag:").append(iceUfrag).append("\r\n");
                 answer.append("a=ice-pwd:").append(icePwd).append("\r\n");
                 answer.append("a=fingerprint:sha-256 ").append(dtlsFingerprint).append("\r\n");
-                answer.append("a=setup:active\r\n");
+                answer.append("a=setup:passive\r\n");
                 answer.append("a=mid:").append(audioMid != null ? audioMid : "0").append("\r\n");
                 answer.append("a=").append(answerAudioDirection).append("\r\n");
                 answer.append("a=rtcp-mux\r\n");
@@ -858,7 +858,7 @@ public class WebRTCPeerManager {
                 answer.append("a=ice-ufrag:").append(iceUfrag).append("\r\n");
                 answer.append("a=ice-pwd:").append(icePwd).append("\r\n");
                 answer.append("a=fingerprint:sha-256 ").append(dtlsFingerprint).append("\r\n");
-                answer.append("a=setup:active\r\n");
+                answer.append("a=setup:passive\r\n");
                 answer.append("a=mid:").append(datachannelMid != null ? datachannelMid : "1").append("\r\n");
                 answer.append("a=").append(answerDataChannelDirection).append("\r\n");
                 answer.append("a=sctp-port:5000\r\n");
