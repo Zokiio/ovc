@@ -152,6 +152,8 @@ AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost
 WebRtcTransportMode = "auto"
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
+IcePortMin = 50000
+IcePortMax = 51000
 ```
 
 ### Configuration Priority

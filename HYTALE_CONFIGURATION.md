@@ -88,6 +88,19 @@ Comma-separated list of TURN server URLs. (Not used yet, reserved for future.)
 - **Example**: `TurnServers = "turn:turn.example.com:3478?transport=udp"`
 - **System Property**: `-Dvoice.webrtc.turn.servers=turn:turn.example.com:3478?transport=udp`
 
+### `IcePortMin` / `IcePortMax` (Int)
+Fixed UDP port range for ICE host candidates. Use this if your server is behind NAT and you want stable WebRTC by forwarding a specific UDP range.
+
+- **Default**: `0` (ephemeral ports)
+- **Example**:
+  ```hocon
+  IcePortMin = 50000
+  IcePortMax = 51000
+  ```
+- **System Properties**:
+  - `-Dvoice.webrtc.ice.port.min=50000`
+  - `-Dvoice.webrtc.ice.port.max=51000`
+
 ## Configuration Example
 
 ### HOCON Format (ovc.conf)
@@ -108,6 +121,8 @@ AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost
 WebRtcTransportMode = "auto"
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
+IcePortMin = 50000
+IcePortMax = 51000
 ```
 
 ### System Properties via JVM Arguments

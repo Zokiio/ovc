@@ -32,6 +32,8 @@ public class NetworkConfig {
     public static final String DEFAULT_WEBRTC_TRANSPORT_MODE = "auto"; // auto | webrtc | websocket
     public static final String DEFAULT_STUN_SERVERS = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53";
     public static final String DEFAULT_TURN_SERVERS = "";
+    public static final int DEFAULT_ICE_PORT_MIN = 0; // 0 = ephemeral
+    public static final int DEFAULT_ICE_PORT_MAX = 0; // 0 = ephemeral
     
     // Group management limits
     public static final int MAX_GROUP_NAME_LENGTH = 32;
@@ -71,6 +73,8 @@ public class NetworkConfig {
     private static String webRtcTransportMode = DEFAULT_WEBRTC_TRANSPORT_MODE;
     private static String stunServers = DEFAULT_STUN_SERVERS;
     private static String turnServers = DEFAULT_TURN_SERVERS;
+    private static int icePortMin = DEFAULT_ICE_PORT_MIN;
+    private static int icePortMax = DEFAULT_ICE_PORT_MAX;
     private static List<String> stunServerList = List.of();
     private static List<String> turnServerList = List.of();
     
@@ -106,6 +110,8 @@ public class NetworkConfig {
             webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("WebRtcTransportMode", webRtcTransportMode);
             stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("StunServers", stunServers);
             turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("TurnServers", turnServers);
+            icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("IcePortMin", icePortMin);
+            icePortMax = com.hytale.voicechat.common.config.VoiceConfig.getInt("IcePortMax", icePortMax);
             
             // Fallback to old property names for backward compatibility
             signalingPort = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.signaling.port", signalingPort);
@@ -126,6 +132,8 @@ public class NetworkConfig {
             webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.transport.mode", webRtcTransportMode);
             stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.stun.servers", stunServers);
             turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.turn.servers", turnServers);
+            icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.ice.port.min", icePortMin);
+            icePortMax = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.ice.port.max", icePortMax);
         } catch (Exception e) {
             System.err.println("[NetworkConfig] Failed to load VoiceConfig: " + e.getMessage());
         }
@@ -226,6 +234,22 @@ public class NetworkConfig {
     public static List<String> getTurnServers() {
         return turnServerList;
     }
+
+    /**
+     * Get minimum UDP port for ICE host candidates.
+     * 0 means ephemeral ports.
+     */
+    public static int getIcePortMin() {
+        return isValidIcePortRange(icePortMin, icePortMax) ? icePortMin : 0;
+    }
+
+    /**
+     * Get maximum UDP port for ICE host candidates.
+     * 0 means ephemeral ports.
+     */
+    public static int getIcePortMax() {
+        return isValidIcePortRange(icePortMin, icePortMax) ? icePortMax : 0;
+    }
     
     /**
      * Check if server should process volume adjustment
@@ -300,6 +324,13 @@ public class NetworkConfig {
      */
     public static int frameSizeForSampleRate(int sampleRate) {
         return (sampleRate * FRAME_DURATION_MS) / 1000;
+    }
+
+    private static boolean isValidIcePortRange(int min, int max) {
+        if (min <= 0 || max <= 0) {
+            return false;
+        }
+        return max >= min;
     }
 
     private static List<String> parseServerList(String raw) {

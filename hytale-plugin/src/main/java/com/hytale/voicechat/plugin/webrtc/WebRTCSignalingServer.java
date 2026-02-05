@@ -524,10 +524,15 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         }
 
         UUID clientId = client.getClientId();
-        WebRTCClient existing = clients.remove(clientId);
+        WebRTCClient existing = clients.get(clientId);
         if (existing == null) {
             return;
         }
+        if (existing != client) {
+            logger.atInfo().log("Skipping cleanup for stale connection of client " + clientId);
+            return;
+        }
+        clients.remove(clientId);
 
         cancelPendingAuthDisconnect(clientId);
 

@@ -3,6 +3,7 @@ package com.hytale.voicechat.plugin.webrtc;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
+import com.hytale.voicechat.common.network.NetworkConfig;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -129,7 +130,7 @@ public class WebRTCPeerManager {
             System.setProperty("ice4j.harvest.timeout", "15000");
             
             // ===== HARVEST: UDP CONFIGURATION =====
-            System.setProperty("org.ice4j.ice.harvest.USE_DYNAMIC_HOST_HARVESTER", "false");
+            System.setProperty("org.ice4j.ice.harvest.USE_DYNAMIC_HOST_HARVESTER", "true");
             System.setProperty("ice4j.harvest.udp.use-dynamic-ports", "true");
             
             System.setProperty("org.ice4j.ice.harvest.AbstractUdpListener.SO_RCVBUF", "0");
@@ -199,6 +200,10 @@ public class WebRTCPeerManager {
      * @return SDP answer to send back to the client.
      */
     public String createPeerConnection(UUID clientId, String offerSdp) {
+        WebRTCPeerSession existing = sessions.remove(clientId);
+        if (existing != null) {
+            existing.close();
+        }
         WebRTCPeerSession session = new WebRTCPeerSession(clientId, offerSdp);
         sessions.put(clientId, session);
         logger.atWarning().log("Created WebRTC peer session with provisional SDP answer (Ice4j wiring pending): " + clientId);
@@ -324,6 +329,7 @@ public class WebRTCPeerManager {
                 this.iceAgent = new Agent();
                 this.iceAgent.setControlling(true);
                 this.iceAgent.setTrickling(true);
+                this.iceAgent.setUseDynamicPorts(true);
                 
                 // Restore original classloader
                 currentThread.setContextClassLoader(originalClassLoader);
@@ -688,15 +694,19 @@ public class WebRTCPeerManager {
 
         private Component createComponentWithFallback(IceMediaStream stream, String label) {
             try {
-                return iceAgent.createComponent(stream, 0, 0, 0);
+                int minPort = NetworkConfig.getIcePortMin();
+                int maxPort = NetworkConfig.getIcePortMax();
+                if (minPort > 0 && maxPort > 0) {
+                    return iceAgent.createComponent(stream, minPort, minPort, maxPort);
+                }
             } catch (Exception e) {
-                logger.atWarning().log("Failed to create " + label + " component with dynamic ports: " + e.getMessage());
+                logger.atWarning().log("Failed to create " + label + " component with configured ICE range: " + e.getMessage());
             }
 
             try {
-                return iceAgent.createComponent(stream, 50000, 50000, 51000);
+                return iceAgent.createComponent(stream, 0, 0, 0);
             } catch (Exception e) {
-                logger.atSevere().log("Failed to create " + label + " component with fallback range: " + e.getMessage());
+                logger.atSevere().log("Failed to create " + label + " component with dynamic ports: " + e.getMessage());
                 return null;
             }
         }
