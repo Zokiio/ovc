@@ -175,6 +175,17 @@ public class WebRTCPeerManager {
         } catch (Exception e) {
             logger.atWarning().log("Failed to configure Ice4j properties: " + e.getMessage());
         }
+
+        // Quiet the noisy ICE "Completed -> Terminated" transition log.
+        try {
+            java.util.logging.Logger iceAgentLogger = java.util.logging.Logger.getLogger("org.ice4j.ice.Agent");
+            iceAgentLogger.setFilter(record -> {
+                String message = record.getMessage();
+                return message == null || !message.contains("ICE state changed from Completed to Terminated");
+            });
+        } catch (Exception e) {
+            logger.atWarning().log("Failed to install ICE log filter: " + e.getMessage());
+        }
     }
 
     private final Map<UUID, WebRTCPeerSession> sessions = new ConcurrentHashMap<>();
