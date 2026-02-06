@@ -62,15 +62,17 @@ function loadAudioSettings(): AudioSettings {
   }
 }
 
+function createSessionInstanceId(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  }
+}
+
 function App() {
   const isMobile = useIsMobile()
-  const sessionInstanceRef = useRef<string>(() => {
-    try {
-      return crypto.randomUUID()
-    } catch {
-      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-    }
-  }())
+  const sessionInstanceRef = useRef<string>(createSessionInstanceId())
   const signalingClient = useRef(getSignalingClient())
   const audioPlayback = useRef(getAudioPlaybackManager())
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -879,7 +881,12 @@ function App() {
             pitch: number
             worldId: string
           }
+          timestamp?: number
         }
+        const nowPerf = performance.now()
+        const sampleTime = payload.timestamp
+          ? nowPerf - Math.max(0, Date.now() - payload.timestamp)
+          : nowPerf
         if (payload.listener?.userId) {
           audioPlayback.current.setListenerPose({
             x: payload.listener.x,
@@ -888,7 +895,7 @@ function App() {
             yaw: payload.listener.yaw,
             pitch: payload.listener.pitch,
             worldId: payload.listener.worldId
-          })
+          }, sampleTime)
         }
         if (payload.positions && payload.positions.length > 0) {
           // Batch position updates
@@ -900,7 +907,7 @@ function App() {
               yaw: pos.yaw,
               pitch: pos.pitch,
               worldId: pos.worldId
-            })
+            }, sampleTime)
             updateQueueRef.current.positions.set(pos.userId, {
               x: pos.x,
               y: pos.y,
