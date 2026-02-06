@@ -24,6 +24,9 @@ public class WebRTCClient {
     private volatile boolean muted = false;
     private volatile int volume = 100; // 0-200%
     private volatile boolean pendingGameSession = false;
+    private volatile String sessionId;
+    private volatile String resumeToken;
+    private volatile long lastHeartbeatAt;
     
     public WebRTCClient(UUID clientId, String username, Channel channel) {
         this.clientId = clientId;
@@ -92,6 +95,30 @@ public class WebRTCClient {
 
     public void setPendingGameSession(boolean pendingGameSession) {
         this.pendingGameSession = pendingGameSession;
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId;
+    }
+
+    public String getResumeToken() {
+        return resumeToken;
+    }
+
+    public void setResumeToken(String resumeToken) {
+        this.resumeToken = resumeToken;
+    }
+
+    public long getLastHeartbeatAt() {
+        return lastHeartbeatAt;
+    }
+
+    public void setLastHeartbeatAt(long lastHeartbeatAt) {
+        this.lastHeartbeatAt = lastHeartbeatAt;
     }
     
     public void sendMessage(String message) {

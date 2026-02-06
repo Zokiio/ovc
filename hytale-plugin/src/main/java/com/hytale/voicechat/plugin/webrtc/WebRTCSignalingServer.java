@@ -35,6 +35,9 @@ import java.security.cert.CertificateException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * WebSocket server for WebRTC signaling between web clients and server
@@ -42,9 +45,18 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     private static final AttributeKey<WebRTCClient> CLIENT_ATTR = AttributeKey.valueOf("webrtc_client");
+    private static final long HEARTBEAT_INTERVAL_MS = 15000L;
+    private static final long HEARTBEAT_TIMEOUT_MS = 45000L;
+    private static final long RESUME_WINDOW_MS = 30000L;
     
     private final int port;
     private final Map<UUID, WebRTCClient> clients;
+    private final Map<String, ResumableSession> resumableSessions = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "webrtc-heartbeat-monitor");
+        t.setDaemon(true);
+        return t;
+    });
     private final ClientIdMapper clientIdMapper;
     private PlayerPositionTracker positionTracker;
     private WebRTCAudioBridge audioBridge;
@@ -102,6 +114,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
         }
         logger.atInfo().log("Allowed origins for WebSocket connections: " + allowedOrigins);
+        startHeartbeatMonitor();
     }
     
     public void setPlugin(HytaleVoiceChatPlugin plugin) {
@@ -253,6 +266,38 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             throw new SSLException("Failed to create SSL context", e);
         }
     }
+
+    private String generateSessionId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private String generateResumeToken() {
+        return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private void startHeartbeatMonitor() {
+        heartbeatScheduler.scheduleAtFixedRate(() -> {
+            long now = System.currentTimeMillis();
+            for (WebRTCClient client : clients.values()) {
+                if (client == null || !client.isConnected()) {
+                    continue;
+                }
+                long lastHeartbeat = client.getLastHeartbeatAt();
+                if (lastHeartbeat > 0 && now - lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+                    logger.atInfo().log("Heartbeat timeout for client " + client.getClientId());
+                    disconnectClient(client.getClientId(), "Heartbeat timeout", 4000);
+                }
+            }
+
+            for (var entry : resumableSessions.entrySet()) {
+                ResumableSession session = entry.getValue();
+                if (session.expiresAt < now) {
+                    resumableSessions.remove(entry.getKey());
+                    clientIdMapper.removeMapping(session.clientId);
+                }
+            }
+        }, HEARTBEAT_INTERVAL_MS, HEARTBEAT_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
     
     public void shutdown() {
         logger.atInfo().log("Shutting down WebRTC signaling server");
@@ -268,6 +313,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             pendingAuthScheduler = null;
         }
         pendingAuthDisconnects.clear();
+        heartbeatScheduler.shutdownNow();
         
         // Shutdown audio bridge first
         if (audioBridge != null && audioBridge.isRunning()) {
@@ -536,8 +582,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
         cancelPendingAuthDisconnect(clientId);
 
-        // Remove from group state
+        UUID lastGroupId = null;
         if (groupStateManager != null) {
+            lastGroupId = groupStateManager.getClientGroup(clientId);
             groupStateManager.removeClientFromAllGroups(clientId);
         }
 
@@ -557,8 +604,20 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             logger.atInfo().log("Removed WebRTC client from position tracker: " + clientId);
         }
 
-        // Remove obfuscated ID mapping
-        clientIdMapper.removeMapping(clientId);
+        boolean allowResume = client.getResumeToken() != null && !client.getResumeToken().isEmpty();
+        if (allowResume) {
+            resumableSessions.put(client.getResumeToken(), new ResumableSession(
+                clientId,
+                client.getUsername(),
+                client.getSessionId(),
+                client.getResumeToken(),
+                client.isPendingGameSession(),
+                lastGroupId,
+                System.currentTimeMillis() + RESUME_WINDOW_MS
+            ));
+        } else {
+            clientIdMapper.removeMapping(clientId);
+        }
 
         logger.atInfo().log("WebRTC client disconnected: " + clientId);
 
@@ -851,7 +910,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 if (!SignalingMessage.TYPE_AUTHENTICATE.equals(message.getType())) {
                     WebRTCClient pendingClient = ctx.channel().attr(CLIENT_ATTR).get();
                     if (pendingClient != null && pendingClient.isPendingGameSession()) {
-                        if (!SignalingMessage.TYPE_DISCONNECT.equals(message.getType()) && !"ping".equals(message.getType())) {
+                        if (!SignalingMessage.TYPE_DISCONNECT.equals(message.getType())
+                                && !"ping".equals(message.getType())
+                                && !SignalingMessage.TYPE_HEARTBEAT.equals(message.getType())) {
                             sendPendingStatus(ctx, pendingClient);
                             return;
                         }
@@ -861,6 +922,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 switch (message.getType()) {
                     case SignalingMessage.TYPE_AUTHENTICATE:
                         handleAuthenticate(ctx, message);
+                        break;
+                    case SignalingMessage.TYPE_RESUME:
+                        handleResume(ctx, message);
                         break;
                     case "create_group":
                         handleCreateGroup(ctx, message);
@@ -889,6 +953,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     case "ping":
                         handlePing(ctx, message);
                         break;
+                    case SignalingMessage.TYPE_HEARTBEAT:
+                        handleHeartbeat(ctx, message);
+                        break;
                     case "audio":
                         handleAudioData(ctx, message);
                         break;
@@ -911,6 +978,44 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 logger.atSevere().log("Error handling signaling message", e);
                 sendError(ctx, "Invalid message format");
             }
+        }
+
+        private JsonObject buildSessionResponseData(WebRTCClient client, boolean playerOnline) {
+            String obfuscatedId = clientIdMapper.getObfuscatedId(client.getClientId());
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("clientId", obfuscatedId);
+            responseData.addProperty("username", client.getUsername());
+            responseData.addProperty("pending", !playerOnline);
+            responseData.addProperty("transportMode", NetworkConfig.getWebRtcTransportMode());
+
+            JsonArray stunServers = new JsonArray();
+            for (String server : NetworkConfig.getStunServers()) {
+                stunServers.add(server);
+            }
+            responseData.add("stunServers", stunServers);
+            responseData.addProperty("sessionId", client.getSessionId());
+            responseData.addProperty("resumeToken", client.getResumeToken());
+            responseData.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
+            responseData.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
+
+            if (!playerOnline) {
+                int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
+                String messageText = timeoutSeconds > 0
+                        ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
+                        : "Waiting for game session...";
+                responseData.addProperty("pendingMessage", messageText);
+                responseData.addProperty("pendingTimeoutSeconds", timeoutSeconds);
+            }
+
+            return responseData;
+        }
+
+        private void sendHello(ChannelHandlerContext ctx) {
+            JsonObject data = new JsonObject();
+            data.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
+            data.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
+            SignalingMessage hello = new SignalingMessage(SignalingMessage.TYPE_HELLO, data);
+            sendMessage(ctx, hello);
         }
         
         private void handleAuthenticate(ChannelHandlerContext ctx, SignalingMessage message) {
@@ -955,6 +1060,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             logger.atInfo().log("WebRTC auth validated for " + username + " (UUID: " + clientId + ")");
             
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
+            client.setSessionId(generateSessionId());
+            client.setResumeToken(generateResumeToken());
             boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
             client.setPendingGameSession(!playerOnline);
             clients.put(clientId, client);
@@ -974,38 +1081,148 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             if (clientListener != null) {
                 clientListener.onClientConnected(clientId, username);
             }
+
+            if (playerOnline) {
+                syncClientGroupState(ctx, client, null);
+            }
             
             // Send success response with obfuscated client ID
-            String obfuscatedId = clientIdMapper.getObfuscatedId(clientId);
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("clientId", obfuscatedId);
-            responseData.addProperty("username", username);
-            responseData.addProperty("pending", !playerOnline);
-            responseData.addProperty("transportMode", NetworkConfig.getWebRtcTransportMode());
-            JsonArray stunServers = new JsonArray();
-            for (String server : NetworkConfig.getStunServers()) {
-                stunServers.add(server);
-            }
-            responseData.add("stunServers", stunServers);
-            if (!playerOnline) {
-                int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
-                String messageText = timeoutSeconds > 0
-                        ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
-                        : "Waiting for game session...";
-                responseData.addProperty("pendingMessage", messageText);
-                responseData.addProperty("pendingTimeoutSeconds", timeoutSeconds);
-            }
+            JsonObject responseData = buildSessionResponseData(client, playerOnline);
             
             SignalingMessage response = new SignalingMessage(
                     SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
             sendMessage(ctx, response);
+            sendHello(ctx);
             
             // Broadcast updated player list to all clients only when player is online
             if (playerOnline) {
                 broadcastPlayerList();
             }
             
-            logger.atInfo().log("WebRTC client authenticated: " + username + " (obfuscated: " + obfuscatedId + ")");
+            logger.atInfo().log("WebRTC client authenticated: " + username + " (obfuscated: " + responseData.get("clientId").getAsString() + ")");
+        }
+
+        private void handleResume(ChannelHandlerContext ctx, SignalingMessage message) {
+            if (ctx.channel().attr(CLIENT_ATTR).get() != null) {
+                sendResumeFailed(ctx, "Session already authenticated");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            String sessionId = data.has("sessionId") ? data.get("sessionId").getAsString() : null;
+            String resumeToken = data.has("resumeToken") ? data.get("resumeToken").getAsString() : null;
+            if (sessionId == null || sessionId.isEmpty() || resumeToken == null || resumeToken.isEmpty()) {
+                sendResumeFailed(ctx, "Missing resume data");
+                return;
+            }
+
+            ResumableSession session = resumableSessions.get(resumeToken);
+            if (session == null || !session.sessionId.equals(sessionId)) {
+                sendResumeFailed(ctx, "Resume session not found");
+                return;
+            }
+            if (session.expiresAt < System.currentTimeMillis()) {
+                resumableSessions.remove(resumeToken);
+                clientIdMapper.removeMapping(session.clientId);
+                sendResumeFailed(ctx, "Resume window expired");
+                return;
+            }
+            resumableSessions.remove(resumeToken);
+            if (clients.containsKey(session.clientId)) {
+                sendResumeFailed(ctx, "Session already active");
+                return;
+            }
+
+            UUID clientId = session.clientId;
+            String username = session.username;
+
+            WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
+            client.setSessionId(session.sessionId);
+            client.setResumeToken(generateResumeToken());
+
+            boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
+            client.setPendingGameSession(!playerOnline);
+            clients.put(clientId, client);
+            ctx.channel().attr(CLIENT_ATTR).set(client);
+
+            if (playerOnline && positionTracker != null) {
+                PlayerPosition position = new PlayerPosition(clientId, username, 0, 0, 0, 0, 0, "overworld");
+                positionTracker.addPlayer(position);
+                logger.atInfo().log("Added WebRTC client to position tracker: " + username);
+            } else if (!playerOnline) {
+                schedulePendingAuthDisconnect(clientId);
+            }
+
+            if (clientListener != null) {
+                clientListener.onClientConnected(clientId, username);
+            }
+
+            if (playerOnline && groupStateManager != null) {
+                syncClientGroupState(ctx, client, session.lastGroupId);
+            }
+
+            JsonObject responseData = buildSessionResponseData(client, playerOnline);
+            SignalingMessage response = new SignalingMessage(SignalingMessage.TYPE_RESUMED, responseData);
+            sendMessage(ctx, response);
+            sendHello(ctx);
+
+            if (playerOnline) {
+                broadcastPlayerList();
+            }
+
+            logger.atInfo().log("WebRTC client resumed: " + username + " (obfuscated: " + responseData.get("clientId").getAsString() + ")");
+        }
+
+        private void syncClientGroupState(ChannelHandlerContext ctx, WebRTCClient client, UUID fallbackGroupId) {
+            if (client == null || groupManager == null || groupStateManager == null) {
+                return;
+            }
+
+            UUID groupId = null;
+            Group group = groupManager.getPlayerGroup(client.getClientId());
+            if (group == null && fallbackGroupId != null) {
+                group = groupManager.getGroup(fallbackGroupId);
+            }
+            if (group != null) {
+                groupId = group.getGroupId();
+            }
+            if (groupId == null) {
+                return;
+            }
+
+            groupStateManager.addClientToGroup(client.getClientId(), client, groupId);
+
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("groupId", groupId.toString());
+            responseData.addProperty("groupName", group.getName());
+            SignalingMessage response = new SignalingMessage("group_joined", responseData);
+            sendMessage(ctx, response);
+
+            broadcastGroupMembersUpdate(groupId);
+        }
+
+        private void handleHeartbeat(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                return;
+            }
+
+            client.setLastHeartbeatAt(System.currentTimeMillis());
+
+            JsonObject data = message.getData();
+            long timestamp = data.has("timestamp") ? data.get("timestamp").getAsLong() : System.currentTimeMillis();
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("timestamp", timestamp);
+            SignalingMessage response = new SignalingMessage(SignalingMessage.TYPE_HEARTBEAT_ACK, responseData);
+            sendMessage(ctx, response);
+        }
+
+        private void sendResumeFailed(ChannelHandlerContext ctx, String reason) {
+            JsonObject errorData = new JsonObject();
+            errorData.addProperty("message", reason);
+            errorData.addProperty("code", "resume_failed");
+            SignalingMessage errorMessage = new SignalingMessage(SignalingMessage.TYPE_ERROR, errorData);
+            sendMessage(ctx, errorMessage);
         }
         
         private void handleAudioData(ChannelHandlerContext ctx, SignalingMessage message) {
@@ -1488,5 +1705,25 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
         }
         
+    }
+
+    private static class ResumableSession {
+        private final UUID clientId;
+        private final String username;
+        private final String sessionId;
+        private final String resumeToken;
+        private final boolean pendingGameSession;
+        private final UUID lastGroupId;
+        private final long expiresAt;
+
+        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, boolean pendingGameSession, UUID lastGroupId, long expiresAt) {
+            this.clientId = clientId;
+            this.username = username;
+            this.sessionId = sessionId;
+            this.resumeToken = resumeToken;
+            this.pendingGameSession = pendingGameSession;
+            this.lastGroupId = lastGroupId;
+            this.expiresAt = expiresAt;
+        }
     }
 }

@@ -28,6 +28,7 @@ public class WebRTCAudioBridge {
     private DataChannelAudioHandler dataChannelAudioHandler;
     private ClientIdMapper clientIdMapper;
     private static final byte AUDIO_PAYLOAD_VERSION = 1;
+    private static final int DATA_CHANNEL_MAX_PAYLOAD = 900;
     
     // Audio buffering and routing
     private final BlockingQueue<AudioFrame> audioQueue;
@@ -351,8 +352,8 @@ public class WebRTCAudioBridge {
     private void sendAudioToClient(UUID senderId, UUID recipientId, byte[] audioData) {
         String senderToken = clientIdMapper != null ? clientIdMapper.getObfuscatedId(senderId) : senderId.toString();
         if (dataChannelAudioHandler != null) {
-            byte[] payload = buildDataChannelPayload(senderToken, audioData);
-            if (payload != null && dataChannelAudioHandler.sendToClient(recipientId, payload)) {
+            boolean sent = sendAudioOverDataChannel(recipientId, senderToken, audioData);
+            if (sent) {
                 return;
             }
         }
@@ -363,23 +364,43 @@ public class WebRTCAudioBridge {
         }
     }
 
-    private byte[] buildDataChannelPayload(String senderToken, byte[] audioData) {
-        if (senderToken == null || senderToken.isEmpty()) {
-            return null;
+    private boolean sendAudioOverDataChannel(UUID recipientId, String senderToken, byte[] audioData) {
+        if (senderToken == null || senderToken.isEmpty() || audioData == null || audioData.length == 0) {
+            return false;
+        }
+        if (dataChannelAudioHandler == null || !dataChannelAudioHandler.isClientOpen(recipientId)) {
+            return false;
         }
 
         byte[] senderBytes = senderToken.getBytes(StandardCharsets.UTF_8);
         if (senderBytes.length > 255) {
-            return null;
+            return false;
         }
 
         int headerSize = 2 + senderBytes.length;
-        byte[] payload = new byte[headerSize + audioData.length];
-        payload[0] = AUDIO_PAYLOAD_VERSION;
-        payload[1] = (byte) senderBytes.length;
-        System.arraycopy(senderBytes, 0, payload, 2, senderBytes.length);
-        System.arraycopy(audioData, 0, payload, headerSize, audioData.length);
-        return payload;
+        int maxChunkSize = DATA_CHANNEL_MAX_PAYLOAD - headerSize;
+        if (maxChunkSize <= 0) {
+            return false;
+        }
+
+        int offset = 0;
+        boolean sentAny = false;
+        while (offset < audioData.length) {
+            int length = Math.min(maxChunkSize, audioData.length - offset);
+            byte[] payload = new byte[headerSize + length];
+            payload[0] = AUDIO_PAYLOAD_VERSION;
+            payload[1] = (byte) senderBytes.length;
+            System.arraycopy(senderBytes, 0, payload, 2, senderBytes.length);
+            System.arraycopy(audioData, offset, payload, headerSize, length);
+
+            if (!dataChannelAudioHandler.sendToClient(recipientId, payload)) {
+                break;
+            }
+            sentAny = true;
+            offset += length;
+        }
+
+        return sentAny;
     }
     
     /**

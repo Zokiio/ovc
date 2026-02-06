@@ -5,10 +5,31 @@ export interface SignalingMessage {
   data: Record<string, unknown>
 }
 
+interface ResumeSessionInfo {
+  serverUrl: string
+  username: string
+  sessionId: string
+  resumeToken: string
+  expiresAt: number
+}
+
+const RESUME_STORAGE_PREFIX = 'hvc-resume'
+const DEFAULT_RESUME_WINDOW_MS = 30000
+const RESUME_FALLBACK_MS = 2000
+
 export class SignalingClient {
   private ws: WebSocket | null = null
   private clientId: string = ''
   private username: string = ''
+  private authCode: string = ''
+  private sessionId: string = ''
+  private resumeToken: string = ''
+  private activeServerUrl: string = ''
+  private resumeWindowMs: number = 0
+  private heartbeatIntervalMs: number = 0
+  private heartbeatTimer: number | null = null
+  private resumeAttempted: boolean = false
+  private resumeFallbackTimer: number | null = null
   private currentGroupId: string | null = null
   private lastPingTime: number = 0
   private lastPongTime: number = 0
@@ -33,6 +54,9 @@ export class SignalingClient {
     this.onMessage('set_mic_mute', (data) => this.handleSetMicMute(data))
     this.onMessage('player_list', (data) => this.handlePlayerList(data))
     this.onMessage('auth_success', (data) => this.handleAuthSuccess(data))
+    this.onMessage('resumed', (data) => this.handleResumed(data))
+    this.onMessage('hello', (data) => this.handleHello(data))
+    this.onMessage('heartbeat_ack', (data) => this.handleHeartbeatAck(data))
     this.onMessage('pending_game_session', (data) => this.handlePendingGameSession(data))
     this.onMessage('game_session_ready', (data) => this.handleGameSessionReady(data))
     this.onMessage('pong', (data) => this.handlePong(data))
@@ -46,6 +70,10 @@ export class SignalingClient {
   public async connect(serverUrl: string, username: string, authCode: string): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
+        this.stopHeartbeat()
+        this.clearResumeFallback()
+        this.resumeAttempted = false
+
         // Ensure server URL has proper protocol
         let url = serverUrl
         if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
@@ -60,9 +88,31 @@ export class SignalingClient {
 
         this.ws = new WebSocket(url)
         this.username = username
+        this.authCode = authCode
+        this.activeServerUrl = url
+        this.clientId = ''
+        this.currentGroupId = null
+        this.sessionId = ''
+        this.resumeToken = ''
 
         this.ws.onopen = () => {
-          this.authenticate(username, authCode)
+          const resumeInfo = this.loadResumeInfo(url, username)
+          if (resumeInfo) {
+            console.info('[Signaling] Attempting session resume')
+            this.sessionId = resumeInfo.sessionId
+            this.resumeToken = resumeInfo.resumeToken
+            this.resumeAttempted = true
+            this.send({
+              type: 'resume',
+              data: {
+                sessionId: this.sessionId,
+                resumeToken: this.resumeToken
+              }
+            })
+            this.startResumeFallback()
+          } else {
+            this.authenticate(username, authCode)
+          }
           resolve()
         }
 
@@ -82,6 +132,8 @@ export class SignalingClient {
         }
 
         this.ws.onclose = (event) => {
+          this.stopHeartbeat()
+          this.clearResumeFallback()
           this.emit('disconnected', {
             code: event.code,
             reason: event.reason,
@@ -141,6 +193,12 @@ export class SignalingClient {
     if (shouldLog) {
     }
 
+    const isResumeFailed = message.type === 'error' && (message.data as { code?: string })?.code === 'resume_failed'
+    if (isResumeFailed) {
+      this.handleResumeFailed(message.data)
+      return
+    }
+
     const handler = this.messageHandlers.get(message.type)
     if (handler) {
       handler(message.data)
@@ -154,16 +212,32 @@ export class SignalingClient {
   // ========== Message Handlers ==========
 
   private handleAuthSuccess(data: Record<string, unknown>): void {
-    this.clientId = String(data.clientId || '')
-    this.emit('authenticated', {
-      clientId: this.clientId,
-      username: this.username,
-      pending: Boolean(data.pending),
-      pendingMessage: data.pendingMessage,
-      pendingTimeoutSeconds: data.pendingTimeoutSeconds,
-      transportMode: data.transportMode,
-      stunServers: data.stunServers
-    })
+    this.handleSessionReady(data, false)
+  }
+
+  private handleResumed(data: Record<string, unknown>): void {
+    this.handleSessionReady(data, true)
+  }
+
+  private handleHello(data: Record<string, unknown>): void {
+    const heartbeatIntervalMs = Number(data.heartbeatIntervalMs || 0)
+    if (heartbeatIntervalMs > 0) {
+      this.applyHeartbeatInterval(heartbeatIntervalMs)
+    }
+    const resumeWindowMs = Number(data.resumeWindowMs || 0)
+    if (resumeWindowMs > 0) {
+      this.resumeWindowMs = resumeWindowMs
+      this.refreshResumeExpiry()
+    }
+  }
+
+  private handleHeartbeatAck(data: Record<string, unknown>): void {
+    const timestamp = Number(data.timestamp || 0)
+    if (!Number.isFinite(timestamp) || timestamp <= 0) {
+      return
+    }
+    const latency = Date.now() - timestamp
+    this.emit('latency', { latency })
   }
 
   private handlePendingGameSession(data: Record<string, unknown>): void {
@@ -237,6 +311,173 @@ export class SignalingClient {
   private handlePositionUpdate(data: Record<string, unknown>): void {
     // Forward position updates to listeners
     this.emit('position_update', data)
+  }
+
+  private handleSessionReady(data: Record<string, unknown>, resumed: boolean): void {
+    this.clientId = String(data.clientId || '')
+    const sessionId = String(data.sessionId || this.sessionId || '')
+    const resumeToken = String(data.resumeToken || this.resumeToken || '')
+    if (sessionId) {
+      this.sessionId = sessionId
+    }
+    if (resumeToken) {
+      this.resumeToken = resumeToken
+    }
+
+    const resumeWindowMs = Number(data.resumeWindowMs || 0)
+    if (resumeWindowMs > 0) {
+      this.resumeWindowMs = resumeWindowMs
+    }
+
+    const heartbeatIntervalMs = Number(data.heartbeatIntervalMs || 0)
+    if (heartbeatIntervalMs > 0) {
+      this.applyHeartbeatInterval(heartbeatIntervalMs)
+    }
+
+    if (this.sessionId && this.resumeToken && this.activeServerUrl) {
+      this.storeResumeInfo(this.activeServerUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
+    }
+
+    this.resumeAttempted = false
+    this.clearResumeFallback()
+
+    this.emit('authenticated', {
+      clientId: this.clientId,
+      username: this.username,
+      pending: Boolean(data.pending),
+      pendingMessage: data.pendingMessage,
+      pendingTimeoutSeconds: data.pendingTimeoutSeconds,
+      transportMode: data.transportMode,
+      stunServers: data.stunServers,
+      resumed
+    })
+  }
+
+  private applyHeartbeatInterval(intervalMs: number): void {
+    if (intervalMs <= 0) {
+      return
+    }
+    this.heartbeatIntervalMs = intervalMs
+    this.stopHeartbeat()
+    this.sendHeartbeat()
+    this.heartbeatTimer = window.setInterval(() => {
+      this.sendHeartbeat()
+    }, intervalMs)
+  }
+
+  private sendHeartbeat(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return
+    }
+    this.send({
+      type: 'heartbeat',
+      data: { timestamp: Date.now() }
+    })
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer)
+      this.heartbeatTimer = null
+    }
+  }
+
+  private startResumeFallback(): void {
+    this.clearResumeFallback()
+    this.resumeFallbackTimer = window.setTimeout(() => {
+      if (!this.resumeAttempted) {
+        return
+      }
+      console.warn('[Signaling] Resume timed out, falling back to authenticate')
+      this.resumeAttempted = false
+      if (this.isConnected()) {
+        this.authenticate(this.username, this.authCode)
+      }
+    }, RESUME_FALLBACK_MS)
+  }
+
+  private clearResumeFallback(): void {
+    if (this.resumeFallbackTimer) {
+      clearTimeout(this.resumeFallbackTimer)
+      this.resumeFallbackTimer = null
+    }
+  }
+
+  private handleResumeFailed(data: Record<string, unknown>): void {
+    if (!this.resumeAttempted) {
+      return
+    }
+    console.warn('[Signaling] Resume failed, falling back to authenticate', data)
+    this.clearResumeInfo(this.activeServerUrl, this.username)
+    this.resumeAttempted = false
+    this.clearResumeFallback()
+    if (this.isConnected()) {
+      this.authenticate(this.username, this.authCode)
+    }
+  }
+
+  private refreshResumeExpiry(): void {
+    if (!this.activeServerUrl || !this.sessionId || !this.resumeToken) {
+      return
+    }
+    this.storeResumeInfo(this.activeServerUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
+  }
+
+  private getResumeStorageKey(serverUrl: string, username: string): string {
+    return `${RESUME_STORAGE_PREFIX}:${serverUrl}:${username}`
+  }
+
+  private loadResumeInfo(serverUrl: string, username: string): ResumeSessionInfo | null {
+    const key = this.getResumeStorageKey(serverUrl, username)
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) {
+        return null
+      }
+      const parsed = JSON.parse(raw) as ResumeSessionInfo
+      if (!parsed?.sessionId || !parsed.resumeToken || !parsed.expiresAt) {
+        localStorage.removeItem(key)
+        return null
+      }
+      if (parsed.expiresAt < Date.now()) {
+        localStorage.removeItem(key)
+        return null
+      }
+      return parsed
+    } catch (error) {
+      console.warn('[Signaling] Failed to load resume info:', error)
+      localStorage.removeItem(key)
+      return null
+    }
+  }
+
+  private storeResumeInfo(serverUrl: string, username: string, sessionId: string, resumeToken: string, resumeWindowMs?: number): void {
+    const windowMs = resumeWindowMs && resumeWindowMs > 0 ? resumeWindowMs : (this.resumeWindowMs || DEFAULT_RESUME_WINDOW_MS)
+    const payload: ResumeSessionInfo = {
+      serverUrl,
+      username,
+      sessionId,
+      resumeToken,
+      expiresAt: Date.now() + windowMs
+    }
+    try {
+      const key = this.getResumeStorageKey(serverUrl, username)
+      localStorage.setItem(key, JSON.stringify(payload))
+    } catch (error) {
+      console.warn('[Signaling] Failed to store resume info:', error)
+    }
+  }
+
+  private clearResumeInfo(serverUrl: string, username: string): void {
+    if (!serverUrl || !username) {
+      return
+    }
+    try {
+      const key = this.getResumeStorageKey(serverUrl, username)
+      localStorage.removeItem(key)
+    } catch (error) {
+      console.warn('[Signaling] Failed to clear resume info:', error)
+    }
   }
 
   // ========== Public API Methods ==========
@@ -404,6 +645,9 @@ export class SignalingClient {
       this.ws.close()
       this.ws = null
     }
+    this.stopHeartbeat()
+    this.clearResumeFallback()
+    this.resumeAttempted = false
   }
 
   /**
