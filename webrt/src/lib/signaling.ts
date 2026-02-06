@@ -25,6 +25,7 @@ export class SignalingClient {
   private sessionId: string = ''
   private resumeToken: string = ''
   private activeServerUrl: string = ''
+  private resumeKeyUrl: string = ''
   private resumeWindowMs: number = 0
   private heartbeatIntervalMs: number = 0
   private heartbeatTimer: number | null = null
@@ -90,13 +91,14 @@ export class SignalingClient {
         this.username = username
         this.authCode = authCode
         this.activeServerUrl = url
+        this.resumeKeyUrl = this.normalizeResumeKey(url)
         this.clientId = ''
         this.currentGroupId = null
         this.sessionId = ''
         this.resumeToken = ''
 
         this.ws.onopen = () => {
-          const resumeInfo = this.loadResumeInfo(url, username)
+          const resumeInfo = this.loadResumeInfo(this.resumeKeyUrl, username)
           if (resumeInfo) {
             console.info('[Signaling] Attempting session resume')
             this.sessionId = resumeInfo.sessionId
@@ -334,8 +336,8 @@ export class SignalingClient {
       this.applyHeartbeatInterval(heartbeatIntervalMs)
     }
 
-    if (this.sessionId && this.resumeToken && this.activeServerUrl) {
-      this.storeResumeInfo(this.activeServerUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
+    if (this.sessionId && this.resumeToken && this.resumeKeyUrl) {
+      this.storeResumeInfo(this.resumeKeyUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
     }
 
     this.resumeAttempted = false
@@ -408,7 +410,7 @@ export class SignalingClient {
       return
     }
     console.warn('[Signaling] Resume failed, falling back to authenticate', data)
-    this.clearResumeInfo(this.activeServerUrl, this.username)
+    this.clearResumeInfo(this.resumeKeyUrl || this.activeServerUrl, this.username)
     this.resumeAttempted = false
     this.clearResumeFallback()
     if (this.isConnected()) {
@@ -417,14 +419,28 @@ export class SignalingClient {
   }
 
   private refreshResumeExpiry(): void {
-    if (!this.activeServerUrl || !this.sessionId || !this.resumeToken) {
+    if (!this.resumeKeyUrl || !this.sessionId || !this.resumeToken) {
       return
     }
-    this.storeResumeInfo(this.activeServerUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
+    this.storeResumeInfo(this.resumeKeyUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
   }
 
   private getResumeStorageKey(serverUrl: string, username: string): string {
     return `${RESUME_STORAGE_PREFIX}:${serverUrl}:${username}`
+  }
+
+  private normalizeResumeKey(serverUrl: string): string {
+    try {
+      const parsed = new URL(serverUrl)
+      const host = parsed.host
+      let path = parsed.pathname.replace(/\/+$/, '')
+      if (!path.endsWith('/voice')) {
+        path = `${path}/voice`
+      }
+      return `${host}${path}`
+    } catch {
+      return serverUrl
+    }
   }
 
   private loadResumeInfo(serverUrl: string, username: string): ResumeSessionInfo | null {

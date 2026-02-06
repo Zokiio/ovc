@@ -64,6 +64,13 @@ function loadAudioSettings(): AudioSettings {
 
 function App() {
   const isMobile = useIsMobile()
+  const sessionInstanceRef = useRef<string>(() => {
+    try {
+      return crypto.randomUUID()
+    } catch {
+      return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    }
+  }())
   const signalingClient = useRef(getSignalingClient())
   const audioPlayback = useRef(getAudioPlaybackManager())
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -116,6 +123,48 @@ function App() {
   const currentUserIdRef = useRef<string | null>(null)
   const [latency, setLatency] = useState<number | undefined>(undefined)
   
+  useEffect(() => {
+    const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+    const navType = navEntry?.type || 'unknown'
+    console.info('[App] Session start', {
+      sessionId: sessionInstanceRef.current,
+      navType,
+      href: window.location.href
+    })
+
+    const handleVisibility = () => {
+      console.info('[App] visibilitychange', {
+        state: document.visibilityState
+      })
+    }
+    const handlePageHide = (event: PageTransitionEvent) => {
+      console.info('[App] pagehide', { persisted: event.persisted })
+    }
+    const handleBeforeUnload = () => {
+      console.info('[App] beforeunload')
+    }
+    const handleOnline = () => {
+      console.info('[App] online')
+    }
+    const handleOffline = () => {
+      console.info('[App] offline')
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
   const [searchQuery, setSearchQuery] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
