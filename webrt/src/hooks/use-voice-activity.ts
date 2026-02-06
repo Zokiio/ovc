@@ -99,6 +99,8 @@ export function useVoiceActivity({
   const lastLevelUpdateRef = useRef<number>(0)
   const lastReportedLevelRef = useRef<number>(0)
   const isSpeakingRef = useRef(false) // Track speaking state for gating audio transmission
+  const preRollBufferRef = useRef<{ timestamp: number; payload: ArrayBuffer | string }[]>([])
+  const speakingStartSignalRef = useRef(false)
   const thresholdRef = useRef(threshold) // Track current threshold for detection loop
   const deviceSwitchTimerRef = useRef<number | null>(null) // Track device switch restart timer
   
@@ -121,6 +123,30 @@ export function useVoiceActivity({
   const minSpeechDurationRef = useRef(minSpeechDuration)
   const minSilenceDurationRef = useRef(minSilenceDuration)
   const smoothingTimeConstantRef = useRef(smoothingTimeConstant)
+
+  const getPreRollWindowMs = () => Math.min(200, Math.max(40, minSpeechDurationRef.current))
+
+  const enqueuePreRoll = (payload: ArrayBuffer | string) => {
+    const now = Date.now()
+    const buffer = preRollBufferRef.current
+    buffer.push({ timestamp: now, payload })
+    const cutoff = now - getPreRollWindowMs()
+    while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
+      buffer.shift()
+    }
+  }
+
+  const flushPreRoll = () => {
+    const buffer = preRollBufferRef.current
+    if (!buffer.length || !onAudioDataRef.current) {
+      buffer.length = 0
+      return
+    }
+    buffer.forEach(item => {
+      onAudioDataRef.current?.(item.payload)
+    })
+    buffer.length = 0
+  }
   
   // Update refs when props change
   useEffect(() => {
@@ -263,6 +289,8 @@ export function useVoiceActivity({
 
     setIsSpeaking(false)
     isSpeakingRef.current = false // Reset ref for audio gating
+    speakingStartSignalRef.current = false
+    preRollBufferRef.current = []
     audioLevelRef.current = 0
     setIsSwitchingDevice(false) // Reset switching state on cleanup
     
@@ -349,21 +377,26 @@ export function useVoiceActivity({
               return // Don't transmit during mic test
             }
             
-            // Gate audio transmission: only send when speech is detected above threshold (if VAD threshold is enabled)
-            if (useVadThresholdRef.current && !isSpeakingRef.current) {
-              return // Discard audio below VAD threshold
-            }
-            
             const float32Data = new Float32Array(event.data.data)
             // Apply input volume multiplier when converting to base64
             const volumeMultiplier = audioSettings.inputVolume / 100
-            if (audioOutputFormatRef.current === 'binary') {
-              const audioData = float32ToInt16Buffer(float32Data, volumeMultiplier)
-              onAudioDataRef.current(audioData)
-            } else {
-              const audioData = float32ToBase64(float32Data, volumeMultiplier)
-              onAudioDataRef.current(audioData)
+            const payload = audioOutputFormatRef.current === 'binary'
+              ? float32ToInt16Buffer(float32Data, volumeMultiplier)
+              : float32ToBase64(float32Data, volumeMultiplier)
+
+            // Gate audio transmission: only send when speech is detected above threshold (if VAD threshold is enabled)
+            if (useVadThresholdRef.current) {
+              if (!isSpeakingRef.current) {
+                enqueuePreRoll(payload)
+                return // Hold pre-roll until speech starts
+              }
+              if (speakingStartSignalRef.current) {
+                speakingStartSignalRef.current = false
+                flushPreRoll()
+              }
             }
+
+            onAudioDataRef.current(payload)
           }
         }
         
@@ -440,6 +473,7 @@ export function useVoiceActivity({
             speakingTimeoutRef.current = window.setTimeout(() => {
               setIsSpeaking(true)
               isSpeakingRef.current = true
+              speakingStartSignalRef.current = true
               speakingTimeoutRef.current = null
             }, minSpeechDurationRef.current)
           }
