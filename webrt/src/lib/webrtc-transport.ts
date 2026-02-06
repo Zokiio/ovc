@@ -204,7 +204,7 @@ export class WebRTCTransport {
     if (payload?.complete) {
       console.info(`${this.logPrefix} Remote ICE candidates complete`)
       try {
-        await this.pc.addIceCandidate()
+        await this.pc.addIceCandidate(null)
       } catch {
         // ignore completion errors
       }
@@ -215,10 +215,17 @@ export class WebRTCTransport {
       return
     }
 
+    const hasMid = payload.sdpMid != null && payload.sdpMid !== ''
+    const hasMLine = typeof payload.sdpMLineIndex === 'number' && payload.sdpMLineIndex >= 0
+    if (!hasMid && !hasMLine) {
+      console.warn(`${this.logPrefix} Remote ICE candidate missing sdpMid/sdpMLineIndex, skipping`)
+      return
+    }
+
     const candidate: RTCIceCandidateInit = {
       candidate: payload.candidate,
-      sdpMid: payload.sdpMid ?? undefined,
-      sdpMLineIndex: payload.sdpMLineIndex ?? undefined
+      sdpMid: hasMid ? payload.sdpMid : undefined,
+      sdpMLineIndex: hasMLine ? payload.sdpMLineIndex : undefined
     }
 
     if (!this.hasRemoteDescription) {

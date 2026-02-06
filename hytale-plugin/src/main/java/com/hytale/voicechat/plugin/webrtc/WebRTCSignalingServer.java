@@ -593,6 +593,10 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         if (client == null) {
             return;
         }
+        if ((sdpMid == null || sdpMid.isEmpty()) && sdpMLineIndex < 0) {
+            logger.atFine().log("Skipping ICE candidate without sdpMid/mLineIndex for client " + clientId);
+            return;
+        }
 
         JsonObject data = new JsonObject();
         data.addProperty("candidate", candidate);
