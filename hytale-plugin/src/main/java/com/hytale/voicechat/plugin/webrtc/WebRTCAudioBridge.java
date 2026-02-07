@@ -399,11 +399,12 @@ public class WebRTCAudioBridge {
             return false;
         }
 
-        // Ensure we send at most one complete audio frame per DataChannel message.
-        // If the frame is too large to fit in a single payload, skip sending it to
-        // avoid fragmenting over an unordered/unreliable channel.
+        // If the frame is too large to fit in a single payload, do not send it over
+        // the DataChannel to avoid fragmenting over an unordered/unreliable channel.
+        // The caller will handle this case by falling back to an alternate transport
+        // such as WebSocket (legacy).
         if (audioData.length > maxChunkSize) {
-            logger.atWarning().log("Dropping oversized audio frame: %d bytes (max: %d) for client %s", audioData.length, maxChunkSize, recipientId);
+            logger.atWarning().log("Audio frame too large for DataChannel: %d bytes (max: %d) for client %s; using alternate transport", audioData.length, maxChunkSize, recipientId);
             return false;
         }
 

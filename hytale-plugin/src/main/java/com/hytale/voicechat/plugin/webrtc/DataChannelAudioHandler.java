@@ -62,15 +62,16 @@ public class DataChannelAudioHandler {
     }
 
     /**
-     * Send PCM audio to a specific client via its DataChannel sender.
+     * Send audio payload to a specific client via its DataChannel sender.
+     * The payload includes a header (version + sender ID) plus PCM audio bytes.
      */
-    public boolean sendToClient(UUID clientId, byte[] pcmFrame) {
+    public boolean sendToClient(UUID clientId, byte[] audioPayload) {
         DataChannelSender sender = senders.get(clientId);
         if (sender == null || !sender.isOpen()) {
             return false;
         }
-        sender.send(pcmFrame);
-        recordFlow(outboundFlow, clientId, pcmFrame.length, "outbound");
+        sender.send(audioPayload);
+        recordFlow(outboundFlow, clientId, audioPayload.length, "outbound");
         return true;
     }
 

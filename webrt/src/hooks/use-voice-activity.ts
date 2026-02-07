@@ -38,7 +38,7 @@ function float32ToBase64(float32Array: Float32Array, volumeMultiplier?: number):
     // Apply volume multiplier, then clamp and convert float [-1, 1] to int16 [-32768, 32767]
     const amplified = float32Array[i] * multiplier
     const s = Math.max(-1, Math.min(1, amplified))
-    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
   }
   
   // Convert Int16Array to binary string
