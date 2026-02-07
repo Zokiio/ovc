@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, useRef } from 'react'
+import { useEffect, useCallback, useState } from 'react'
 import { useAudioStore } from '../stores/audioStore'
 
 interface UseVoiceActivityOptions {
@@ -26,6 +26,7 @@ let globalWorkletNode: AudioWorkletNode | null = null
 let globalAnimationFrame: number | null = null
 let globalIsInitializing = false
 let globalIsInitialized = false
+let globalResumeInteractionHandler: (() => void) | null = null
 
 // Callbacks registered by hook instances
 type AudioCallback = (data: Float32Array) => void
@@ -94,6 +95,38 @@ function cleanupGlobal() {
   lastLevel = 0
 }
 
+async function tryResumeAudioContext(reason: string): Promise<void> {
+  if (!globalAudioContext || globalAudioContext.state !== 'suspended') {
+    return
+  }
+
+  try {
+    await globalAudioContext.resume()
+    console.log(`[VAD] AudioContext resumed (${reason})`)
+  } catch (err) {
+    console.debug('[VAD] AudioContext resume deferred:', err)
+  }
+}
+
+function installResumeOnInteraction(): void {
+  if (globalResumeInteractionHandler) {
+    return
+  }
+
+  const handler = () => {
+    void tryResumeAudioContext('user-interaction')
+    if (globalAudioContext?.state === 'running' && globalResumeInteractionHandler) {
+      window.removeEventListener('pointerdown', globalResumeInteractionHandler)
+      window.removeEventListener('keydown', globalResumeInteractionHandler)
+      globalResumeInteractionHandler = null
+    }
+  }
+
+  globalResumeInteractionHandler = handler
+  window.addEventListener('pointerdown', handler, { passive: true })
+  window.addEventListener('keydown', handler)
+}
+
 async function initializeGlobal(settings: {
   inputDeviceId: string
   echoCancellation: boolean
@@ -134,6 +167,8 @@ async function initializeGlobal(settings: {
     console.log('[VAD] Got microphone stream:', globalStream.getTracks().map(t => t.label))
 
     globalAudioContext = new AudioContext({ sampleRate: 48000 })
+    installResumeOnInteraction()
+    await tryResumeAudioContext('initialization')
 
     globalAnalyser = globalAudioContext.createAnalyser()
     globalAnalyser.fftSize = 2048
@@ -278,22 +313,10 @@ export function useVoiceActivity({
   // Note: We return global values instead of subscribing to store to avoid re-renders
   // Components that need isSpeaking/micLevel should subscribe directly from store
 
-  // Track if this instance registered the global setters
-  const registeredSettersRef = useRef(false)
-
-  // Register global setters (only once per app)
+  // Register latest store setters for the singleton VAD loop.
   useEffect(() => {
-    if (!globalSetMicLevel) {
-      globalSetMicLevel = setMicLevel
-      globalSetSpeaking = setSpeaking
-      registeredSettersRef.current = true
-    }
-    return () => {
-      if (registeredSettersRef.current) {
-        globalSetMicLevel = null
-        globalSetSpeaking = null
-      }
-    }
+    globalSetMicLevel = setMicLevel
+    globalSetSpeaking = setSpeaking
   }, [setMicLevel, setSpeaking])
 
   // Update global VAD settings
@@ -385,3 +408,8 @@ export function useVoiceActivity({
     stopListening,
   }
 }
+  if (globalResumeInteractionHandler) {
+    window.removeEventListener('pointerdown', globalResumeInteractionHandler)
+    window.removeEventListener('keydown', globalResumeInteractionHandler)
+    globalResumeInteractionHandler = null
+  }

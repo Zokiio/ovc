@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { getAudioPlaybackManager } from '../lib/audio/playback-manager'
-import { decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
+import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
 import { useAudioStore } from '../stores/audioStore'
 import { useUserStore } from '../stores/userStore'
 
@@ -49,6 +49,20 @@ export function useAudioPlayback() {
   }, [])
 
   /**
+   * Handle fallback WebSocket audio message payloads.
+   */
+  const handleWebSocketAudio = useCallback(async (senderId: string, base64Audio: string) => {
+    const pcmData = base64ToInt16(base64Audio)
+    if (!pcmData) {
+      console.warn('[useAudioPlayback] Failed to decode WebSocket audio payload')
+      return
+    }
+
+    const float32Data = int16ToFloat32(pcmData)
+    await managerRef.current.playAudio(senderId, float32Data)
+  }, [])
+
+  /**
    * Set volume for a specific user
    */
   const setVolume = useCallback((userId: string, volume: number) => {
@@ -81,6 +95,7 @@ export function useAudioPlayback() {
 
   return {
     handleAudioData,
+    handleWebSocketAudio,
     setVolume,
     toggleMute,
     initialize,

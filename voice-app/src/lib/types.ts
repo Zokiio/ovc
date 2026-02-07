@@ -113,6 +113,10 @@ export interface WebRTCState {
   iceConnectionState: RTCIceConnectionState
 }
 
+// --- Transport Types ---
+
+export type TransportMode = 'auto' | 'webrtc' | 'websocket'
+
 // --- Saved Server Types ---
 
 export interface SavedServer {
@@ -126,9 +130,21 @@ export interface SavedServer {
 // --- Event Types for Signaling ---
 
 export interface SignalingEvents {
-  authenticated: { clientId: string; username: string }
+  authenticated: {
+    clientId: string
+    username: string
+    transportMode: TransportMode
+    stunServers: string[]
+    pending: boolean
+    sessionId?: string
+    resumeToken?: string
+    heartbeatIntervalMs?: number
+    resumeWindowMs?: number
+  }
   disconnected: { code: number; reason: string; wasClean: boolean }
   connection_error: Event
+  error: { message?: string; code?: string }
+  hello: { heartbeatIntervalMs?: number; resumeWindowMs?: number }
   latency: { latency: number }
   group_created: { groupId: string; groupName: string }
   group_joined: { groupId: string; groupName: string }
@@ -139,9 +155,16 @@ export interface SignalingEvents {
   user_speaking_status: { playerId: string; isSpeaking: boolean }
   user_mute_status: { playerId: string; isMuted: boolean }
   position_update: { playerId: string; position: PlayerPosition }
+  audio: { senderId: string; audioData: string }
   
   // WebRTC signaling
-  webrtc_offer: { sdp: string; senderId: string }
-  webrtc_answer: { sdp: string; senderId: string }
-  webrtc_ice_candidate: { candidate: RTCIceCandidateInit; senderId: string }
+  webrtc_offer: { sdp: string; senderId?: string }
+  webrtc_answer: { sdp: string; senderId?: string }
+  webrtc_ice_candidate: {
+    candidate?: string
+    sdpMid?: string | null
+    sdpMLineIndex?: number | null
+    complete?: boolean
+    senderId?: string
+  }
 }

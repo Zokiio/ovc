@@ -14,6 +14,7 @@ const DEFAULT_CONFIG: RTCConfig = {
 
 type ConnectionEventCallback = (state: WebRTCState) => void
 type DataChannelCallback = (data: ArrayBuffer) => void
+type SignalingDataHandler = (data: unknown) => void
 
 /**
  * WebRTC Connection Manager
@@ -31,7 +32,10 @@ export class WebRTCConnectionManager {
   
   private onStateChange: ConnectionEventCallback | null = null
   private onAudioData: DataChannelCallback | null = null
-  private targetId: string = 'server' // SFU server target
+  private answerListener: SignalingDataHandler | null = null
+  private iceCandidateListener: SignalingDataHandler | null = null
+  private pendingRemoteCandidates: RTCIceCandidateInit[] = []
+  private startDataChannelRequested = false
 
   constructor(config: RTCConfig = DEFAULT_CONFIG) {
     this.config = config
@@ -59,6 +63,28 @@ export class WebRTCConnectionManager {
   }
 
   /**
+   * Update STUN/TURN servers before connect.
+   */
+  public setIceServers(serverUrls: string[]): void {
+    if (this.peerConnection) {
+      return
+    }
+
+    const urls = serverUrls
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+
+    if (urls.length === 0) {
+      this.config = DEFAULT_CONFIG
+      return
+    }
+
+    this.config = {
+      iceServers: urls.map((url) => ({ urls: url })),
+    }
+  }
+
+  /**
    * Initialize WebRTC connection
    */
   public async connect(): Promise<void> {
@@ -76,7 +102,10 @@ export class WebRTCConnectionManager {
         iceServers: this.config.iceServers,
       })
 
+      this.pendingRemoteCandidates = []
+      this.startDataChannelRequested = false
       this.setupPeerConnectionListeners()
+      this.setupSignalingListeners()
 
       // Create data channel for audio (before creating offer)
       this.dataChannel = this.peerConnection.createDataChannel('audio', {
@@ -94,11 +123,8 @@ export class WebRTCConnectionManager {
 
       // Send offer via signaling
       const signaling = getSignalingClient()
-      signaling.sendWebRTCOffer(this.targetId, offer.sdp!)
+      signaling.sendWebRTCOffer(offer.sdp!)
       console.debug('[WebRTC] Offer sent via signaling')
-
-      // Listen for answer
-      this.setupSignalingListeners()
 
     } catch (error) {
       console.error('[WebRTC] Connection error:', error)
@@ -126,12 +152,19 @@ export class WebRTCConnectionManager {
       this.updateState({
         iceConnectionState: iceState || 'new',
       })
+
+      if (!this.startDataChannelRequested && (iceState === 'connected' || iceState === 'completed')) {
+        this.startDataChannelRequested = true
+        getSignalingClient().requestStartDataChannel()
+      }
     }
 
     this.peerConnection.onicecandidate = (event) => {
+      const signaling = getSignalingClient()
       if (event.candidate) {
-        const signaling = getSignalingClient()
-        signaling.sendICECandidate(this.targetId, event.candidate.toJSON())
+        signaling.sendICECandidate(event.candidate.toJSON())
+      } else {
+        signaling.sendICECandidateComplete()
       }
     }
 
@@ -175,37 +208,74 @@ export class WebRTCConnectionManager {
   private setupSignalingListeners(): void {
     const signaling = getSignalingClient()
 
-    const handleAnswer = (data: unknown) => {
+    this.removeSignalingListeners()
+
+    this.answerListener = (data: unknown) => {
       const { sdp } = data as { sdp: string }
       this.handleAnswer(sdp)
     }
 
-    const handleIceCandidate = (data: unknown) => {
-      const iceData = data as { candidate?: string; sdpMid?: string; sdpMLineIndex?: number; complete?: boolean }
+    this.iceCandidateListener = (data: unknown) => {
+      const iceData = data as {
+        candidate?: string | RTCIceCandidateInit
+        sdpMid?: string
+        sdpMLineIndex?: number
+        complete?: boolean
+      }
       
       // Check for ICE gathering complete signal
       if (iceData.complete) {
         console.debug('[WebRTC] ICE gathering complete')
         return
       }
-      
-      if (!iceData.candidate) {
+
+      const candidateInit = this.normalizeCandidate(iceData)
+      if (!candidateInit?.candidate) {
         console.debug('[WebRTC] Received ICE candidate without candidate string')
         return
       }
-      
-      // Build RTCIceCandidateInit from server format
-      const candidateInit: RTCIceCandidateInit = {
-        candidate: iceData.candidate,
-        sdpMid: iceData.sdpMid || null,
-        sdpMLineIndex: iceData.sdpMLineIndex ?? null,
-      }
-      
+
       this.handleIceCandidate(candidateInit)
     }
 
-    signaling.on('webrtc_answer', handleAnswer)
-    signaling.on('webrtc_ice_candidate', handleIceCandidate)
+    signaling.on('webrtc_answer', this.answerListener)
+    signaling.on('webrtc_ice_candidate', this.iceCandidateListener)
+  }
+
+  private removeSignalingListeners(): void {
+    const signaling = getSignalingClient()
+    if (this.answerListener) {
+      signaling.off('webrtc_answer', this.answerListener)
+      this.answerListener = null
+    }
+    if (this.iceCandidateListener) {
+      signaling.off('webrtc_ice_candidate', this.iceCandidateListener)
+      this.iceCandidateListener = null
+    }
+  }
+
+  private normalizeCandidate(data: {
+    candidate?: string | RTCIceCandidateInit
+    sdpMid?: string
+    sdpMLineIndex?: number
+  }): RTCIceCandidateInit | null {
+    if (typeof data.candidate === 'object' && data.candidate !== null) {
+      return {
+        candidate: data.candidate.candidate ?? '',
+        sdpMid: data.candidate.sdpMid ?? null,
+        sdpMLineIndex: data.candidate.sdpMLineIndex ?? null,
+      }
+    }
+
+    if (typeof data.candidate === 'string') {
+      return {
+        candidate: data.candidate,
+        sdpMid: data.sdpMid ?? null,
+        sdpMLineIndex: data.sdpMLineIndex ?? null,
+      }
+    }
+
+    return null
   }
 
   private async handleAnswer(sdp: string): Promise<void> {
@@ -218,6 +288,7 @@ export class WebRTCConnectionManager {
         sdp,
       })
       console.debug('[WebRTC] Remote description set successfully')
+      this.flushPendingRemoteCandidates()
     } catch (error) {
       console.error('[WebRTC] Failed to set remote description:', error)
     }
@@ -226,11 +297,34 @@ export class WebRTCConnectionManager {
   private async handleIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     if (!this.peerConnection) return
 
+    // Ignore malformed trickle candidates that cannot be mapped to an m-line.
+    if (!candidate.sdpMid && candidate.sdpMLineIndex == null) {
+      console.debug('[WebRTC] Skipping ICE candidate missing sdpMid and sdpMLineIndex')
+      return
+    }
+
+    if (!this.peerConnection.remoteDescription) {
+      this.pendingRemoteCandidates.push(candidate)
+      return
+    }
+
     try {
       await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
     } catch (error) {
       console.error('[WebRTC] Failed to add ICE candidate:', error)
     }
+  }
+
+  private flushPendingRemoteCandidates(): void {
+    if (!this.peerConnection || this.pendingRemoteCandidates.length === 0) {
+      return
+    }
+
+    const queued = [...this.pendingRemoteCandidates]
+    this.pendingRemoteCandidates = []
+    queued.forEach((candidate) => {
+      void this.handleIceCandidate(candidate)
+    })
   }
 
   /**
@@ -262,6 +356,10 @@ export class WebRTCConnectionManager {
    * Disconnect and clean up
    */
   public disconnect(): void {
+    this.removeSignalingListeners()
+    this.pendingRemoteCandidates = []
+    this.startDataChannelRequested = false
+
     if (this.dataChannel) {
       this.dataChannel.close()
       this.dataChannel = null

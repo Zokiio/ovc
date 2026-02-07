@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { getSignalingClient, resetSignalingClient } from '../lib/signaling'
 import { getWebRTCManager, resetWebRTCManager } from '../lib/webrtc/connection-manager'
-import { encodeAudioPayload, float32ToInt16 } from '../lib/webrtc/audio-channel'
+import { encodeAudioPayload, float32ToInt16, int16ToBase64 } from '../lib/webrtc/audio-channel'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useGroupStore } from '../stores/groupStore'
 import { useUserStore } from '../stores/userStore'
@@ -16,6 +16,7 @@ import type { Group, GroupMember, User, PlayerPosition } from '../lib/types'
  */
 export function useConnection() {
   const isConnectingRef = useRef(false)
+  const lastSentSpeakingRef = useRef<boolean | null>(null)
   
   // Connection store
   const status = useConnectionStore((s) => s.status)
@@ -50,27 +51,28 @@ export function useConnection() {
 
   // Audio store
   const isMicMuted = useAudioStore((s) => s.isMicMuted)
+  const isSpeaking = useAudioStore((s) => s.isSpeaking)
   const inputVolume = useAudioStore((s) => s.settings.inputVolume)
 
   // Audio playback
-  const { handleAudioData, initialize: initializePlayback } = useAudioPlayback()
+  const { handleAudioData, handleWebSocketAudio, initialize: initializePlayback } = useAudioPlayback()
 
   // Audio data handler for voice activity
   const handleVoiceData = useCallback((float32Data: Float32Array) => {
-    if (!clientId) {
-      console.debug('[useConnection] No clientId, skipping audio')
+    const int16Data = float32ToInt16(float32Data, inputVolume / 100)
+    const signaling = getSignalingClient()
+    const transportMode = signaling.getTransportMode()
+    const senderId = clientId ?? signaling.getClientId()
+
+    const webrtc = getWebRTCManager()
+    if (webrtc.isReady() && senderId) {
+      const payload = encodeAudioPayload(senderId, int16Data)
+      webrtc.sendAudio(payload)
       return
     }
 
-    const int16Data = float32ToInt16(float32Data, inputVolume / 100)
-    const payload = encodeAudioPayload(clientId, int16Data)
-
-    const webrtc = getWebRTCManager()
-    if (webrtc.isReady()) {
-      const sent = webrtc.sendAudio(payload)
-      console.debug('[useConnection] Audio sent via DataChannel:', sent, 'payload size:', payload.byteLength)
-    } else {
-      console.debug('[useConnection] WebRTC not ready, audio not sent')
+    if (transportMode !== 'webrtc' && signaling.isConnected()) {
+      signaling.sendAudioBase64(int16ToBase64(int16Data))
     }
   }, [clientId, inputVolume])
 
@@ -103,6 +105,16 @@ export function useConnection() {
 
     signaling.on('connection_error', () => {
       setError('Connection failed')
+    })
+
+    signaling.on('error', (data) => {
+      const { message, code } = data as { message?: string; code?: string }
+      if (code === 'resume_failed') {
+        return
+      }
+      if (message) {
+        setError(message)
+      }
     })
 
     signaling.on('latency', (data) => {
@@ -307,11 +319,19 @@ export function useConnection() {
       const { playerId, position } = data as { playerId: string; position: PlayerPosition }
       setUserPosition(playerId, position)
     })
+
+    signaling.on('audio', (data) => {
+      const { senderId, audioData } = data as { senderId?: string; audioData?: string }
+      if (!senderId || !audioData) {
+        return
+      }
+      void handleWebSocketAudio(senderId, audioData)
+    })
   }, [
     setAuthenticated, setLocalUserId, setStatus, setError, setLatency,
     setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
-    currentGroupId, updateMemberSpeaking,
+    currentGroupId, updateMemberSpeaking, handleWebSocketAudio,
   ])
 
   // Setup WebRTC event listeners
@@ -349,8 +369,19 @@ export function useConnection() {
       setLastServerUrl(serverUrl)
 
       // Connect WebRTC (after signaling is ready)
-      const webrtc = getWebRTCManager()
-      await webrtc.connect()
+      const mode = signaling.getTransportMode()
+      if (mode !== 'websocket') {
+        const webrtc = getWebRTCManager()
+        webrtc.setIceServers(signaling.getStunServers())
+        try {
+          await webrtc.connect()
+        } catch (webrtcError) {
+          if (mode === 'webrtc') {
+            throw webrtcError
+          }
+          console.warn('[useConnection] WebRTC unavailable, using WebSocket fallback audio')
+        }
+      }
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
@@ -416,6 +447,21 @@ export function useConnection() {
     }
   }, [isMicMuted])
 
+  // Sync speaking status to server.
+  useEffect(() => {
+    const signaling = getSignalingClient()
+    if (!signaling.isConnected()) {
+      return
+    }
+
+    const shouldSpeak = status === 'connected' && !isMicMuted && isSpeaking
+    if (lastSentSpeakingRef.current === shouldSpeak) {
+      return
+    }
+    lastSentSpeakingRef.current = shouldSpeak
+    signaling.updateSpeakingStatus(shouldSpeak)
+  }, [status, isMicMuted, isSpeaking])
+
   return {
     // State
     status,
@@ -430,4 +476,3 @@ export function useConnection() {
     leaveGroup,
   }
 }
-

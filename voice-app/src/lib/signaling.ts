@@ -1,50 +1,78 @@
-import type { GroupSettings, SignalingEvents } from './types'
+import type { GroupSettings, SignalingEvents, TransportMode } from './types'
 
 export interface SignalingMessage {
   type: string
   data: Record<string, unknown>
 }
 
+interface ResumeSessionInfo {
+  sessionId: string
+  resumeToken: string
+  expiresAt: number
+}
+
 type EventCallback<T = unknown> = (data: T) => void
+
+const HEARTBEAT_FALLBACK_INTERVAL_MS = 5000
+const RESUME_STORAGE_PREFIX = 'voice_app_resume_v1'
 
 /**
  * WebSocket signaling client for WebRTC coordination.
- * Handles: authentication, group management, user presence, and WebRTC signaling.
- * Does NOT handle audio transport (that's DataChannel's job).
+ * Handles: authentication, heartbeat/resume, group management, and signaling.
  */
 export class SignalingClient {
   private ws: WebSocket | null = null
   private clientId: string = ''
   private username: string = ''
+  private authCode: string = ''
   private currentGroupId: string | null = null
-  private lastPingTime: number = 0
-  private pingInterval: ReturnType<typeof setInterval> | null = null
+  private lastHeartbeatTime: number = 0
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null
+  private heartbeatIntervalMs: number = HEARTBEAT_FALLBACK_INTERVAL_MS
+  private resumeWindowMs: number = 0
+  private sessionId: string = ''
+  private resumeToken: string = ''
+  private activeServerUrl: string = ''
+  private resumeKeyUrl: string = ''
+  private transportMode: TransportMode = 'auto'
+  private stunServers: string[] = []
   private eventListeners: Map<string, EventCallback[]> = new Map()
-  
+  private connectResolve: (() => void) | null = null
+  private connectReject: ((error: Error) => void) | null = null
+  private connectTimeout: ReturnType<typeof setTimeout> | null = null
+  private settledConnect: boolean = false
+
   // Throttle logging for high-frequency messages
-  private highFrequencyMessages = new Set(['position_update', 'user_speaking_status'])
+  private readonly highFrequencyMessages = new Set(['position_update', 'user_speaking_status'])
 
   /**
-   * Connect to the signaling server
+   * Connect to signaling and resolve only after auth/resume succeeds.
    */
   public async connect(serverUrl: string, username: string, authCode: string): Promise<void> {
+    this.disconnect()
+
     return new Promise((resolve, reject) => {
       try {
-        let url = this.normalizeUrl(serverUrl)
-        
+        const url = this.normalizeUrl(serverUrl)
         this.ws = new WebSocket(url)
         this.username = username
+        this.authCode = authCode
+        this.activeServerUrl = url
+        this.resumeKeyUrl = this.normalizeResumeKey(url)
+        this.clientId = ''
+        this.currentGroupId = null
+        this.transportMode = 'auto'
+        this.stunServers = []
+        this.settleConnectHandlers(resolve, reject)
 
-        const timeout = setTimeout(() => {
-          reject(new Error('Connection timeout'))
+        this.connectTimeout = setTimeout(() => {
+          this.rejectPendingConnect(new Error('Connection timeout'))
           this.ws?.close()
-        }, 10000)
+        }, 15000)
 
         this.ws.onopen = () => {
-          clearTimeout(timeout)
-          this.authenticate(username, authCode)
-          this.startPingInterval()
-          resolve()
+          this.sendResumeOrAuthenticate()
+          this.startHeartbeatInterval()
         }
 
         this.ws.onmessage = (event) => {
@@ -56,26 +84,55 @@ export class SignalingClient {
           }
         }
 
-        this.ws.onerror = (error) => {
-          clearTimeout(timeout)
-          console.error('[Signaling] WebSocket error:', error)
-          this.emit('connection_error', error)
-          reject(error)
+        this.ws.onerror = (event) => {
+          console.error('[Signaling] WebSocket error:', event)
+          this.emit('connection_error', event)
+          this.rejectPendingConnect(new Error('WebSocket error'))
         }
 
         this.ws.onclose = (event) => {
-          clearTimeout(timeout)
-          this.stopPingInterval()
+          this.stopHeartbeatInterval()
+          this.clearConnectTimeout()
           this.emit('disconnected', {
             code: event.code,
             reason: event.reason,
             wasClean: event.wasClean,
           })
+          this.rejectPendingConnect(new Error(event.reason || 'Connection closed'))
         }
       } catch (error) {
-        reject(error)
+        reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
+  }
+
+  private settleConnectHandlers(resolve: () => void, reject: (error: Error) => void): void {
+    this.connectResolve = resolve
+    this.connectReject = reject
+    this.settledConnect = false
+  }
+
+  private resolvePendingConnect(): void {
+    if (!this.settledConnect && this.connectResolve) {
+      this.settledConnect = true
+      this.clearConnectTimeout()
+      this.connectResolve()
+    }
+  }
+
+  private rejectPendingConnect(error: Error): void {
+    if (!this.settledConnect && this.connectReject) {
+      this.settledConnect = true
+      this.clearConnectTimeout()
+      this.connectReject(error)
+    }
+  }
+
+  private clearConnectTimeout(): void {
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout)
+      this.connectTimeout = null
+    }
   }
 
   private normalizeUrl(serverUrl: string): string {
@@ -90,13 +147,28 @@ export class SignalingClient {
     return url
   }
 
+  private sendResumeOrAuthenticate(): void {
+    const resumeInfo = this.loadResumeInfo(this.resumeKeyUrl, this.username)
+    if (resumeInfo) {
+      this.send({
+        type: 'resume',
+        data: {
+          sessionId: resumeInfo.sessionId,
+          resumeToken: resumeInfo.resumeToken,
+        },
+      })
+      return
+    }
+
+    this.authenticate(this.username, this.authCode)
+  }
+
   private authenticate(username: string, authCode: string): void {
     this.send({ type: 'authenticate', data: { username, authCode } })
   }
 
   private send(message: SignalingMessage): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('[Signaling] WebSocket not connected')
       return
     }
     this.ws.send(JSON.stringify(message))
@@ -105,23 +177,26 @@ export class SignalingClient {
   private handleMessage(message: SignalingMessage): void {
     const { type, data } = message
 
-    // Throttle logging for high-frequency messages
     if (!this.highFrequencyMessages.has(type)) {
       console.debug('[Signaling] Received:', type)
     }
 
     switch (type) {
       case 'auth_success':
-        this.clientId = String(data.clientId || '')
-        this.emit('authenticated', { clientId: this.clientId, username: this.username })
+      case 'resumed':
+        this.handleSessionReady(data)
+        break
+      case 'hello':
+        this.handleHello(data)
+        break
+      case 'heartbeat_ack':
+        this.handleHeartbeatAck(data)
         break
       case 'error':
-        console.error('[Signaling] Server error:', data)
-        this.emit('error', data)
+        this.handleError(data)
         break
       case 'pong':
-        const latency = Date.now() - this.lastPingTime
-        this.emit('latency', { latency })
+        this.emitLatency(Date.now() - this.lastHeartbeatTime)
         break
       case 'group_created':
         this.currentGroupId = String(data.groupId || '')
@@ -153,31 +228,235 @@ export class SignalingClient {
       case 'position_update':
         this.emit('position_update', data)
         break
-      // WebRTC signaling messages
+      case 'audio':
+        this.emit('audio', data)
+        break
+      case 'offer':
       case 'webrtc_offer':
         this.emit('webrtc_offer', data)
         break
+      case 'answer':
       case 'webrtc_answer':
         this.emit('webrtc_answer', data)
         break
+      case 'ice_candidate':
       case 'webrtc_ice_candidate':
         this.emit('webrtc_ice_candidate', data)
         break
       default:
-        // Emit as generic message for extensibility
         this.emit(`message:${type}`, data)
     }
   }
 
-  private startPingInterval(): void {
-    this.pingInterval = setInterval(() => this.ping(), 5000)
+  private handleSessionReady(data: Record<string, unknown>): void {
+    this.clientId = String(data.clientId || '')
+    this.transportMode = this.parseTransportMode(data.transportMode)
+    this.stunServers = this.parseStunServers(data.stunServers)
+    this.sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
+    this.resumeToken = typeof data.resumeToken === 'string' ? data.resumeToken : ''
+
+    const heartbeatIntervalMs = this.readNumber(data.heartbeatIntervalMs)
+    const resumeWindowMs = this.readNumber(data.resumeWindowMs)
+    if (heartbeatIntervalMs > 0) {
+      this.heartbeatIntervalMs = heartbeatIntervalMs
+      this.startHeartbeatInterval()
+    }
+    if (resumeWindowMs > 0) {
+      this.resumeWindowMs = resumeWindowMs
+    }
+
+    if (this.sessionId && this.resumeToken && this.resumeKeyUrl) {
+      this.storeResumeInfo(this.resumeKeyUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
+    }
+
+    this.emit('authenticated', {
+      clientId: this.clientId,
+      username: this.username,
+      transportMode: this.transportMode,
+      stunServers: this.stunServers,
+      pending: !!data.pending,
+      sessionId: this.sessionId || undefined,
+      resumeToken: this.resumeToken || undefined,
+      heartbeatIntervalMs: heartbeatIntervalMs || undefined,
+      resumeWindowMs: resumeWindowMs || undefined,
+    })
+    this.resolvePendingConnect()
   }
 
-  private stopPingInterval(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval)
-      this.pingInterval = null
+  private handleHello(data: Record<string, unknown>): void {
+    const heartbeatIntervalMs = this.readNumber(data.heartbeatIntervalMs)
+    const resumeWindowMs = this.readNumber(data.resumeWindowMs)
+    if (heartbeatIntervalMs > 0) {
+      this.heartbeatIntervalMs = heartbeatIntervalMs
+      this.startHeartbeatInterval()
     }
+    if (resumeWindowMs > 0) {
+      this.resumeWindowMs = resumeWindowMs
+      this.refreshResumeExpiry()
+    }
+    this.emit('hello', {
+      heartbeatIntervalMs: heartbeatIntervalMs || undefined,
+      resumeWindowMs: resumeWindowMs || undefined,
+    })
+  }
+
+  private handleHeartbeatAck(data: Record<string, unknown>): void {
+    const timestamp = this.readNumber(data.timestamp)
+    const reference = timestamp > 0 ? timestamp : this.lastHeartbeatTime
+    if (reference > 0) {
+      this.emitLatency(Date.now() - reference)
+    }
+    this.refreshResumeExpiry()
+  }
+
+  private handleError(data: Record<string, unknown>): void {
+    const code = typeof data.code === 'string' ? data.code : ''
+    if (code === 'resume_failed') {
+      this.handleResumeFailed()
+    }
+    this.emit('error', data)
+    if (!this.settledConnect && code !== 'resume_failed') {
+      const message = typeof data.message === 'string' ? data.message : 'Server error'
+      this.rejectPendingConnect(new Error(message))
+    }
+  }
+
+  private handleResumeFailed(): void {
+    this.clearResumeInfo(this.resumeKeyUrl || this.activeServerUrl, this.username)
+    if (this.isConnected()) {
+      this.authenticate(this.username, this.authCode)
+    }
+  }
+
+  private emitLatency(latency: number): void {
+    if (!Number.isFinite(latency) || latency < 0) {
+      return
+    }
+    this.emit('latency', { latency })
+  }
+
+  private startHeartbeatInterval(): void {
+    this.stopHeartbeatInterval()
+    const interval = this.heartbeatIntervalMs > 0 ? this.heartbeatIntervalMs : HEARTBEAT_FALLBACK_INTERVAL_MS
+    this.heartbeatInterval = setInterval(() => this.sendHeartbeat(), interval)
+  }
+
+  private stopHeartbeatInterval(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval)
+      this.heartbeatInterval = null
+    }
+  }
+
+  private sendHeartbeat(): void {
+    this.lastHeartbeatTime = Date.now()
+    this.send({
+      type: 'heartbeat',
+      data: { timestamp: this.lastHeartbeatTime },
+    })
+  }
+
+  private parseTransportMode(value: unknown): TransportMode {
+    if (value === 'webrtc' || value === 'websocket' || value === 'auto') {
+      return value
+    }
+    return 'auto'
+  }
+
+  private parseStunServers(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return []
+    }
+    return value
+      .map((entry) => String(entry))
+      .filter((entry) => entry.trim().length > 0)
+  }
+
+  private readNumber(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    return 0
+  }
+
+  private normalizeResumeKey(serverUrl: string): string {
+    try {
+      const parsed = new URL(serverUrl)
+      const host = parsed.host
+      let path = parsed.pathname.replace(/\/+$/, '')
+      if (!path.endsWith('/voice')) {
+        path = `${path}/voice`
+      }
+      return `${host}${path}`
+    } catch {
+      return serverUrl
+    }
+  }
+
+  private getResumeStorageKey(serverUrl: string, username: string): string {
+    return `${RESUME_STORAGE_PREFIX}:${serverUrl}:${username}`
+  }
+
+  private loadResumeInfo(serverUrl: string, username: string): ResumeSessionInfo | null {
+    const key = this.getResumeStorageKey(serverUrl, username)
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (!raw) {
+        return null
+      }
+      const parsed = JSON.parse(raw) as ResumeSessionInfo
+      if (!parsed.sessionId || !parsed.resumeToken || !parsed.expiresAt) {
+        this.clearResumeInfo(serverUrl, username)
+        return null
+      }
+      if (parsed.expiresAt < Date.now()) {
+        this.clearResumeInfo(serverUrl, username)
+        return null
+      }
+      return parsed
+    } catch {
+      this.clearResumeInfo(serverUrl, username)
+      return null
+    }
+  }
+
+  private storeResumeInfo(
+    serverUrl: string,
+    username: string,
+    sessionId: string,
+    resumeToken: string,
+    resumeWindowMs: number
+  ): void {
+    if (!sessionId || !resumeToken) {
+      return
+    }
+    const ttl = resumeWindowMs > 0 ? resumeWindowMs : 60000
+    const info: ResumeSessionInfo = {
+      sessionId,
+      resumeToken,
+      expiresAt: Date.now() + ttl,
+    }
+    const key = this.getResumeStorageKey(serverUrl, username)
+    window.localStorage.setItem(key, JSON.stringify(info))
+  }
+
+  private refreshResumeExpiry(): void {
+    if (!this.resumeKeyUrl || !this.sessionId || !this.resumeToken) {
+      return
+    }
+    this.storeResumeInfo(this.resumeKeyUrl, this.username, this.sessionId, this.resumeToken, this.resumeWindowMs)
+  }
+
+  private clearResumeInfo(serverUrl: string, username: string): void {
+    if (!serverUrl || !username) {
+      return
+    }
+    const key = this.getResumeStorageKey(serverUrl, username)
+    window.localStorage.removeItem(key)
   }
 
   // ========== Public API ==========
@@ -226,25 +505,51 @@ export class SignalingClient {
   }
 
   public ping(): void {
-    this.lastPingTime = Date.now()
-    this.send({ type: 'ping', data: { timestamp: this.lastPingTime } })
+    this.lastHeartbeatTime = Date.now()
+    this.send({ type: 'ping', data: { timestamp: this.lastHeartbeatTime } })
   }
 
-  // WebRTC signaling
-  public sendWebRTCOffer(targetId: string, sdp: string): void {
-    this.send({ type: 'webrtc_offer', data: { targetId, sdp } })
+  public sendAudioBase64(audioData: string): void {
+    this.send({ type: 'audio', data: { audioData } })
   }
 
-  public sendWebRTCAnswer(targetId: string, sdp: string): void {
-    this.send({ type: 'webrtc_answer', data: { targetId, sdp } })
+  // WebRTC signaling (canonical server names)
+  public sendWebRTCOffer(sdp: string): void {
+    this.send({ type: 'offer', data: { sdp } })
   }
 
-  public sendICECandidate(targetId: string, candidate: RTCIceCandidateInit): void {
-    this.send({ type: 'webrtc_ice_candidate', data: { targetId, candidate } })
+  public sendWebRTCAnswer(sdp: string): void {
+    this.send({ type: 'answer', data: { sdp } })
+  }
+
+  public sendICECandidate(candidate: RTCIceCandidateInit): void {
+    this.send({
+      type: 'ice_candidate',
+      data: {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+      },
+    })
+  }
+
+  public sendICECandidateComplete(): void {
+    this.send({
+      type: 'ice_candidate',
+      data: { complete: true },
+    })
+  }
+
+  public requestStartDataChannel(): void {
+    this.send({ type: 'start_datachannel', data: {} })
   }
 
   public disconnect(): void {
-    this.stopPingInterval()
+    this.stopHeartbeatInterval()
+    this.clearConnectTimeout()
+    this.connectResolve = null
+    this.connectReject = null
+    this.settledConnect = true
     if (this.ws) {
       this.send({ type: 'disconnect', data: {} })
       this.ws.close()
@@ -264,9 +569,12 @@ export class SignalingClient {
 
   public off(event: string, callback: EventCallback): void {
     const listeners = this.eventListeners.get(event)
-    if (listeners) {
-      const index = listeners.indexOf(callback)
-      if (index > -1) listeners.splice(index, 1)
+    if (!listeners) {
+      return
+    }
+    const index = listeners.indexOf(callback)
+    if (index > -1) {
+      listeners.splice(index, 1)
     }
   }
 
@@ -277,7 +585,7 @@ export class SignalingClient {
   private emit(event: string, data: unknown): void {
     const listeners = this.eventListeners.get(event)
     if (listeners) {
-      listeners.forEach((cb) => cb(data))
+      listeners.forEach((callback) => callback(data))
     }
   }
 
@@ -292,6 +600,14 @@ export class SignalingClient {
 
   public getUsername(): string {
     return this.username
+  }
+
+  public getTransportMode(): TransportMode {
+    return this.transportMode
+  }
+
+  public getStunServers(): string[] {
+    return [...this.stunServers]
   }
 
   public isConnected(): boolean {

@@ -129,6 +129,35 @@ export function int16ToFloat32(int16Data: Int16Array): Float32Array {
 }
 
 /**
+ * Convert Int16 PCM to base64 for WebSocket fallback transport.
+ */
+export function int16ToBase64(int16Data: Int16Array): string {
+  const byteView = new Uint8Array(int16Data.buffer, int16Data.byteOffset, int16Data.byteLength)
+  let binary = ''
+  for (let i = 0; i < byteView.length; i++) {
+    binary += String.fromCharCode(byteView[i])
+  }
+  return btoa(binary)
+}
+
+/**
+ * Convert base64 payload to Int16 PCM.
+ */
+export function base64ToInt16(base64Audio: string): Int16Array | null {
+  try {
+    const binary = atob(base64Audio)
+    const byteArray = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      byteArray[i] = binary.charCodeAt(i)
+    }
+    const alignedLength = Math.floor(byteArray.byteLength / 2) * 2
+    return new Int16Array(byteArray.buffer.slice(0, alignedLength))
+  } catch {
+    return null
+  }
+}
+
+/**
  * Calculate maximum PCM samples that fit in a single payload
  */
 export function getMaxSamplesPerPayload(senderIdLength: number): number {
