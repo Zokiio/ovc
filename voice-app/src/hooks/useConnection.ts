@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { getSignalingClient, resetSignalingClient } from '../lib/signaling'
 import { getWebRTCManager, resetWebRTCManager } from '../lib/webrtc/connection-manager'
-import { encodeAudioPayload, float32ToInt16, int16ToBase64 } from '../lib/webrtc/audio-channel'
+import { float32ToInt16, int16ToBase64 } from '../lib/webrtc/audio-channel'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useGroupStore } from '../stores/groupStore'
 import { useUserStore } from '../stores/userStore'
@@ -62,19 +62,21 @@ export function useConnection() {
     const int16Data = float32ToInt16(float32Data, inputVolume / 100)
     const signaling = getSignalingClient()
     const transportMode = signaling.getTransportMode()
-    const senderId = clientId ?? signaling.getClientId()
 
     const webrtc = getWebRTCManager()
-    if (webrtc.isReady() && senderId) {
-      const payload = encodeAudioPayload(senderId, int16Data)
-      webrtc.sendAudio(payload)
+    if (webrtc.isReady()) {
+      const pcmBuffer = new ArrayBuffer(int16Data.byteLength)
+      new Uint8Array(pcmBuffer).set(
+        new Uint8Array(int16Data.buffer, int16Data.byteOffset, int16Data.byteLength)
+      )
+      webrtc.sendAudio(pcmBuffer)
       return
     }
 
     if (transportMode !== 'webrtc' && signaling.isConnected()) {
       signaling.sendAudioBase64(int16ToBase64(int16Data))
     }
-  }, [clientId, inputVolume])
+  }, [inputVolume])
 
   // Voice activity
   const voiceEnabled = status === 'connected' && !isMicMuted
@@ -85,18 +87,62 @@ export function useConnection() {
     onAudioData: handleVoiceData,
   })
 
+  const connectWebRTCIfAllowed = useCallback(async (signaling = getSignalingClient()) => {
+    const mode = signaling.getTransportMode()
+    if (mode === 'websocket' || signaling.isPendingSession()) {
+      return
+    }
+
+    const webrtc = getWebRTCManager()
+    const webrtcState = webrtc.getState()
+    if (
+      webrtc.isReady() ||
+      webrtcState.connectionState === 'connecting' ||
+      webrtcState.connectionState === 'connected'
+    ) {
+      return
+    }
+
+    webrtc.setIceServers(signaling.getStunServers())
+    try {
+      await webrtc.connect()
+    } catch (webrtcError) {
+      if (mode === 'webrtc') {
+        throw webrtcError
+      }
+      console.warn('[useConnection] WebRTC unavailable, using WebSocket fallback audio')
+    }
+  }, [])
+
   // Setup signaling event listeners
   const setupSignalingListeners = useCallback(() => {
     const signaling = getSignalingClient()
 
     signaling.on('authenticated', (data) => {
-      const { clientId, username } = data as { clientId: string; username: string }
-      setAuthenticated(clientId, username)
+      const { clientId, username, pending } = data as { clientId: string; username: string; pending?: boolean }
+      setAuthenticated(clientId, username, !!pending)
       setLocalUserId(clientId)
-      
-      // Request initial data
+
+      if (pending) {
+        return
+      }
+
       signaling.listGroups()
       signaling.listPlayers()
+    })
+
+    signaling.on('pending_game_session', () => {
+      setStatus('connecting')
+    })
+
+    signaling.on('game_session_ready', () => {
+      setStatus('connected')
+      signaling.listGroups()
+      signaling.listPlayers()
+      void connectWebRTCIfAllowed(signaling).catch((error) => {
+        const message = error instanceof Error ? error.message : 'WebRTC connection failed'
+        setError(message)
+      })
     })
 
     signaling.on('disconnected', () => {
@@ -123,29 +169,41 @@ export function useConnection() {
     })
 
     signaling.on('group_list', (data) => {
-      const rawGroups = (data as { groups: any[] }).groups || []
+      const rawGroups = (data as { groups?: unknown[] }).groups ?? []
       // Get current state to preserve locally created groups and member data
       const { groups: existingGroups, currentGroupId } = useGroupStore.getState()
       const existingGroupsMap = new Map(existingGroups.map(g => [g.id, g]))
 
       // Normalize groups to ensure they have all required fields
-      const serverGroups: Group[] = rawGroups.map(g => {
+      const serverGroups: Group[] = rawGroups.map((groupEntry) => {
+        const g = (groupEntry && typeof groupEntry === 'object')
+          ? (groupEntry as Record<string, unknown>)
+          : {}
+        const groupSettings = (g.settings && typeof g.settings === 'object')
+          ? (g.settings as Record<string, unknown>)
+          : {}
         const groupId = String(g.id || g.groupId || '')
         const existingGroup = existingGroupsMap.get(groupId)
         
         // Parse members from server
         const seenIds = new Set<string>()
-        const serverMembers = (g.members || [])
-          .map((m: any) => ({
-            id: String(m.id || m.playerId || ''),
-            name: String(m.name || m.username || m.playerName || 'Unknown'),
-            isSpeaking: !!m.isSpeaking,
-            isMicMuted: !!m.isMicMuted || !!m.isMuted,
-            isVoiceConnected: m.isVoiceConnected !== false
-          }))
-          .filter((m: any) => {
-            if (seenIds.has(m.id)) return false
-            seenIds.add(m.id)
+        const rawMembers = Array.isArray(g.members) ? g.members : []
+        const serverMembers: GroupMember[] = rawMembers
+          .map((memberEntry) => {
+            const member = (memberEntry && typeof memberEntry === 'object')
+              ? (memberEntry as Record<string, unknown>)
+              : {}
+            return ({
+              id: String(member.id || member.playerId || ''),
+              name: String(member.name || member.username || member.playerName || 'Unknown'),
+              isSpeaking: !!member.isSpeaking,
+              isMicMuted: !!member.isMicMuted || !!member.isMuted,
+              isVoiceConnected: member.isVoiceConnected !== false
+            })
+          })
+          .filter((member) => {
+            if (seenIds.has(member.id)) return false
+            seenIds.add(member.id)
             return true
           })
         
@@ -155,14 +213,14 @@ export function useConnection() {
         return {
           id: groupId,
           name: String(g.name || g.groupName || 'Unknown'),
-          memberCount: g.memberCount || members.length || 0,
+          memberCount: Number(g.memberCount ?? members.length ?? 0),
           members,
           settings: {
-            defaultVolume: g.settings?.defaultVolume ?? 100,
-            proximityRange: g.settings?.proximityRange ?? 30,
-            allowInvites: g.settings?.allowInvites ?? true,
-            maxMembers: g.settings?.maxMembers ?? g.maxMembers ?? 50,
-            isPrivate: g.settings?.isPrivate ?? g.isPrivate ?? false
+            defaultVolume: Number(groupSettings.defaultVolume ?? 100),
+            proximityRange: Number(groupSettings.proximityRange ?? 30),
+            allowInvites: Boolean(groupSettings.allowInvites ?? true),
+            maxMembers: Number(groupSettings.maxMembers ?? g.maxMembers ?? 50),
+            isPrivate: Boolean(groupSettings.isPrivate ?? g.isPrivate ?? false)
           }
         }
       })
@@ -243,22 +301,29 @@ export function useConnection() {
     })
 
     signaling.on('group_members_updated', (data) => {
-      const { groupId, members: rawMembers } = data as { groupId: string; members: any[] }
+      const payload = data as { groupId?: string; members?: unknown[] }
+      const groupId = String(payload.groupId ?? '')
+      const rawMembers = payload.members ?? []
       console.debug('[useConnection] group_members_updated:', { groupId, rawMembersCount: rawMembers?.length })
       
       // Normalize and deduplicate members
       const seenIds = new Set<string>()
-      const members: GroupMember[] = (rawMembers || [])
-        .map((m: any) => ({
-          id: String(m.id || m.playerId || ''),
-          name: String(m.name || m.username || m.playerName || 'Unknown'),
-          isSpeaking: !!m.isSpeaking,
-          isMicMuted: !!m.isMicMuted || !!m.isMuted,
-          isVoiceConnected: m.isVoiceConnected !== false
-        }))
-        .filter((m: GroupMember) => {
-          if (seenIds.has(m.id)) return false
-          seenIds.add(m.id)
+      const members: GroupMember[] = rawMembers
+        .map((memberEntry) => {
+          const member = (memberEntry && typeof memberEntry === 'object')
+            ? (memberEntry as Record<string, unknown>)
+            : {}
+          return ({
+            id: String(member.id || member.playerId || ''),
+            name: String(member.name || member.username || member.playerName || 'Unknown'),
+            isSpeaking: !!member.isSpeaking,
+            isMicMuted: !!member.isMicMuted || !!member.isMuted,
+            isVoiceConnected: member.isVoiceConnected !== false
+          })
+        })
+        .filter((member) => {
+          if (seenIds.has(member.id)) return false
+          seenIds.add(member.id)
           return true
         })
       
@@ -285,20 +350,25 @@ export function useConnection() {
     })
 
     signaling.on('player_list', (data) => {
-      const rawPlayers = (data as { players: any[] }).players || []
+      const rawPlayers = (data as { players?: unknown[] }).players ?? []
       // Normalize players to ensure they have all required fields
-      const players: User[] = rawPlayers.map(p => ({
-        id: String(p.id || p.playerId || ''),
-        name: String(p.username || p.name || p.playerName || 'Unknown'),
-        avatarUrl: p.avatarUrl,
-        isSpeaking: !!p.isSpeaking,
-        isMuted: !!p.isMuted,
-        isMicMuted: !!p.isMicMuted || !!p.isMuted,
-        volume: p.volume ?? 100,
-        groupId: p.groupId,
-        position: p.position,
-        isVoiceConnected: p.isVoiceConnected !== false
-      }))
+      const players: User[] = rawPlayers.map((playerEntry) => {
+        const player = (playerEntry && typeof playerEntry === 'object')
+          ? (playerEntry as Record<string, unknown>)
+          : {}
+        return ({
+          id: String(player.id || player.playerId || ''),
+          name: String(player.username || player.name || player.playerName || 'Unknown'),
+          avatarUrl: typeof player.avatarUrl === 'string' ? player.avatarUrl : undefined,
+          isSpeaking: !!player.isSpeaking,
+          isMuted: !!player.isMuted,
+          isMicMuted: !!player.isMicMuted || !!player.isMuted,
+          volume: typeof player.volume === 'number' ? player.volume : 100,
+          groupId: typeof player.groupId === 'string' ? player.groupId : undefined,
+          position: player.position as PlayerPosition | undefined,
+          isVoiceConnected: player.isVoiceConnected !== false
+        })
+      })
       setUsers(players)
     })
 
@@ -331,7 +401,7 @@ export function useConnection() {
     setAuthenticated, setLocalUserId, setStatus, setError, setLatency,
     setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
-    currentGroupId, updateMemberSpeaking, handleWebSocketAudio,
+    currentGroupId, updateMemberSpeaking, handleWebSocketAudio, connectWebRTCIfAllowed,
   ])
 
   // Setup WebRTC event listeners
@@ -368,20 +438,8 @@ export function useConnection() {
       addSavedServer(serverUrl, undefined, username, authCode || undefined)
       setLastServerUrl(serverUrl)
 
-      // Connect WebRTC (after signaling is ready)
-      const mode = signaling.getTransportMode()
-      if (mode !== 'websocket') {
-        const webrtc = getWebRTCManager()
-        webrtc.setIceServers(signaling.getStunServers())
-        try {
-          await webrtc.connect()
-        } catch (webrtcError) {
-          if (mode === 'webrtc') {
-            throw webrtcError
-          }
-          console.warn('[useConnection] WebRTC unavailable, using WebSocket fallback audio')
-        }
-      }
+      // Connect WebRTC when transport mode and server state allow it.
+      await connectWebRTCIfAllowed(signaling)
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
@@ -394,7 +452,7 @@ export function useConnection() {
   }, [
     setStatus, setError, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
-    addSavedServer, setLastServerUrl,
+    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed,
   ])
 
   /**

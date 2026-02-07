@@ -12,6 +12,10 @@ export interface UserAudioState {
   isInitialized: boolean
 }
 
+interface AudioContextWithSinkId extends AudioContext {
+  setSinkId: (sinkId: string) => Promise<void>
+}
+
 export class AudioPlaybackManager {
   private audioContext: AudioContext | null = null
   private masterGainNode: GainNode | null = null
@@ -150,7 +154,7 @@ export class AudioPlaybackManager {
     // Use setSinkId if available (Chrome 110+)
     if ('setSinkId' in this.audioContext) {
       try {
-        await (this.audioContext as any).setSinkId(this.outputDeviceId)
+        await (this.audioContext as AudioContextWithSinkId).setSinkId(this.outputDeviceId)
       } catch (err) {
         console.warn('[AudioPlayback] Failed to set output device:', err)
       }

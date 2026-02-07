@@ -9,7 +9,7 @@ interface ConnectionStore extends ConnectionState {
   setLatency: (latency: number) => void
   setError: (message: string) => void
   clearError: () => void
-  setAuthenticated: (clientId: string, username: string) => void
+  setAuthenticated: (clientId: string, username: string, isPending?: boolean) => void
   incrementReconnectAttempt: () => void
   resetReconnectAttempt: () => void
   reset: () => void
@@ -58,9 +58,9 @@ export const useConnectionStore = create<ConnectionStore>()(
         state.errorMessage = null
       }),
 
-    setAuthenticated: (clientId, username) =>
+    setAuthenticated: (clientId, username, isPending = false) =>
       set((state) => {
-        state.status = 'connected'
+        state.status = isPending ? 'connecting' : 'connected'
         state.clientId = clientId
         state.username = username
         state.errorMessage = null

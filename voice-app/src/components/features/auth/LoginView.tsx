@@ -6,7 +6,7 @@ import {
   Save, Trash2, Play, Plus, Shield, ShieldOff,
   Globe, Settings, Loader2
 } from 'lucide-react';
-import { useTheme } from '../../../context/ThemeContext';
+import { useTheme } from '../../../context/theme-context';
 import { cn } from '../../../lib/utils';
 import { useConnection } from '../../../hooks/useConnection';
 import { useSettingsStore } from '../../../stores/settingsStore';
@@ -360,5 +360,4 @@ export const LoginView = ({ onConnect }: { onConnect: (username: string, server:
     </div>
   );
 };
-
 

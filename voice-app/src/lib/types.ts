@@ -136,6 +136,8 @@ export interface SignalingEvents {
     transportMode: TransportMode
     stunServers: string[]
     pending: boolean
+    pendingMessage?: string
+    pendingTimeoutSeconds?: number
     sessionId?: string
     resumeToken?: string
     heartbeatIntervalMs?: number
@@ -145,6 +147,8 @@ export interface SignalingEvents {
   connection_error: Event
   error: { message?: string; code?: string }
   hello: { heartbeatIntervalMs?: number; resumeWindowMs?: number }
+  pending_game_session: { message?: string; timeoutSeconds?: number }
+  game_session_ready: { message?: string }
   latency: { latency: number }
   group_created: { groupId: string; groupName: string }
   group_joined: { groupId: string; groupName: string }

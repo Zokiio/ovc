@@ -35,6 +35,7 @@ export class SignalingClient {
   private activeServerUrl: string = ''
   private resumeKeyUrl: string = ''
   private transportMode: TransportMode = 'auto'
+  private pendingGameSession = false
   private stunServers: string[] = []
   private eventListeners: Map<string, EventCallback[]> = new Map()
   private connectResolve: (() => void) | null = null
@@ -62,6 +63,7 @@ export class SignalingClient {
         this.clientId = ''
         this.currentGroupId = null
         this.transportMode = 'auto'
+        this.pendingGameSession = false
         this.stunServers = []
         this.settleConnectHandlers(resolve, reject)
 
@@ -189,6 +191,14 @@ export class SignalingClient {
       case 'hello':
         this.handleHello(data)
         break
+      case 'pending_game_session':
+        this.pendingGameSession = true
+        this.emit('pending_game_session', data)
+        break
+      case 'game_session_ready':
+        this.pendingGameSession = false
+        this.emit('game_session_ready', data)
+        break
       case 'heartbeat_ack':
         this.handleHeartbeatAck(data)
         break
@@ -249,8 +259,10 @@ export class SignalingClient {
   }
 
   private handleSessionReady(data: Record<string, unknown>): void {
+    const pending = !!data.pending
     this.clientId = String(data.clientId || '')
     this.transportMode = this.parseTransportMode(data.transportMode)
+    this.pendingGameSession = pending
     this.stunServers = this.parseStunServers(data.stunServers)
     this.sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
     this.resumeToken = typeof data.resumeToken === 'string' ? data.resumeToken : ''
@@ -274,7 +286,9 @@ export class SignalingClient {
       username: this.username,
       transportMode: this.transportMode,
       stunServers: this.stunServers,
-      pending: !!data.pending,
+      pending,
+      pendingMessage: typeof data.pendingMessage === 'string' ? data.pendingMessage : undefined,
+      pendingTimeoutSeconds: this.readNumber(data.pendingTimeoutSeconds) || undefined,
       sessionId: this.sessionId || undefined,
       resumeToken: this.resumeToken || undefined,
       heartbeatIntervalMs: heartbeatIntervalMs || undefined,
@@ -550,6 +564,7 @@ export class SignalingClient {
     this.connectResolve = null
     this.connectReject = null
     this.settledConnect = true
+    this.pendingGameSession = false
     if (this.ws) {
       this.send({ type: 'disconnect', data: {} })
       this.ws.close()
@@ -604,6 +619,10 @@ export class SignalingClient {
 
   public getTransportMode(): TransportMode {
     return this.transportMode
+  }
+
+  public isPendingSession(): boolean {
+    return this.pendingGameSession
   }
 
   public getStunServers(): string[] {

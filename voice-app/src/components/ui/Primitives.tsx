@@ -1,6 +1,8 @@
 import React from 'react';
 import { cn } from '../../lib/utils';
 
+type IconComponent = React.ComponentType<{ className?: string }>
+
 // --- Layout Primitives ---
 
 export const Panel = ({ className, title, children, rightElement, ...props }: React.HTMLAttributes<HTMLDivElement> & { title?: string, rightElement?: React.ReactNode }) => {
@@ -214,7 +216,7 @@ export const Meter = ({ value, className, threshold }: { value: number, classNam
 
 // --- Navigation Primitives ---
 
-export const NavRailItem = ({ icon: Icon, active, onClick, badge, label }: { icon: any, active: boolean, onClick: () => void, badge?: number, label?: string }) => {
+export const NavRailItem = ({ icon: Icon, active, onClick, badge, label }: { icon: IconComponent, active: boolean, onClick: () => void, badge?: number, label?: string }) => {
    return (
       <button
         onClick={onClick}
@@ -241,7 +243,7 @@ export const NavRailItem = ({ icon: Icon, active, onClick, badge, label }: { ico
    );
 };
 
-export const BottomNavItem = ({ icon: Icon, label, active, onClick }: { icon: any, label: string, active: boolean, onClick: () => void }) => {
+export const BottomNavItem = ({ icon: Icon, label, active, onClick }: { icon: IconComponent, label: string, active: boolean, onClick: () => void }) => {
    return (
       <button 
         onClick={onClick}

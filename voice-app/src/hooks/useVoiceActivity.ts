@@ -89,6 +89,12 @@ function cleanupGlobal() {
   }
   globalAudioContext = null
 
+  if (globalResumeInteractionHandler) {
+    window.removeEventListener('pointerdown', globalResumeInteractionHandler)
+    window.removeEventListener('keydown', globalResumeInteractionHandler)
+    globalResumeInteractionHandler = null
+  }
+
   globalIsInitialized = false
   globalIsInitializing = false
   globalIsSpeaking = false
@@ -376,27 +382,44 @@ export function useVoiceActivity({
 
   // Auto start/stop based on enabled
   useEffect(() => {
+    let syncTimer: number | null = null
+
     if (enabled && !globalIsInitialized && !globalIsInitializing) {
       console.log('[VAD] Starting listening...')
-      startListening()
+      const startTimer = window.setTimeout(() => {
+        void startListening()
+      }, 0)
+      return () => window.clearTimeout(startTimer)
     }
+
     // Sync local state with global
     if (globalIsInitialized && !isInitialized) {
-      setIsInitialized(true)
+      syncTimer = window.setTimeout(() => {
+        setIsInitialized(true)
+      }, 0)
+    }
+
+    return () => {
+      if (syncTimer !== null) {
+        window.clearTimeout(syncTimer)
+      }
     }
   }, [enabled, isInitialized, startListening])
 
   // Restart on device change
   useEffect(() => {
-    if (enabled && globalIsInitialized) {
+    if (!enabled || !globalIsInitialized) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
       setIsSwitchingDevice(true)
       cleanupGlobal()
-      const timer = setTimeout(() => {
-        startListening().finally(() => setIsSwitchingDevice(false))
-      }, 100)
-      return () => clearTimeout(timer)
-    }
-  }, [settings.inputDeviceId])
+      void startListening().finally(() => setIsSwitchingDevice(false))
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [enabled, settings.inputDeviceId, startListening])
 
   return {
     isSpeaking: globalIsSpeaking, // Use global state, not store subscription
@@ -408,8 +431,3 @@ export function useVoiceActivity({
     stopListening,
   }
 }
-  if (globalResumeInteractionHandler) {
-    window.removeEventListener('pointerdown', globalResumeInteractionHandler)
-    window.removeEventListener('keydown', globalResumeInteractionHandler)
-    globalResumeInteractionHandler = null
-  }

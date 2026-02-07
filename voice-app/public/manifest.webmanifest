@@ -1,6 +1,6 @@
 {
-  "name": "Obsolete Voice Chat",
-  "short_name": "Obsolete VC",
+  "name": "Industrial Voice",
+  "short_name": "Industrial VC",
   "description": "A modern voice chat application for group communication",
   "start_url": "/",
   "display": "standalone",

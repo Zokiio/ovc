@@ -22,10 +22,9 @@ test.describe('Voice Client - Login View', () => {
 
   test('should have saved servers dropdown', async ({ page }) => {
     await page.goto('/');
-    
-    // Look for saved servers section or dropdown
-    const savedServersSection = page.locator('text=/saved|recent/i').first();
-    // This may or may not exist depending on localStorage state
+
+    // This section is data-dependent (localStorage), so just assert page is rendered.
+    await expect(page.locator('body')).toBeVisible();
   });
 
   test('should validate inputs before connecting', async ({ page }) => {

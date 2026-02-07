@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 
 // Load from environment variables (set in .env or CI)
 const SERVER_URL = process.env.VOICE_SERVER_URL || '';
