@@ -61,7 +61,7 @@ function float32ToInt16Buffer(float32Array: Float32Array, volumeMultiplier?: num
   for (let i = 0; i < float32Array.length; i++) {
     const amplified = float32Array[i] * multiplier
     const s = Math.max(-1, Math.min(1, amplified))
-    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
   }
 
   return int16Array.buffer

@@ -193,6 +193,7 @@ export class SignalingClient {
       })()
     
     if (shouldLog) {
+      console.debug('[Signaling] Message received:', message.type, message.data)
     }
 
     const isResumeFailed = message.type === 'error' && (message.data as { code?: string })?.code === 'resume_failed'

@@ -50,26 +50,26 @@ public class DataChannelAudioHandler {
     }
 
     /**
-     * Receive Opus audio from a client and forward to the audio bridge.
+     * Receive PCM audio from a client and forward to the audio bridge.
      */
-    public void receiveFromClient(UUID clientId, byte[] opusFrame) {
+    public void receiveFromClient(UUID clientId, byte[] pcmFrame) {
         if (audioBridge == null) {
             logger.atWarning().log("Audio bridge not set; dropping audio from client: " + clientId);
             return;
         }
-        recordFlow(inboundFlow, clientId, opusFrame.length, "inbound");
-        audioBridge.receiveAudioFromWebRTC(clientId, opusFrame);
+        recordFlow(inboundFlow, clientId, pcmFrame.length, "inbound");
+        audioBridge.receiveAudioFromWebRTC(clientId, pcmFrame);
     }
 
     /**
-     * Send Opus audio to a specific client via its DataChannel sender.
+     * Send PCM audio to a specific client via its DataChannel sender.
      */
-    public boolean sendToClient(UUID clientId, byte[] opusFrame) {
+    public boolean sendToClient(UUID clientId, byte[] pcmFrame) {
         DataChannelSender sender = senders.get(clientId);
         if (sender == null || !sender.isOpen()) {
             return false;
         }
-        sender.send(opusFrame);
+        sender.send(pcmFrame);
         recordFlow(outboundFlow, clientId, opusFrame.length, "outbound");
         return true;
     }

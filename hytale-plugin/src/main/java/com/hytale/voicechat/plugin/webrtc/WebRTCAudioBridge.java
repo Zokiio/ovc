@@ -27,6 +27,22 @@ public class WebRTCAudioBridge {
     private GroupManager groupManager;
     private DataChannelAudioHandler dataChannelAudioHandler;
     private ClientIdMapper clientIdMapper;
+    /**
+     * Version of the binary audio payload format sent over the WebRTC data channel.
+     * <p>
+     * This is a monotonically increasing wire-format version. It must be bumped
+     * whenever the on-wire layout or semantics of the audio payload change in a
+     * way that is not backward compatible with older clients, for example:
+     * <ul>
+     *   <li>Adding, removing or reordering header fields.</li>
+     *   <li>Changing field sizes, types, or their meaning.</li>
+     *   <li>Changing framing (e.g. per-frame metadata layout) or assumed codec
+     *       parameters that affect how payload bytes are interpreted.</li>
+     * </ul>
+     * Non-breaking internal changes (refactoring, logging, buffering, or other
+     * logic that does not alter the serialized bytes) do not require changing
+     * this version.
+     */
     private static final byte AUDIO_PAYLOAD_VERSION = 1;
     private static final int DATA_CHANNEL_MAX_PAYLOAD = 900;
     
@@ -383,24 +399,20 @@ public class WebRTCAudioBridge {
             return false;
         }
 
-        int offset = 0;
-        boolean sentAny = false;
-        while (offset < audioData.length) {
-            int length = Math.min(maxChunkSize, audioData.length - offset);
-            byte[] payload = new byte[headerSize + length];
-            payload[0] = AUDIO_PAYLOAD_VERSION;
-            payload[1] = (byte) senderBytes.length;
-            System.arraycopy(senderBytes, 0, payload, 2, senderBytes.length);
-            System.arraycopy(audioData, offset, payload, headerSize, length);
-
-            if (!dataChannelAudioHandler.sendToClient(recipientId, payload)) {
-                break;
-            }
-            sentAny = true;
-            offset += length;
+        // Ensure we send at most one complete audio frame per DataChannel message.
+        // If the frame is too large to fit in a single payload, skip sending it to
+        // avoid fragmenting over an unordered/unreliable channel.
+        if (audioData.length > maxChunkSize) {
+            return false;
         }
 
-        return sentAny;
+        byte[] payload = new byte[headerSize + audioData.length];
+        payload[0] = AUDIO_PAYLOAD_VERSION;
+        payload[1] = (byte) senderBytes.length;
+        System.arraycopy(senderBytes, 0, payload, 2, senderBytes.length);
+        System.arraycopy(audioData, 0, payload, headerSize, audioData.length);
+
+        return dataChannelAudioHandler.sendToClient(recipientId, payload);
     }
     
     /**

@@ -75,8 +75,8 @@ public class NetworkConfig {
     private static String turnServers = DEFAULT_TURN_SERVERS;
     private static int icePortMin = DEFAULT_ICE_PORT_MIN;
     private static int icePortMax = DEFAULT_ICE_PORT_MAX;
-    private static List<String> stunServerList = List.of();
-    private static List<String> turnServerList = List.of();
+    private static List<String> stunServerList = Collections.emptyList();
+    private static List<String> turnServerList = Collections.emptyList();
     
     // Group voice settings - initialized from constants
     private static boolean groupGlobalVoice = true;
