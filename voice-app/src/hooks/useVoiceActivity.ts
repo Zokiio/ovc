@@ -42,6 +42,7 @@ let lastSpeechTime = 0
 let speakingTimeout: ReturnType<typeof setTimeout> | null = null
 let silenceTimeout: ReturnType<typeof setTimeout> | null = null
 let lastLevel = 0
+const VAD_LEVEL_SCALE = 8
 
 // Zustand store setters (set once, used in animation loop)
 let globalSetMicLevel: ((level: number) => void) | null = null
@@ -251,7 +252,9 @@ async function initializeGlobal(settings: {
       }
 
       const rms = Math.sqrt(sum / bufferLength)
-      const normalizedLevel = Math.min(1, rms * 10)
+      // Lower scale gives the meter more headroom so normal speech does not
+      // pin at 100% too easily.
+      const normalizedLevel = Math.min(1, rms * VAD_LEVEL_SCALE)
 
       // Only update store every 3 frames (~20fps instead of 60fps) to reduce re-renders
       frameCount++
