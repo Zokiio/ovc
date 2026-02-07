@@ -27,6 +27,7 @@ let globalAnimationFrame: number | null = null
 let globalIsInitializing = false
 let globalIsInitialized = false
 let globalResumeInteractionHandler: (() => void) | null = null
+let globalCaptureActive = false
 
 // Callbacks registered by hook instances
 type AudioCallback = (data: Float32Array) => void
@@ -45,6 +46,18 @@ let lastLevel = 0
 // Zustand store setters (set once, used in animation loop)
 let globalSetMicLevel: ((level: number) => void) | null = null
 let globalSetSpeaking: ((speaking: boolean) => void) | null = null
+
+function setGlobalCaptureActive(active: boolean): void {
+  globalCaptureActive = active
+  if (globalWorkletNode?.port) {
+    globalWorkletNode.port.postMessage({ type: 'active', value: active })
+  }
+
+  if (!active) {
+    globalIsSpeaking = false
+    globalSetSpeaking?.(false)
+  }
+}
 
 function cleanupGlobal() {
   console.log('[VAD] Cleaning up global audio resources')
@@ -98,6 +111,7 @@ function cleanupGlobal() {
   globalIsInitialized = false
   globalIsInitializing = false
   globalIsSpeaking = false
+  globalCaptureActive = false
   lastLevel = 0
 }
 
@@ -193,7 +207,7 @@ async function initializeGlobal(settings: {
       globalWorkletNode.port.onmessage = (event) => {
         if (event.data.type === 'audioData') {
           // Gate by VAD
-          if (!globalIsSpeaking) return
+          if (!globalCaptureActive || !globalIsSpeaking) return
 
           const float32Data = new Float32Array(event.data.data)
           // Notify all registered callbacks
@@ -211,7 +225,7 @@ async function initializeGlobal(settings: {
       const sink = globalAudioContext.createMediaStreamDestination()
       silentGain.connect(sink)
 
-      globalWorkletNode.port.postMessage({ type: 'active', value: true })
+      setGlobalCaptureActive(globalCaptureActive)
     } catch (workletError) {
       console.error('[VAD] AudioWorklet setup failed:', workletError)
     }
@@ -337,6 +351,7 @@ export function useVoiceActivity({
     if (!onAudioData || testMicMode) return
 
     const callback: AudioCallback = (data) => {
+      if (!globalCaptureActive) return
       onAudioData(data)
     }
 
@@ -349,6 +364,7 @@ export function useVoiceActivity({
   const startListening = useCallback(async () => {
     if (globalIsInitialized || globalIsInitializing) {
       console.log('[VAD] startListening: already initialized/initializing')
+      setGlobalCaptureActive(enabled)
       setIsInitialized(true)
       return
     }
@@ -362,13 +378,14 @@ export function useVoiceActivity({
         autoGainControl: settings.autoGainControl,
         smoothingTimeConstant: vadSettings.smoothingTimeConstant,
       })
+      setGlobalCaptureActive(enabled)
       setIsInitialized(true)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to access microphone'
       setError(errorMessage)
       setIsInitialized(false)
     }
-  }, [settings, vadSettings.smoothingTimeConstant])
+  }, [settings, vadSettings.smoothingTimeConstant, enabled])
 
   const stopListening = useCallback(() => {
     // Only cleanup if no other callbacks are registered
@@ -383,6 +400,7 @@ export function useVoiceActivity({
   // Auto start/stop based on enabled
   useEffect(() => {
     let syncTimer: number | null = null
+    setGlobalCaptureActive(enabled)
 
     if (enabled && !globalIsInitialized && !globalIsInitializing) {
       console.log('[VAD] Starting listening...')

@@ -64,6 +64,10 @@ export function useConnection() {
 
   // Audio data handler for voice activity
   const handleVoiceData = useCallback((float32Data: Float32Array) => {
+    if (useAudioStore.getState().isMicMuted) {
+      return
+    }
+
     const int16Data = float32ToInt16(float32Data, inputVolume / 100)
     const signaling = getSignalingClient()
     const transportMode = signaling.getTransportMode()
