@@ -26,7 +26,8 @@ interface HardwareEngineContentProps {
   onAudioSettingsChange: (settings: AudioSettings) => void
   onSpeakingChange?: (isSpeaking: boolean) => void
   enableAudioCapture: boolean
-  onAudioData?: (audioData: string) => void
+  onAudioData?: (audioData: string | ArrayBuffer) => void
+  audioOutputFormat?: 'base64' | 'binary'
   useVadThreshold: boolean
   onVadThresholdChange: (value: boolean) => void
 }
@@ -38,6 +39,7 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
   onSpeakingChange,
   enableAudioCapture,
   onAudioData,
+  audioOutputFormat = 'base64',
   useVadThreshold,
   onVadThresholdChange
 }: HardwareEngineContentProps) {
@@ -164,6 +166,7 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
         onSpeakingChange={onSpeakingChange}
         enableAudioCapture={enableAudioCapture}
         onAudioData={onAudioData}
+        audioOutputFormat={audioOutputFormat}
         useVadThreshold={useVadThreshold}
         onVadThresholdChange={onVadThresholdChange}
       />
@@ -237,7 +240,8 @@ interface ConnectionViewProps {
   onAudioSettingsChange: (settings: AudioSettings) => void
   onSpeakingChange?: (isSpeaking: boolean) => void
   enableAudioCapture?: boolean
-  onAudioData?: (audioData: string) => void
+  onAudioData?: (audioData: string | ArrayBuffer) => void
+  audioOutputFormat?: 'base64' | 'binary'
 }
 
 export const ConnectionView = memo(function ConnectionView({
@@ -248,7 +252,8 @@ export const ConnectionView = memo(function ConnectionView({
   onAudioSettingsChange,
   onSpeakingChange,
   enableAudioCapture = false,
-  onAudioData
+  onAudioData,
+  audioOutputFormat = 'base64'
 }: ConnectionViewProps) {
   const [serverUrl, setServerUrl] = useState(connectionState.serverUrl)
   const [username, setUsername] = useState('')
@@ -683,6 +688,7 @@ export const ConnectionView = memo(function ConnectionView({
                 onSpeakingChange={onSpeakingChange}
                 enableAudioCapture={enableAudioCapture}
                 onAudioData={onAudioData}
+                audioOutputFormat={audioOutputFormat}
                 useVadThreshold={useVadThreshold}
                 onVadThresholdChange={handleVadThresholdChange}
               />
@@ -728,6 +734,7 @@ export const ConnectionView = memo(function ConnectionView({
           onSpeakingChange={onSpeakingChange}
           enableAudioCapture={enableAudioCapture}
           onAudioData={onAudioData}
+          audioOutputFormat={audioOutputFormat}
           useVadThreshold={useVadThreshold}
           onVadThresholdChange={handleVadThresholdChange}
         />

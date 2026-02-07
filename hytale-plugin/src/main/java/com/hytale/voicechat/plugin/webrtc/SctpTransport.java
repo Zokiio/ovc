@@ -68,7 +68,9 @@ public class SctpTransport {
         options.setMaxMessageSize(1_073_741_823L); // 1GB
         options.setAnnouncedMaximumIncomingStreams(1024);
         options.setAnnouncedMaximumOutgoingStreams(1024);
-        options.setMtu(1200);
+        // Keep SCTP packets safely under the DTLS/UDP 1200-byte send limit
+        // to avoid drops on common WAN/relay paths.
+        options.setMtu(1000);
 
         DcSctpSocketCallbacks callbacks = new DcsctpCallbacks();
         PacketObserver packetObserver = null;

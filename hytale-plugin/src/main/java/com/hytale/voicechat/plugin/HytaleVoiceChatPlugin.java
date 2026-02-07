@@ -122,6 +122,8 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             webRtcAudioBridge.setGroupStateManager(groupStateManager);
             signalingServer.setAudioBridge(webRtcAudioBridge);
             DataChannelAudioHandler dataChannelAudioHandler = new DataChannelAudioHandler(webRtcAudioBridge);
+            webRtcAudioBridge.setDataChannelAudioHandler(dataChannelAudioHandler);
+            webRtcAudioBridge.setClientIdMapper(signalingServer.getClientIdMapper());
             IceServerConfig iceServerConfig = IceServerConfig.defaults();
             WebRTCPeerManager peerManager = new WebRTCPeerManager(
                 iceServerConfig.getStunServers(),

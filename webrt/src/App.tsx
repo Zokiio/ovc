@@ -31,6 +31,7 @@ import { useIsMobile } from '@/hooks/use-mobile'
 import { useAudioTransmission } from '@/hooks/use-audio-transmission'
 import { getSignalingClient } from '@/lib/signaling'
 import { getAudioPlaybackManager } from '@/lib/audio-playback'
+import { WebRTCTransport } from '@/lib/webrtc-transport'
 import icon from '@/assets/images/icon.png'
 
 const AUDIO_SETTINGS_STORAGE_KEY = 'ovc_audio_settings'
@@ -48,6 +49,8 @@ const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   spatialAudioEnabled: true
 }
 
+type TransportMode = 'auto' | 'webrtc' | 'websocket'
+
 function loadAudioSettings(): AudioSettings {
   try {
     const stored = localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY)
@@ -61,8 +64,17 @@ function loadAudioSettings(): AudioSettings {
   }
 }
 
+function createSessionInstanceId(): string {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  }
+}
+
 function App() {
   const isMobile = useIsMobile()
+  const sessionInstanceRef = useRef<string>(createSessionInstanceId())
   const signalingClient = useRef(getSignalingClient())
   const audioPlayback = useRef(getAudioPlaybackManager())
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -100,11 +112,63 @@ function App() {
     status: 'disconnected',
     serverUrl: ''
   })
+  const [transportStatus, setTransportStatus] = useState<'disabled' | 'connecting' | 'webrtc' | 'websocket' | 'failed'>('disabled')
+  const [transportMode, setTransportMode] = useState<TransportMode>('auto')
+  const transportModeRef = useRef<TransportMode>('auto')
+  const stunServersRef = useRef<string[]>([
+    'stun:stun.cloudflare.com:3478',
+    'stun:stun.cloudflare.com:53'
+  ])
+  const webrtcTransportRef = useRef<WebRTCTransport | null>(null)
+  const [transportInstance, setTransportInstance] = useState<WebRTCTransport | null>(null)
+  const transportUnsubRef = useRef<(() => void)[]>([])
   const [isMuted, setIsMuted] = useState<boolean>(false)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
   const currentUserIdRef = useRef<string | null>(null)
   const [latency, setLatency] = useState<number | undefined>(undefined)
   
+  useEffect(() => {
+    const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined
+    const navType = navEntry?.type || 'unknown'
+    console.info('[App] Session start', {
+      sessionId: sessionInstanceRef.current,
+      navType,
+      href: window.location.href
+    })
+
+    const handleVisibility = () => {
+      console.info('[App] visibilitychange', {
+        state: document.visibilityState
+      })
+    }
+    const handlePageHide = (event: PageTransitionEvent) => {
+      console.info('[App] pagehide', { persisted: event.persisted })
+    }
+    const handleBeforeUnload = () => {
+      console.info('[App] beforeunload')
+    }
+    const handleOnline = () => {
+      console.info('[App] online')
+    }
+    const handleOffline = () => {
+      console.info('[App] offline')
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('pagehide', handlePageHide)
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('pagehide', handlePageHide)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
   const [searchQuery, setSearchQuery] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
@@ -120,7 +184,8 @@ function App() {
   // Audio transmission hook - captures and sends audio when speaking
   const { onAudioData } = useAudioTransmission({
     enabled: !isMuted,
-    connected: connectionState.status === 'connected'
+    connected: connectionState.status === 'connected',
+    transport: transportInstance
   })
 
   // Flush batched updates at 10Hz (every 100ms)
@@ -161,6 +226,87 @@ function App() {
       flushTimeoutRef.current = window.setTimeout(flushUpdates, 100)
     }
   }, [flushUpdates])
+
+  const handleIncomingAudio = useCallback((userId: string, audioData: string | ArrayBuffer) => {
+    if (audioData instanceof ArrayBuffer) {
+      audioPlayback.current.playUserAudioBinary(userId, audioData)
+    } else {
+      audioPlayback.current.playUserAudio(userId, audioData)
+    }
+
+    // Mark user as speaking when receiving audio
+    updateQueueRef.current.speaking.set(userId, true)
+    scheduleFlush()
+
+    // Clear any existing timeout for this user
+    const existingTimeout = speakingTimeoutsRef.current.get(userId)
+    if (existingTimeout) {
+      clearTimeout(existingTimeout)
+    }
+
+    // Schedule timeout to mark user as not speaking after audio stops
+    const timeout = window.setTimeout(() => {
+      updateQueueRef.current.speaking.set(userId, false)
+      scheduleFlush()
+      speakingTimeoutsRef.current.delete(userId)
+    }, 400)
+    speakingTimeoutsRef.current.set(userId, timeout)
+  }, [scheduleFlush])
+
+  const stopWebRTCTransport = useCallback(() => {
+    transportUnsubRef.current.forEach((unsubscribe) => unsubscribe())
+    transportUnsubRef.current = []
+
+    if (webrtcTransportRef.current) {
+      webrtcTransportRef.current.close()
+    }
+    webrtcTransportRef.current = null
+    setTransportInstance(null)
+  }, [])
+
+  const startWebRTCTransport = useCallback(() => {
+    const mode = transportModeRef.current
+    if (mode === 'websocket') {
+      setTransportStatus('websocket')
+      stopWebRTCTransport()
+      return
+    }
+
+    stopWebRTCTransport()
+    const transport = new WebRTCTransport(signalingClient.current, stunServersRef.current)
+    webrtcTransportRef.current = transport
+    setTransportInstance(transport)
+    setTransportStatus('connecting')
+
+    const unsubscribeState = transport.onStateChange((state) => {
+      if (state === 'connecting') {
+        setTransportStatus('connecting')
+        return
+      }
+      if (state === 'connected') {
+        setTransportStatus('webrtc')
+        return
+      }
+      if (state === 'failed') {
+        setTransportStatus(mode === 'auto' ? 'websocket' : 'failed')
+        return
+      }
+      if (state === 'closed') {
+        setTransportStatus(mode === 'auto' ? 'websocket' : 'disabled')
+      }
+    })
+
+    const unsubscribeAudio = transport.onAudio((userId, audioData) => {
+      handleIncomingAudio(userId, audioData)
+    })
+
+    transportUnsubRef.current = [unsubscribeState, unsubscribeAudio]
+
+    transport.start().catch((err) => {
+      console.warn('[WebRTC] Transport start failed:', err)
+      setTransportStatus(mode === 'auto' ? 'websocket' : 'failed')
+    })
+  }, [handleIncomingAudio, stopWebRTCTransport])
 
   // Handle speaking status changes from VoiceActivityMonitor
   const handleSpeakingChange = useCallback((isSpeaking: boolean) => {
@@ -355,6 +501,8 @@ function App() {
       clearAuthTimeout()
       clearPingInterval()
       client.removeAllListeners()
+      stopWebRTCTransport()
+      setTransportStatus('disabled')
 
       await client.connect(serverUrl, username, authCode)
       lastCredentialsRef.current = { serverUrl, username, authCode }
@@ -372,25 +520,7 @@ function App() {
 
       // Set up audio playback callback for incoming audio
       client.setAudioPlaybackCallback((userId: string, audioData: string) => {
-        audioPlayback.current.playUserAudio(userId, audioData)
-
-        // Mark user as speaking when receiving audio
-        updateQueueRef.current.speaking.set(userId, true)
-        scheduleFlush()
-
-        // Clear any existing timeout for this user
-        const existingTimeout = speakingTimeoutsRef.current.get(userId)
-        if (existingTimeout) {
-          clearTimeout(existingTimeout)
-        }
-
-        // Schedule timeout to mark user as not speaking after audio stops
-        const timeout = window.setTimeout(() => {
-          updateQueueRef.current.speaking.set(userId, false)
-          scheduleFlush()
-          speakingTimeoutsRef.current.delete(userId)
-        }, 400) // 400ms after last audio packet
-        speakingTimeoutsRef.current.set(userId, timeout)
+        handleIncomingAudio(userId, audioData)
       })
 
       const activateSession = (activeServerUrl: string) => {
@@ -407,6 +537,8 @@ function App() {
         audioPlayback.current.initialize().catch(err => {
           console.warn('[App] Failed to initialize audio playback:', err)
         })
+
+        startWebRTCTransport()
 
         client.updateMuteStatus(isMuted)
         client.listGroups()
@@ -426,10 +558,24 @@ function App() {
         reconnectAttemptRef.current = 0
         blockReconnectRef.current = false
 
-        const payload = data as { clientId?: string; pending?: boolean; pendingMessage?: string }
+        const payload = data as { clientId?: string; pending?: boolean; pendingMessage?: string; transportMode?: string; stunServers?: string[] }
         if (payload.clientId) {
           setCurrentUserId(payload.clientId)
           currentUserIdRef.current = payload.clientId
+        }
+
+        if (payload.transportMode) {
+          const mode = payload.transportMode.toLowerCase()
+          const normalized = mode === 'webrtc' || mode === 'websocket' ? mode : 'auto'
+          transportModeRef.current = normalized
+          setTransportMode(normalized)
+        } else {
+          transportModeRef.current = 'auto'
+          setTransportMode('auto')
+        }
+
+        if (Array.isArray(payload.stunServers) && payload.stunServers.length > 0) {
+          stunServersRef.current = payload.stunServers.filter(Boolean)
         }
 
         if (payload.pending) {
@@ -737,7 +883,12 @@ function App() {
             pitch: number
             worldId: string
           }
+          timestamp?: number
         }
+        const nowPerf = performance.now()
+        const sampleTime = payload.timestamp
+          ? nowPerf - Math.max(0, Date.now() - payload.timestamp)
+          : nowPerf
         if (payload.listener?.userId) {
           audioPlayback.current.setListenerPose({
             x: payload.listener.x,
@@ -746,7 +897,7 @@ function App() {
             yaw: payload.listener.yaw,
             pitch: payload.listener.pitch,
             worldId: payload.listener.worldId
-          })
+          }, sampleTime)
         }
         if (payload.positions && payload.positions.length > 0) {
           // Batch position updates
@@ -758,7 +909,7 @@ function App() {
               yaw: pos.yaw,
               pitch: pos.pitch,
               worldId: pos.worldId
-            })
+            }, sampleTime)
             updateQueueRef.current.positions.set(pos.userId, {
               x: pos.x,
               y: pos.y,
@@ -932,6 +1083,8 @@ function App() {
     clearPingInterval()
     client.removeAllListeners()
     client.disconnect()
+    stopWebRTCTransport()
+    setTransportStatus('disabled')
     setConnectionState(currentState => ({
       serverUrl: currentState?.serverUrl || '',
       status: 'disconnected',
@@ -960,6 +1113,7 @@ function App() {
       clearPingInterval()
       clearAuthTimeout()
       clearReconnectTimer()
+      stopWebRTCTransport()
       if (flushTimeoutRef.current) {
         clearTimeout(flushTimeoutRef.current)
         flushTimeoutRef.current = null
@@ -1026,6 +1180,23 @@ function App() {
 
   const currentGroup = (groups || []).find(g => g.id === currentGroupId)
   const currentUser = currentUserId ? users.get(currentUserId) : undefined
+  const audioOutputFormat = transportStatus === 'webrtc' || transportMode === 'webrtc' ? 'binary' : 'base64'
+  const transportLabel = transportStatus === 'webrtc'
+    ? 'RTC'
+    : transportStatus === 'connecting'
+      ? 'RTC...'
+      : transportStatus === 'failed'
+        ? 'RTC!'
+        : transportStatus === 'websocket'
+          ? 'WS'
+          : ''
+  const transportLabelClass = transportStatus === 'webrtc'
+    ? 'text-emerald-400'
+    : transportStatus === 'connecting'
+      ? 'text-amber-400'
+      : transportStatus === 'failed'
+        ? 'text-red-400'
+        : 'text-muted-foreground'
 
   useEffect(() => {
     if (currentGroupId && activeTab === 'groups') {
@@ -1063,7 +1234,8 @@ function App() {
     onSpeakingChange: isMuted ? undefined : handleSpeakingChange,
     enableAudioCapture: !isMuted && connectionState.status === 'connected',
     onAudioData,
-  }), [connectionState, audioSettings, handleConnect, handleDisconnect, handleAudioSettingsChange, isMuted, handleSpeakingChange, onAudioData]);
+    audioOutputFormat
+  }), [connectionState, audioSettings, handleConnect, handleDisconnect, handleAudioSettingsChange, isMuted, handleSpeakingChange, onAudioData, audioOutputFormat]);
 
   // Show SignInPage when not connected
   if (connectionState.status !== 'connected') {
@@ -1097,6 +1269,11 @@ function App() {
             <div className="flex items-center gap-2 shrink-0">{connectionState.status === 'connected' && (
                 <div className="flex items-center gap-1.5 text-[10px] text-green-400 status-live font-bold whitespace-nowrap">
                   <div className="w-1.5 h-1.5 rounded-full bg-green-400" /> LIVE
+                </div>
+              )}
+              {transportLabel && (
+                <div className={`text-[9px] font-bold uppercase tracking-widest ${transportLabelClass}`}>
+                  {transportLabel}
                 </div>
               )}
               <Button
@@ -1393,17 +1570,24 @@ function App() {
                 ))}
               </div>
 
-              <div className="relative w-full max-w-[16rem] sm:max-w-xs">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                <label htmlFor="main-search-users" className="sr-only">Search users</label>
-                <Input 
-                  id="main-search-users"
-                  type="text" 
-                  placeholder="Search users..." 
-                  className="bg-card border-border rounded-full pl-10 pr-4 py-1.5 text-xs focus:ring-1 ring-accent w-full"
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                />
+              <div className="flex items-center gap-3">
+                {transportLabel && (
+                  <div className={`text-[10px] font-bold uppercase tracking-widest ${transportLabelClass}`}>
+                    {transportLabel}
+                  </div>
+                )}
+                <div className="relative w-full max-w-[16rem] sm:max-w-xs">
+                  <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+                  <label htmlFor="main-search-users" className="sr-only">Search users</label>
+                  <Input 
+                    id="main-search-users"
+                    type="text" 
+                    placeholder="Search users..." 
+                    className="bg-card border-border rounded-full pl-10 pr-4 py-1.5 text-xs focus:ring-1 ring-accent w-full"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                </div>
               </div>
             </header>
 

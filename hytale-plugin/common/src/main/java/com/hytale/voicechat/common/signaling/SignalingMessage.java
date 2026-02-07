@@ -45,6 +45,11 @@ public class SignalingMessage {
     public static final String TYPE_AUTHENTICATE = "authenticate";
     public static final String TYPE_AUTH_SUCCESS = "auth_success";
     public static final String TYPE_AUTH_ERROR = "auth_error";
+    public static final String TYPE_HELLO = "hello";
+    public static final String TYPE_HEARTBEAT = "heartbeat";
+    public static final String TYPE_HEARTBEAT_ACK = "heartbeat_ack";
+    public static final String TYPE_RESUME = "resume";
+    public static final String TYPE_RESUMED = "resumed";
     public static final String TYPE_OFFER = "offer";
     public static final String TYPE_ANSWER = "answer";
     public static final String TYPE_ICE_CANDIDATE = "ice_candidate";

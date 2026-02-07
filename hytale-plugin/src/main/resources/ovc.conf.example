@@ -41,6 +41,30 @@ GameQuitGraceSeconds = 10
 # Default: 60
 PendingGameJoinTimeoutSeconds = 60
 
+# WebRTC transport mode for audio
+# Options:
+#   auto      - Prefer WebRTC DataChannel, fallback to WebSocket (default)
+#   webrtc    - Require WebRTC DataChannel (no WebSocket audio)
+#   websocket - Disable WebRTC transport and use WebSocket audio only
+# Default: auto
+WebRtcTransportMode = "auto"
+
+# Comma-separated STUN servers used for WebRTC ICE
+# Default: stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53
+StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
+
+# Comma-separated TURN servers (unused for now)
+# Default: (empty)
+TurnServers = ""
+
+# ICE UDP port range for WebRTC host candidates
+# Set a fixed range and forward these UDP ports to your server for reliable WebRTC.
+# 0 = ephemeral ports (not recommended behind NAT)
+# Example: 50000-51000
+# Default: 0 (ephemeral)
+IcePortMin = 50000
+IcePortMax = 51000
+
 # Default proximity range for voice chat (in blocks/meters)
 # This is the maximum hearing distance when a player is NOT in a group
 # Groups can have their own proximity range configured separately

@@ -3,6 +3,7 @@ package com.hytale.voicechat.plugin.webrtc;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
+import com.hytale.voicechat.common.network.NetworkConfig;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -10,11 +11,16 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.OperatorCreationException;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.ice4j.Transport;
 import org.ice4j.TransportAddress;
 import org.ice4j.ice.Agent;
 import org.ice4j.ice.Component;
 import org.ice4j.ice.IceMediaStream;
+import org.ice4j.ice.IceProcessingState;
+import org.ice4j.ice.LocalCandidate;
+import org.ice4j.ice.RemoteCandidate;
 import org.ice4j.ice.harvest.StunCandidateHarvester;
+import org.ice4j.ice.harvest.TrickleCallback;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -45,6 +51,11 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class WebRTCPeerManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+
+    public interface IceCandidateListener {
+        void onLocalCandidate(UUID clientId, String candidate, String sdpMid, int sdpMLineIndex);
+        void onIceGatheringComplete(UUID clientId);
+    }
     
     // Initialize BouncyCastle provider and Ice4j configuration
     static {
@@ -119,7 +130,7 @@ public class WebRTCPeerManager {
             System.setProperty("ice4j.harvest.timeout", "15000");
             
             // ===== HARVEST: UDP CONFIGURATION =====
-            System.setProperty("org.ice4j.ice.harvest.USE_DYNAMIC_HOST_HARVESTER", "false");
+            System.setProperty("org.ice4j.ice.harvest.USE_DYNAMIC_HOST_HARVESTER", "true");
             System.setProperty("ice4j.harvest.udp.use-dynamic-ports", "true");
             
             System.setProperty("org.ice4j.ice.harvest.AbstractUdpListener.SO_RCVBUF", "0");
@@ -164,16 +175,32 @@ public class WebRTCPeerManager {
         } catch (Exception e) {
             logger.atWarning().log("Failed to configure Ice4j properties: " + e.getMessage());
         }
+
+        // Quiet the noisy ICE "Completed -> Terminated" transition log.
+        try {
+            java.util.logging.Logger iceAgentLogger = java.util.logging.Logger.getLogger("org.ice4j.ice.Agent");
+            iceAgentLogger.setFilter(record -> {
+                String message = record.getMessage();
+                return message == null || !message.contains("ICE state changed from Completed to Terminated");
+            });
+        } catch (Exception e) {
+            logger.atWarning().log("Failed to install ICE log filter: " + e.getMessage());
+        }
     }
 
     private final Map<UUID, WebRTCPeerSession> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, List<PendingIceCandidate>> pendingIceCandidates = new ConcurrentHashMap<>();
     private final List<String> stunServers;
     private final DataChannelAudioHandler audioHandler;
+    private IceCandidateListener iceCandidateListener;
 
     public WebRTCPeerManager(List<String> stunServers, DataChannelAudioHandler audioHandler) {
         this.stunServers = stunServers;
         this.audioHandler = audioHandler;
+    }
+
+    public void setIceCandidateListener(IceCandidateListener listener) {
+        this.iceCandidateListener = listener;
     }
 
     /**
@@ -184,6 +211,10 @@ public class WebRTCPeerManager {
      * @return SDP answer to send back to the client.
      */
     public String createPeerConnection(UUID clientId, String offerSdp) {
+        WebRTCPeerSession existing = sessions.remove(clientId);
+        if (existing != null) {
+            existing.close();
+        }
         WebRTCPeerSession session = new WebRTCPeerSession(clientId, offerSdp);
         sessions.put(clientId, session);
         logger.atWarning().log("Created WebRTC peer session with provisional SDP answer (Ice4j wiring pending): " + clientId);
@@ -204,6 +235,13 @@ public class WebRTCPeerManager {
             return;
         }
         session.addRemoteCandidate(candidate, sdpMid, sdpMLineIndex);
+    }
+
+    public void handleIceCandidateComplete(UUID clientId) {
+        WebRTCPeerSession session = sessions.get(clientId);
+        if (session != null) {
+            session.handleRemoteCandidatesComplete();
+        }
     }
 
     /**
@@ -279,6 +317,10 @@ public class WebRTCPeerManager {
         private DtlsTransport dtlsTransport;
         private SctpTransport sctpTransport;
         private DataChannelManager dataChannelManager;
+        private String audioMid;
+        private String datachannelMid;
+        private int audioMLineIndex = -1;
+        private int dataMLineIndex = -1;
 
         WebRTCPeerSession(UUID clientId, String offerSdp) {
             this.clientId = clientId;
@@ -297,6 +339,8 @@ public class WebRTCPeerManager {
                 // Create Ice4j Agent with controlling role (server controls candidate nomination)
                 this.iceAgent = new Agent();
                 this.iceAgent.setControlling(true);
+                this.iceAgent.setTrickling(true);
+                this.iceAgent.setUseDynamicPorts(true);
                 
                 // Restore original classloader
                 currentThread.setContextClassLoader(originalClassLoader);
@@ -331,28 +375,19 @@ public class WebRTCPeerManager {
                 logger.atInfo().log("Audio stream components: " + audioStream.getComponentCount());
                 logger.atInfo().log("Application stream components: " + datachannelStream.getComponentCount());
                 
-                // Components may be created immediately or lazily
-                // Try to access them to ensure they're created
-                try {
-                    Component audioComp = audioStream.getComponent(1);
-                    if (audioComp != null) {
-                        logger.atInfo().log("Audio RTP component created and available immediately");
-                    } else {
-                        logger.atInfo().log("Audio RTP component not available immediately (will be created by harvesters)");
-                    }
-                } catch (Exception e) {
-                    logger.atWarning().log("Error accessing audio component: " + e.getMessage());
+                // Create ICE components so candidate harvesting can begin
+                Component audioComp = createComponentWithFallback(audioStream, "audio");
+                if (audioComp != null) {
+                    logger.atInfo().log("Audio RTP component created and available");
+                } else {
+                    logger.atWarning().log("Audio RTP component not available (candidate harvesting may fail)");
                 }
-                
-                try {
-                    Component datachannelComp = datachannelStream.getComponent(1);
-                    if (datachannelComp != null) {
-                        logger.atInfo().log("Application RTP component created and available immediately");
-                    } else {
-                        logger.atInfo().log("Application RTP component not available immediately (will be created by harvesters)");
-                    }
-                } catch (Exception e) {
-                    logger.atWarning().log("Error accessing datachannel component: " + e.getMessage());
+
+                Component datachannelComp = createComponentWithFallback(datachannelStream, "application");
+                if (datachannelComp != null) {
+                    logger.atInfo().log("Application RTP component created and available");
+                } else {
+                    logger.atWarning().log("Application RTP component not available (candidate harvesting may fail)");
                 }
                 
                 // Generate DTLS certificate and fingerprint for this session
@@ -374,6 +409,8 @@ public class WebRTCPeerManager {
                 
                 // Generate SDP answer with real ICE credentials
                 this.answerSdp = this.createAnswerSdp(offerSdp);
+                addRemoteCandidatesFromOffer(offerSdp);
+                startCandidateTrickle();
                 
             } catch (Exception e) {
                 logger.atSevere().log("Failed to initialize Ice4j Agent for client " + clientId + ": " + e.getMessage());
@@ -403,22 +440,76 @@ public class WebRTCPeerManager {
                 // 1. Server gathers its own local candidates via STUN harvesters
                 // 2. Browser connects to server's candidates
                 // 3. Remote (browser) candidates are secondary - processed for completeness
-                
-                // However, Ice4j components are created lazily when harvesters run
-                // Remote candidates are logged but not explicitly queued since Ice4j handles them
-                
-                if (candidate.startsWith("candidate:")) {
-                    String candidateLine = candidate.substring("candidate:".length());
-                    String[] parts = candidateLine.split(" ");
-                    if (parts.length >= 8) {
-                        int browserComponentId = Integer.parseInt(parts[1]);
-                        logger.atInfo().log("Received remote candidate for " + sdpMid + " (component=" + browserComponentId + ")");
-                    }
+
+                if (candidate == null || candidate.isEmpty()) {
+                    return;
                 }
-                
+
+                String candidateLine = candidate;
+                if (candidateLine.startsWith("a=")) {
+                    candidateLine = candidateLine.substring(2);
+                }
+                if (candidateLine.startsWith("candidate:")) {
+                    candidateLine = candidateLine.substring("candidate:".length());
+                }
+
+                String[] parts = candidateLine.split(" ");
+                if (parts.length < 8) {
+                    logger.atWarning().log("Invalid ICE candidate format for client " + clientId + ": " + candidate);
+                    return;
+                }
+
+                String foundation = parts[0];
+                int componentId = Integer.parseInt(parts[1]);
+                String transport = parts[2];
+                long priority = Long.parseLong(parts[3]);
+                String address = parts[4];
+                int port = Integer.parseInt(parts[5]);
+                String type = parts[7];
+
+                if (!"udp".equalsIgnoreCase(transport)) {
+                    logger.atFine().log("Skipping non-UDP ICE candidate for client " + clientId + ": " + transport);
+                    return;
+                }
+
+                IceMediaStream targetStream = resolveStreamForCandidate(sdpMid, sdpMLineIndex);
+                if (targetStream == null) {
+                    logger.atWarning().log("No ICE stream available for candidate on client " + clientId);
+                    return;
+                }
+
+                Component component = targetStream.getComponent(componentId);
+                if (component == null) {
+                    logger.atWarning().log("ICE component " + componentId + " not available for stream " + targetStream.getName());
+                    return;
+                }
+
+                TransportAddress transportAddress = new TransportAddress(address, port, Transport.UDP);
+                RemoteCandidate remoteCandidate = new RemoteCandidate(
+                    transportAddress,
+                    component,
+                    mapCandidateType(type),
+                    foundation,
+                    priority,
+                    null
+                );
+
+                if (iceAgent.getState() == IceProcessingState.RUNNING || iceAgent.getState().isEstablished()) {
+                    component.addUpdateRemoteCandidates(remoteCandidate);
+                } else {
+                    component.addRemoteCandidate(remoteCandidate);
+                }
+
+                if (iceAgent.getState() == IceProcessingState.WAITING) {
+                    iceAgent.startConnectivityEstablishment();
+                }
             } catch (Exception e) {
                 logger.atWarning().log("Failed to process ICE candidate: " + e.getMessage());
             }
+        }
+
+        void handleRemoteCandidatesComplete() {
+            logger.atInfo().log("Remote ICE candidates complete for client " + clientId);
         }
 
         void close() {
@@ -581,6 +672,55 @@ public class WebRTCPeerManager {
             }, "dtls-handshake-" + clientId).start();
             }
         }
+
+        private void startCandidateTrickle() {
+            if (iceCandidateListener == null) {
+                return;
+            }
+
+            try {
+                iceAgent.startCandidateTrickle(new TrickleCallback() {
+                    @Override
+                    public void onIceCandidates(java.util.Collection<LocalCandidate> iceCandidates) {
+                        if (iceCandidates == null) {
+                            iceCandidateListener.onIceGatheringComplete(clientId);
+                            return;
+                        }
+
+                        for (LocalCandidate candidate : iceCandidates) {
+                            if (candidate == null) {
+                                continue;
+                            }
+                            IceMediaStream stream = candidate.getParentComponent().getParentStream();
+                            String mid = resolveMidForStream(stream);
+                            int mLineIndex = resolveMLineIndexForStream(stream);
+                            iceCandidateListener.onLocalCandidate(clientId, candidate.toString(), mid, mLineIndex);
+                        }
+                    }
+                });
+            } catch (IllegalStateException e) {
+                logger.atWarning().log("ICE trickle not enabled for client " + clientId + ": " + e.getMessage());
+            }
+        }
+
+        private Component createComponentWithFallback(IceMediaStream stream, String label) {
+            try {
+                int minPort = NetworkConfig.getIcePortMin();
+                int maxPort = NetworkConfig.getIcePortMax();
+                if (minPort > 0 && maxPort > 0) {
+                    return iceAgent.createComponent(stream, minPort, minPort, maxPort);
+                }
+            } catch (Exception e) {
+                logger.atWarning().log("Failed to create " + label + " component with configured ICE range: " + e.getMessage());
+            }
+
+            try {
+                return iceAgent.createComponent(stream, 0, 0, 0);
+            } catch (Exception e) {
+                logger.atSevere().log("Failed to create " + label + " component with dynamic ports: " + e.getMessage());
+                return null;
+            }
+        }
         
         /**
          * Wait for an Ice4j component to be created (up to maxWaitMs).
@@ -632,6 +772,7 @@ public class WebRTCPeerManager {
             answer.append("o=- 0 0 IN IP4 0.0.0.0\r\n");
             answer.append("s=Hytale Voice Chat\r\n");
             answer.append("t=0 0\r\n");
+            answer.append("a=ice-options:trickle\r\n");
 
             String[] lines = offerSdp.split("\r\n");
             StringBuilder bundleLineBuilder = new StringBuilder();
@@ -654,16 +795,19 @@ public class WebRTCPeerManager {
 
             boolean inAudioSection = false;
             boolean inDataChannelSection = false;
+            int currentMLineIndex = -1;
             for (String line : lines) {
-                if (line.startsWith("m=audio")) {
-                    inAudioSection = true;
-                    inDataChannelSection = false;
-                } else if (line.startsWith("m=application")) {
-                    inAudioSection = false;
-                    inDataChannelSection = true;
-                } else if (line.startsWith("m=")) {
-                    inAudioSection = false;
-                    inDataChannelSection = false;
+                if (line.startsWith("m=")) {
+                    currentMLineIndex++;
+                    inAudioSection = line.startsWith("m=audio");
+                    inDataChannelSection = line.startsWith("m=application");
+
+                    if (inAudioSection && audioMLineIndex < 0) {
+                        audioMLineIndex = currentMLineIndex;
+                    }
+                    if (inDataChannelSection && dataMLineIndex < 0) {
+                        dataMLineIndex = currentMLineIndex;
+                    }
                 }
 
                 if (line.startsWith("a=mid:")) {
@@ -684,6 +828,9 @@ public class WebRTCPeerManager {
                     datachannelDirection = line.substring("a=".length());
                 }
             }
+
+            this.audioMid = audioMid;
+            this.datachannelMid = datachannelMid;
 
             String answerAudioDirection = invertDirection(audioDirection);
             String answerDataChannelDirection = invertDirection(datachannelDirection);
@@ -709,15 +856,11 @@ public class WebRTCPeerManager {
                 answer.append("a=ice-ufrag:").append(iceUfrag).append("\r\n");
                 answer.append("a=ice-pwd:").append(icePwd).append("\r\n");
                 answer.append("a=fingerprint:sha-256 ").append(dtlsFingerprint).append("\r\n");
-                answer.append("a=setup:active\r\n");
+                answer.append("a=setup:passive\r\n");
                 answer.append("a=mid:").append(audioMid != null ? audioMid : "0").append("\r\n");
                 answer.append("a=").append(answerAudioDirection).append("\r\n");
                 answer.append("a=rtcp-mux\r\n");
                 answer.append("a=rtpmap:111 opus/48000/2\r\n");
-                
-                // Add candidates from audio stream (will be populated after gathering completes)
-                // For now: placeholder, will be populated in next phase when candidate trickle is implemented
-                answer.append("a=end-of-candidates\r\n");
             }
 
             if (hasDataChannel) {
@@ -726,59 +869,107 @@ public class WebRTCPeerManager {
                 answer.append("a=ice-ufrag:").append(iceUfrag).append("\r\n");
                 answer.append("a=ice-pwd:").append(icePwd).append("\r\n");
                 answer.append("a=fingerprint:sha-256 ").append(dtlsFingerprint).append("\r\n");
-                answer.append("a=setup:active\r\n");
+                answer.append("a=setup:passive\r\n");
                 answer.append("a=mid:").append(datachannelMid != null ? datachannelMid : "1").append("\r\n");
                 answer.append("a=").append(answerDataChannelDirection).append("\r\n");
                 answer.append("a=sctp-port:5000\r\n");
                 answer.append("a=max-message-size:1073741823\r\n");
-                
-                // Add candidates from datachannel stream (will be populated after gathering completes)
-                // For now: placeholder, will be populated in next phase when candidate trickle is implemented
-                answer.append("a=end-of-candidates\r\n");
             }
 
             return answer.toString();
         }
 
+        private void addRemoteCandidatesFromOffer(String offerSdp) {
+            if (offerSdp == null || offerSdp.isEmpty()) {
+                return;
+            }
+
+            String[] lines = offerSdp.split("\r\n");
+            int currentMLineIndex = -1;
+            String currentMid = null;
+            boolean sawEndOfCandidates = false;
+
+            for (String line : lines) {
+                if (line.startsWith("m=")) {
+                    currentMLineIndex++;
+                    currentMid = null;
+                    continue;
+                }
+
+                if (line.startsWith("a=mid:")) {
+                    currentMid = line.substring("a=mid:".length()).trim();
+                    continue;
+                }
+
+                if (line.startsWith("a=candidate:") || line.startsWith("candidate:")) {
+                    addRemoteCandidate(line, currentMid, currentMLineIndex);
+                    continue;
+                }
+
+                if (line.startsWith("a=end-of-candidates")) {
+                    sawEndOfCandidates = true;
+                }
+            }
+
+            if (sawEndOfCandidates) {
+                handleRemoteCandidatesComplete();
+            }
+        }
+
         private void applyRemoteIceCredentials(String offerSdp) {
             String[] lines = offerSdp.split("\r\n");
-            boolean inAudioSection = false;
-            boolean inDataChannelSection = false;
+            String currentSection = null;
 
             String audioUfrag = null;
             String audioPwd = null;
             String dataUfrag = null;
             String dataPwd = null;
+            String sessionUfrag = null;
+            String sessionPwd = null;
 
             for (String line : lines) {
                 if (line.startsWith("m=audio")) {
-                    inAudioSection = true;
-                    inDataChannelSection = false;
+                    currentSection = "audio";
                 } else if (line.startsWith("m=application")) {
-                    inAudioSection = false;
-                    inDataChannelSection = true;
+                    currentSection = "application";
                 } else if (line.startsWith("m=")) {
-                    inAudioSection = false;
-                    inDataChannelSection = false;
+                    currentSection = "other";
                 }
 
                 if (line.startsWith("a=ice-ufrag:")) {
                     String ufrag = line.substring("a=ice-ufrag:".length()).trim();
-                    if (inAudioSection) {
+                    if ("audio".equals(currentSection)) {
                         audioUfrag = ufrag;
-                    } else if (inDataChannelSection) {
+                    } else if ("application".equals(currentSection)) {
                         dataUfrag = ufrag;
+                    } else if (currentSection == null) {
+                        sessionUfrag = ufrag;
                     }
                 }
 
                 if (line.startsWith("a=ice-pwd:")) {
                     String pwd = line.substring("a=ice-pwd:".length()).trim();
-                    if (inAudioSection) {
+                    if ("audio".equals(currentSection)) {
                         audioPwd = pwd;
-                    } else if (inDataChannelSection) {
+                    } else if ("application".equals(currentSection)) {
                         dataPwd = pwd;
+                    } else if (currentSection == null) {
+                        sessionPwd = pwd;
                     }
                 }
+            }
+
+            if (audioUfrag == null) {
+                audioUfrag = sessionUfrag;
+            }
+            if (audioPwd == null) {
+                audioPwd = sessionPwd;
+            }
+            if (dataUfrag == null) {
+                dataUfrag = sessionUfrag;
+            }
+            if (dataPwd == null) {
+                dataPwd = sessionPwd;
             }
 
             if (audioUfrag != null) {
@@ -794,6 +985,54 @@ public class WebRTCPeerManager {
             if (dataPwd != null) {
                 datachannelStream.setRemotePassword(dataPwd);
             }
+        }
+
+        private IceMediaStream resolveStreamForCandidate(String sdpMid, int sdpMLineIndex) {
+            if (sdpMid != null) {
+                if (sdpMid.equals(datachannelMid)) {
+                    return datachannelStream;
+                }
+                if (sdpMid.equals(audioMid)) {
+                    return audioStream;
+                }
+            }
+
+            if (sdpMLineIndex >= 0) {
+                if (sdpMLineIndex == dataMLineIndex) {
+                    return datachannelStream;
+                }
+                if (sdpMLineIndex == audioMLineIndex) {
+                    return audioStream;
+                }
+            }
+
+            return datachannelStream != null ? datachannelStream : audioStream;
+        }
+
+        private String resolveMidForStream(IceMediaStream stream) {
+            if (stream == null) {
+                return null;
+            }
+            if (stream.equals(datachannelStream)) {
+                return datachannelMid;
+            }
+            if (stream.equals(audioStream)) {
+                return audioMid;
+            }
+            return null;
+        }
+
+        private int resolveMLineIndexForStream(IceMediaStream stream) {
+            if (stream == null) {
+                return -1;
+            }
+            if (stream.equals(datachannelStream)) {
+                return dataMLineIndex;
+            }
+            if (stream.equals(audioStream)) {
+                return audioMLineIndex;
+            }
+            return -1;
         }
 
         private org.ice4j.ice.CandidateType mapCandidateType(String type) {
