@@ -10,6 +10,9 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     this.playbackReadPos = 0
     this.prebufferSamples = Math.max(128, Math.round(sampleRate * 0.06)) // 60ms minimum
     this.isPrimed = false
+    this.lastOutputSample = 0
+    this.maxStepPerSample = 0.18
+    this.softClipDrive = 1.6
 
     this.underruns = 0
     this.overruns = 0
@@ -41,6 +44,28 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     this.overruns = 0
     this.droppedSamples = 0
     this.lastFrameSize = 0
+    this.lastOutputSample = 0
+  }
+
+  shapeOutputSample(sample) {
+    let next = Number.isFinite(sample) ? sample : 0
+
+    // Defensive clamp before smoothing to avoid bad packet artifacts.
+    if (next > 1.25) next = 1.25
+    if (next < -1.25) next = -1.25
+
+    // Slew-limit sudden jumps to remove transient pops/bursts.
+    const delta = next - this.lastOutputSample
+    if (delta > this.maxStepPerSample) {
+      next = this.lastOutputSample + this.maxStepPerSample
+    } else if (delta < -this.maxStepPerSample) {
+      next = this.lastOutputSample - this.maxStepPerSample
+    }
+
+    // Gentle soft clipping for residual peaks.
+    const clipped = Math.tanh(next * this.softClipDrive) / Math.tanh(this.softClipDrive)
+    this.lastOutputSample = clipped
+    return clipped
   }
 
   writeSamples(float32Data) {
@@ -89,17 +114,19 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     const availableBeforeWrite = this.playbackWritePos - this.playbackReadPos
 
     if (!this.isPrimed && availableBeforeWrite < this.prebufferSamples) {
-      channel.fill(0)
+      for (let i = 0; i < channel.length; i++) {
+        channel[i] = this.shapeOutputSample(0)
+      }
     } else {
       this.isPrimed = true
       let hadUnderrun = false
       for (let i = 0; i < channel.length; i++) {
         if (this.playbackReadPos < this.playbackWritePos) {
           const sample = this.playbackBuffer[this.playbackReadPos % this.playbackBufferSize]
-          channel[i] = sample
+          channel[i] = this.shapeOutputSample(sample)
           this.playbackReadPos++
         } else {
-          channel[i] = 0
+          channel[i] = this.shapeOutputSample(0)
           hadUnderrun = true
         }
       }

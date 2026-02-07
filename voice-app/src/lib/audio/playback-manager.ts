@@ -39,11 +39,11 @@ export class AudioPlaybackManager {
     this.audioContext = new AudioContext({ sampleRate: 48000 })
     this.masterGainNode = this.audioContext.createGain()
     this.masterCompressorNode = this.audioContext.createDynamicsCompressor()
-    this.masterCompressorNode.threshold.value = -14
-    this.masterCompressorNode.knee.value = 24
-    this.masterCompressorNode.ratio.value = 8
-    this.masterCompressorNode.attack.value = 0.003
-    this.masterCompressorNode.release.value = 0.25
+    this.masterCompressorNode.threshold.value = -18
+    this.masterCompressorNode.knee.value = 18
+    this.masterCompressorNode.ratio.value = 12
+    this.masterCompressorNode.attack.value = 0.001
+    this.masterCompressorNode.release.value = 0.12
 
     this.masterGainNode.connect(this.masterCompressorNode)
     this.masterCompressorNode.connect(this.audioContext.destination)
