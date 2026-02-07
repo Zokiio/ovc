@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react';
 import { cn } from '../../lib/utils';
 import { useAudioStore } from '../../stores/audioStore';
 import { Volume2, VolumeX, MicOff } from 'lucide-react';
@@ -13,14 +14,14 @@ interface UserCardProps {
   className?: string;
 }
 
-export const UserCard = ({ user, showVolumeControls = true, showSpeakingLevel = false, className }: UserCardProps) => {
-  const localMutes = useAudioStore((s) => s.localMutes);
-  const userVolumes = useAudioStore((s) => s.userVolumes);
+const UserCardComponent = ({ user, showVolumeControls = true, showSpeakingLevel = false, className }: UserCardProps) => {
+  const selectLocalMuted = useCallback((s: ReturnType<typeof useAudioStore.getState>) => s.localMutes.get(user.id) ?? false, [user.id]);
+  const selectUserVolume = useCallback((s: ReturnType<typeof useAudioStore.getState>) => s.userVolumes.get(user.id) ?? 100, [user.id]);
+
+  const isLocalMuted = useAudioStore(selectLocalMuted);
+  const volume = useAudioStore(selectUserVolume);
   const setLocalMute = useAudioStore((s) => s.setLocalMute);
   const setUserVolume = useAudioStore((s) => s.setUserVolume);
-
-  const isLocalMuted = localMutes.get(user.id) ?? false;
-  const volume = userVolumes.get(user.id) ?? 100;
   const isSpeaking = user.isSpeaking;
   const isMicMuted = user.isMicMuted;
 
@@ -120,6 +121,17 @@ export const UserCard = ({ user, showVolumeControls = true, showSpeakingLevel = 
   );
 };
 
+const areUserCardPropsEqual = (prev: UserCardProps, next: UserCardProps) =>
+  prev.user.id === next.user.id &&
+  prev.user.name === next.user.name &&
+  prev.user.isSpeaking === next.user.isSpeaking &&
+  prev.user.isMicMuted === next.user.isMicMuted &&
+  prev.showVolumeControls === next.showVolumeControls &&
+  prev.showSpeakingLevel === next.showSpeakingLevel &&
+  prev.className === next.className;
+
+export const UserCard = memo(UserCardComponent, areUserCardPropsEqual);
+
 // --- Compact User Card for Lists ---
 
 interface UserCardCompactProps {
@@ -129,14 +141,14 @@ interface UserCardCompactProps {
   className?: string;
 }
 
-export const UserCardCompact = ({ user, onClick, showControls = true, className }: UserCardCompactProps) => {
-  const localMutes = useAudioStore((s) => s.localMutes);
-  const userVolumes = useAudioStore((s) => s.userVolumes);
+const UserCardCompactComponent = ({ user, onClick, showControls = true, className }: UserCardCompactProps) => {
+  const selectLocalMuted = useCallback((s: ReturnType<typeof useAudioStore.getState>) => s.localMutes.get(user.id) ?? false, [user.id]);
+  const selectUserVolume = useCallback((s: ReturnType<typeof useAudioStore.getState>) => s.userVolumes.get(user.id) ?? 100, [user.id]);
+
+  const isLocalMuted = useAudioStore(selectLocalMuted);
+  const volume = useAudioStore(selectUserVolume);
   const setLocalMute = useAudioStore((s) => s.setLocalMute);
   const setUserVolume = useAudioStore((s) => s.setUserVolume);
-
-  const isLocalMuted = localMutes.get(user.id) ?? false;
-  const volume = userVolumes.get(user.id) ?? 100;
   const isSpeaking = user.isSpeaking;
   const isMicMuted = user.isMicMuted;
 
@@ -207,6 +219,17 @@ export const UserCardCompact = ({ user, onClick, showControls = true, className 
     </div>
   );
 };
+
+const areUserCardCompactPropsEqual = (prev: UserCardCompactProps, next: UserCardCompactProps) =>
+  prev.user.id === next.user.id &&
+  prev.user.name === next.user.name &&
+  prev.user.isSpeaking === next.user.isSpeaking &&
+  prev.user.isMicMuted === next.user.isMicMuted &&
+  prev.showControls === next.showControls &&
+  prev.onClick === next.onClick &&
+  prev.className === next.className;
+
+export const UserCardCompact = memo(UserCardCompactComponent, areUserCardCompactPropsEqual);
 
 // --- Minimal Speaking Indicator Row ---
 

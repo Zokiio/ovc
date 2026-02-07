@@ -11,11 +11,22 @@ export function useAudioPlayback() {
   const outputVolume = useAudioStore((s) => s.settings.outputVolume)
   const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
   const isDeafened = useAudioStore((s) => s.isDeafened)
+  const setAudioDiagnostics = useAudioStore((s) => s.setAudioDiagnostics)
   
   const setUserVolume = useUserStore((s) => s.setUserVolume)
   const setUserMuted = useUserStore((s) => s.setUserMuted)
 
   const managerRef = useRef(getAudioPlaybackManager())
+
+  useEffect(() => {
+    const manager = managerRef.current
+    manager.setDiagnosticsListener((userId, diagnostics) => {
+      setAudioDiagnostics(userId, diagnostics)
+    })
+    return () => {
+      manager.setDiagnosticsListener(null)
+    }
+  }, [setAudioDiagnostics])
 
   // Sync master volume
   useEffect(() => {

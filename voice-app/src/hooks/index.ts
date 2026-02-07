@@ -1,5 +1,5 @@
 export { useVoiceActivity } from './useVoiceActivity'
-export { useAudioDevices } from './useAudioDevices'
+export { useAudioDevices, useInitializeAudioDevices } from './useAudioDevices'
 export { useAudioPlayback } from './useAudioPlayback'
 export { useConnection } from './useConnection'
 export { useKeyboardShortcuts, DEFAULT_SHORTCUTS } from './useKeyboardShortcuts'

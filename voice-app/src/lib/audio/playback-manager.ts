@@ -4,6 +4,8 @@
  * Uses AudioWorklet for low-latency playback.
  */
 
+import type { AudioDiagnostics } from '../types'
+
 export interface UserAudioState {
   volume: number // 0-200 (allow boost)
   isMuted: boolean
@@ -19,11 +21,13 @@ interface AudioContextWithSinkId extends AudioContext {
 export class AudioPlaybackManager {
   private audioContext: AudioContext | null = null
   private masterGainNode: GainNode | null = null
+  private masterCompressorNode: DynamicsCompressorNode | null = null
   private userStates: Map<string, UserAudioState> = new Map()
   private masterVolume: number = 100
   private masterMuted: boolean = false
   private outputDeviceId: string = 'default'
   private workletReady: Promise<void> | null = null
+  private diagnosticsListener: ((userId: string, diagnostics: AudioDiagnostics) => void) | null = null
 
   /**
    * Initialize the audio context (call after user interaction)
@@ -34,7 +38,15 @@ export class AudioPlaybackManager {
     // Force 48kHz to match server sample rate
     this.audioContext = new AudioContext({ sampleRate: 48000 })
     this.masterGainNode = this.audioContext.createGain()
-    this.masterGainNode.connect(this.audioContext.destination)
+    this.masterCompressorNode = this.audioContext.createDynamicsCompressor()
+    this.masterCompressorNode.threshold.value = -14
+    this.masterCompressorNode.knee.value = 24
+    this.masterCompressorNode.ratio.value = 8
+    this.masterCompressorNode.attack.value = 0.003
+    this.masterCompressorNode.release.value = 0.25
+
+    this.masterGainNode.connect(this.masterCompressorNode)
+    this.masterCompressorNode.connect(this.audioContext.destination)
     this.updateMasterGain()
 
     // Apply output device if set
@@ -142,6 +154,12 @@ export class AudioPlaybackManager {
     await this.applyOutputDevice()
   }
 
+  public setDiagnosticsListener(
+    listener: ((userId: string, diagnostics: AudioDiagnostics) => void) | null
+  ): void {
+    this.diagnosticsListener = listener
+  }
+
   private async applyOutputDevice(): Promise<void> {
     if (!this.audioContext) return
 
@@ -178,6 +196,11 @@ export class AudioPlaybackManager {
     if (this.masterGainNode) {
       this.masterGainNode.disconnect()
       this.masterGainNode = null
+    }
+
+    if (this.masterCompressorNode) {
+      this.masterCompressorNode.disconnect()
+      this.masterCompressorNode = null
     }
 
     if (this.audioContext && this.audioContext.state !== 'closed') {
@@ -243,6 +266,22 @@ export class AudioPlaybackManager {
           bufferSize: 48000 * 2, // 2 seconds buffer
         },
       })
+
+      workletNode.port.onmessage = (event) => {
+        if (event.data?.type !== 'diagnostics' || !this.diagnosticsListener) {
+          return
+        }
+        const data = event.data.data as Omit<AudioDiagnostics, 'updatedAt'>
+        this.diagnosticsListener(userId, {
+          underruns: data.underruns ?? 0,
+          overruns: data.overruns ?? 0,
+          droppedSamples: data.droppedSamples ?? 0,
+          lastFrameSize: data.lastFrameSize ?? 0,
+          bufferedSamples: data.bufferedSamples ?? 0,
+          updatedAt: Date.now(),
+        })
+      }
+
       workletNode.connect(state.gainNode)
       state.playbackProcessor = workletNode
       state.isInitialized = true
@@ -318,6 +357,11 @@ export class AudioPlaybackManager {
     if (this.masterGainNode) {
       this.masterGainNode.disconnect()
       this.masterGainNode = null
+    }
+
+    if (this.masterCompressorNode) {
+      this.masterCompressorNode.disconnect()
+      this.masterCompressorNode = null
     }
 
     if (this.audioContext && this.audioContext.state !== 'closed') {

@@ -8,16 +8,19 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../../context/theme-context';
 import { cn } from '../../../lib/utils';
-import { useConnection } from '../../../hooks/useConnection';
 import { useSettingsStore } from '../../../stores/settingsStore';
-import { useConnectionStore } from '../../../stores/connectionStore';
 import { useAudioDevices } from '../../../hooks/useAudioDevices';
+import type { ConnectionStatus } from '../../../lib/types';
 import type { SavedServer } from '../../../lib/types';
 
-export const LoginView = ({ onConnect }: { onConnect: (username: string, server: string) => void }) => {
-  // Connection
-  const { connect, status } = useConnection();
-  const errorMessage = useConnectionStore((s) => s.errorMessage);
+interface LoginViewProps {
+  onConnect: (username: string, server: string) => void;
+  connect: (serverUrl: string, username: string, authCode?: string) => Promise<void>;
+  connectionStatus: ConnectionStatus;
+  connectionError: string | null;
+}
+
+export const LoginView = ({ onConnect, connect, connectionStatus, connectionError }: LoginViewProps) => {
   
   // Saved servers from store
   const savedServers = useSettingsStore((s) => s.savedServers);
@@ -39,25 +42,21 @@ export const LoginView = ({ onConnect }: { onConnect: (username: string, server:
 
   const { toggleTheme } = useTheme();
   
-  const isConnecting = status === 'connecting';
+  const isConnecting = connectionStatus === 'connecting';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (username && server && !isConnecting) {
       await connect(server, username, password);
-      // If connection succeeds, the parent will be notified via store changes
-      if (status === 'connected') {
-        onConnect(username, server);
-      }
     }
   };
   
   // Watch for successful connection
   useEffect(() => {
-    if (status === 'connected' && username && server) {
+    if (connectionStatus === 'connected' && username && server) {
       onConnect(username, server);
     }
-  }, [status, username, server, onConnect]);
+  }, [connectionStatus, username, server, onConnect]);
 
   const handleSaveRealm = () => {
     if (server && nickname) {
@@ -262,9 +261,9 @@ export const LoginView = ({ onConnect }: { onConnect: (username: string, server:
                           </>
                         )}
                      </Button>
-                     {errorMessage && (
+                     {connectionError && (
                        <div className="mt-2 p-2 bg-[var(--accent-danger)]/10 border border-[var(--accent-danger)]/30 rounded text-[var(--accent-danger)] text-[10px] text-center">
-                         {errorMessage}
+                         {connectionError}
                        </div>
                      )}
                   </div>
@@ -360,4 +359,3 @@ export const LoginView = ({ onConnect }: { onConnect: (username: string, server:
     </div>
   );
 };
-

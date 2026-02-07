@@ -12,15 +12,25 @@ import { MicLevelDisplay, SpeakingIndicatorIsolated } from './ui/MicLevelDisplay
 import { Clock } from 'lucide-react';
 import { useAudioStore } from '../stores/audioStore';
 import { useGroupStore } from '../stores/groupStore';
-import { useConnection } from '../hooks/useConnection';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 interface MainAppProps {
   user: { name: string; server: string };
   onLogout: () => void;
+  disconnect: () => void;
+  createGroup: (name: string, maxMembers?: number) => void;
+  joinGroup: (groupId: string) => void;
+  leaveGroup: () => void;
 }
 
-export const MainApp = ({ user, onLogout }: MainAppProps) => {
+export const MainApp = ({
+  user,
+  onLogout,
+  disconnect,
+  createGroup,
+  joinGroup,
+  leaveGroup,
+}: MainAppProps) => {
   // Only subscribe to state that doesn't change frequently
   const micMuted = useAudioStore((s) => s.isMicMuted);
   const toggleMicMuted = useAudioStore((s) => s.toggleMicMuted);
@@ -31,7 +41,6 @@ export const MainApp = ({ user, onLogout }: MainAppProps) => {
   const groups = useGroupStore((s) => s.groups);
   const currentGroupId = useGroupStore((s) => s.currentGroupId);
   const currentGroup = groups.find((g) => g.id === currentGroupId) ?? null;
-  const { disconnect } = useConnection();
 
   // Keyboard shortcuts for mute (M) and deafen (D)
   useKeyboardShortcuts();
@@ -63,7 +72,13 @@ export const MainApp = ({ user, onLogout }: MainAppProps) => {
   const renderSidebarContent = () => {
     switch (activeSidebarView) {
       case 'groups':
-        return <PartyManager />;
+        return (
+          <PartyManager
+            createGroup={createGroup}
+            joinGroup={joinGroup}
+            leaveGroup={leaveGroup}
+          />
+        );
       case 'players':
         return <GlobalRoster />;
       case 'settings':
@@ -77,7 +92,15 @@ export const MainApp = ({ user, onLogout }: MainAppProps) => {
   const renderMobileContent = () => {
     switch (activeMobileTab) {
       case 'groups':
-        return <div className="p-4 h-full"><PartyManager /></div>;
+        return (
+          <div className="p-4 h-full">
+            <PartyManager
+              createGroup={createGroup}
+              joinGroup={joinGroup}
+              leaveGroup={leaveGroup}
+            />
+          </div>
+        );
       case 'players':
         return <div className="p-4 h-full"><GlobalRoster /></div>;
       case 'radar':

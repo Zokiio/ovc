@@ -25,6 +25,7 @@ export function useConnection() {
   const setAuthenticated = useConnectionStore((s) => s.setAuthenticated)
   const setLatency = useConnectionStore((s) => s.setLatency)
   const setError = useConnectionStore((s) => s.setError)
+  const setServerUrl = useConnectionStore((s) => s.setServerUrl)
   const resetConnection = useConnectionStore((s) => s.reset)
 
   // Group store
@@ -422,6 +423,7 @@ export function useConnection() {
 
     try {
       setStatus('connecting')
+      setServerUrl(serverUrl)
 
       // Initialize audio playback
       await initializePlayback()
@@ -443,6 +445,7 @@ export function useConnection() {
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
+      setServerUrl('')
       setError(message)
       resetSignalingClient()
       resetWebRTCManager()
@@ -450,7 +453,7 @@ export function useConnection() {
       isConnectingRef.current = false
     }
   }, [
-    setStatus, setError, initializePlayback,
+    setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
     addSavedServer, setLastServerUrl, connectWebRTCIfAllowed,
   ])

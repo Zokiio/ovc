@@ -1,36 +1,37 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useAudioStore } from '../stores/audioStore'
 import type { AudioDevice } from '../lib/types'
 
-/**
- * Hook for managing audio device enumeration and selection.
- */
-export function useAudioDevices() {
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  
-  const devices = useAudioStore((s) => s.devices)
-  const setDevices = useAudioStore((s) => s.setDevices)
-  const inputDeviceId = useAudioStore((s) => s.settings.inputDeviceId)
-  const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
-  const setInputDevice = useAudioStore((s) => s.setInputDevice)
-  const setOutputDevice = useAudioStore((s) => s.setOutputDevice)
+let enumerationInFlight: Promise<void> | null = null
+let hasRequestedPermission = false
+let listenerAttached = false
+let sharedError: string | null = null
 
-  const enumerateDevices = useCallback(async () => {
+async function enumerateAndStoreDevices(): Promise<void> {
+  if (enumerationInFlight) {
+    return enumerationInFlight
+  }
+
+  const run = async () => {
     try {
-      setIsLoading(true)
-      setError(null)
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        sharedError = 'Media devices API is unavailable'
+        return
+      }
 
-      // Request permission first (required to get device labels)
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        stream.getTracks().forEach((track) => track.stop())
-      } catch {
-        // Permission denied, but we can still enumerate (without labels)
+      if (!hasRequestedPermission) {
+        hasRequestedPermission = true
+        try {
+          if (navigator.mediaDevices.getUserMedia) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+            stream.getTracks().forEach((track) => track.stop())
+          }
+        } catch {
+          // Permission denied still allows non-labeled device enumeration.
+        }
       }
 
       const mediaDevices = await navigator.mediaDevices.enumerateDevices()
-      
       const audioDevices: AudioDevice[] = mediaDevices
         .filter((d) => d.kind === 'audioinput' || d.kind === 'audiooutput')
         .map((d) => ({
@@ -39,31 +40,51 @@ export function useAudioDevices() {
           kind: d.kind as 'audioinput' | 'audiooutput',
         }))
 
-      setDevices(audioDevices)
+      useAudioStore.getState().setDevices(audioDevices)
+      sharedError = null
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to enumerate devices'
-      setError(message)
+      sharedError = err instanceof Error ? err.message : 'Failed to enumerate devices'
     } finally {
-      setIsLoading(false)
+      enumerationInFlight = null
     }
-  }, [setDevices])
+  }
 
-  // Enumerate on mount
+  enumerationInFlight = run()
+  return enumerationInFlight
+}
+
+export function useInitializeAudioDevices() {
   useEffect(() => {
-    enumerateDevices()
-  }, [enumerateDevices])
-
-  // Listen for device changes
-  useEffect(() => {
-    const handleDeviceChange = () => {
-      enumerateDevices()
+    if (!navigator.mediaDevices?.addEventListener) {
+      void enumerateAndStoreDevices()
+      return
     }
 
-    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange)
-    return () => {
-      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange)
+    if (!listenerAttached) {
+      listenerAttached = true
+      navigator.mediaDevices.addEventListener('devicechange', () => {
+        void enumerateAndStoreDevices()
+      })
     }
-  }, [enumerateDevices])
+
+    void enumerateAndStoreDevices()
+  }, [])
+}
+
+/**
+ * Hook for reading selected audio device state and actions.
+ * Initialization and global listeners are handled by useInitializeAudioDevices().
+ */
+export function useAudioDevices() {
+  const devices = useAudioStore((s) => s.devices)
+  const inputDeviceId = useAudioStore((s) => s.settings.inputDeviceId)
+  const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
+  const setInputDevice = useAudioStore((s) => s.setInputDevice)
+  const setOutputDevice = useAudioStore((s) => s.setOutputDevice)
+
+  const refresh = useCallback(async () => {
+    await enumerateAndStoreDevices()
+  }, [])
 
   const inputDevices = devices.filter((d) => d.kind === 'audioinput')
   const outputDevices = devices.filter((d) => d.kind === 'audiooutput')
@@ -75,8 +96,8 @@ export function useAudioDevices() {
     outputDeviceId,
     setInputDevice,
     setOutputDevice,
-    isLoading,
-    error,
-    refresh: enumerateDevices,
+    isLoading: enumerationInFlight !== null,
+    error: sharedError,
+    refresh,
   }
 }

@@ -74,7 +74,7 @@ export const ThemeSelector = ({ className }: { className?: string }) => {
         {themes.map(t => (
           <button
             key={t.id}
-            onClick={() => setTheme(t.id as 'industrial' | 'hytale')}
+            onClick={() => setTheme(t.id)}
             className={cn(
               "p-3 rounded-[var(--radius-btn)] border-2 transition-all text-left",
               theme === t.id

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Panel, Meter, Button, Slider, Select, Switch, Badge } from '../../ui/Primitives';
 import { cn } from '../../../lib/utils';
 import { Globe, MapPin, Cpu, Sun, Cloud, Wind } from 'lucide-react';
@@ -262,9 +262,46 @@ export const SystemStatus = () => {
 // --- Main Telemetry Export ---
 
 export const TelemetryPanel = () => {
+   const audioDiagnostics = useAudioStore((s) => s.audioDiagnostics)
+   const totals = useMemo(() => {
+      let underruns = 0
+      let overruns = 0
+      let droppedSamples = 0
+      let bufferedSamples = 0
+
+      audioDiagnostics.forEach((entry) => {
+         underruns += entry.underruns
+         overruns += entry.overruns
+         droppedSamples += entry.droppedSamples
+         bufferedSamples += entry.bufferedSamples
+      })
+
+      return { underruns, overruns, droppedSamples, bufferedSamples }
+   }, [audioDiagnostics])
+
    return (
       <div className="flex flex-col gap-4 h-full">
          <SpatialRadar />
+         <Panel title="Audio Diagnostics">
+            <div className="grid grid-cols-2 gap-2">
+               <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
+                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Underruns</p>
+                  <p className="text-xs font-mono text-[var(--text-primary)]">{totals.underruns}</p>
+               </div>
+               <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
+                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Overruns</p>
+                  <p className="text-xs font-mono text-[var(--text-primary)]">{totals.overruns}</p>
+               </div>
+               <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
+                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Dropped</p>
+                  <p className="text-xs font-mono text-[var(--text-primary)]">{totals.droppedSamples}</p>
+               </div>
+               <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
+                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Buffered</p>
+                  <p className="text-xs font-mono text-[var(--text-primary)]">{totals.bufferedSamples}</p>
+               </div>
+            </div>
+         </Panel>
          <div className="mt-auto opacity-50 p-2 border border-dashed border-[var(--border-primary)] rounded-[var(--radius-btn)] text-center">
             <p className="text-[8px] font-bold uppercase text-[var(--text-secondary)]">Telemetry Stream Active</p>
          </div>

@@ -1,15 +1,17 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import { ThemeContext, type Theme } from './theme-context'
+import { useSettingsStore } from '../stores/settingsStore'
 
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
-  const [theme, setThemeState] = useState<Theme>('hytale')
+  const theme = useSettingsStore((s) => s.theme)
+  const setThemeState = useSettingsStore((s) => s.setTheme)
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
 
   const toggleTheme = () => {
-    setThemeState((prev) => (prev === 'industrial' ? 'hytale' : 'industrial'))
+    setThemeState(theme === 'industrial' ? 'hytale' : 'industrial')
   }
 
   const setTheme = (value: Theme) => setThemeState(value)

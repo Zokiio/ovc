@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { persist } from 'zustand/middleware'
-import type { AudioSettings, VADSettings, AudioDevice } from '../lib/types'
+import type { AudioDiagnostics, AudioSettings, VADSettings, AudioDevice } from '../lib/types'
 
 interface AudioStore {
   // Audio Settings
@@ -20,6 +20,7 @@ interface AudioStore {
   // Per-user audio state
   localMutes: Map<string, boolean>
   userVolumes: Map<string, number>
+  audioDiagnostics: Map<string, AudioDiagnostics>
   
   // Actions - Settings
   setInputDevice: (deviceId: string) => void
@@ -51,6 +52,7 @@ interface AudioStore {
   // Actions - Per-user
   setLocalMute: (userId: string, muted: boolean) => void
   setUserVolume: (userId: string, volume: number) => void
+  setAudioDiagnostics: (userId: string, diagnostics: AudioDiagnostics) => void
 }
 
 const VAD_PRESETS: Record<'quiet' | 'normal' | 'noisy', Partial<VADSettings>> = {
@@ -92,6 +94,7 @@ export const useAudioStore = create<AudioStore>()(
       isTestingMic: false,
       localMutes: new Map<string, boolean>(),
       userVolumes: new Map<string, number>(),
+      audioDiagnostics: new Map<string, AudioDiagnostics>(),
 
       // Audio Settings Actions
       setInputDevice: (deviceId) =>
@@ -212,6 +215,11 @@ export const useAudioStore = create<AudioStore>()(
       setUserVolume: (userId, volume) =>
         set((state) => {
           state.userVolumes.set(userId, Math.max(0, Math.min(200, volume)))
+        }),
+
+      setAudioDiagnostics: (userId, diagnostics) =>
+        set((state) => {
+          state.audioDiagnostics.set(userId, diagnostics)
         }),
     })),
     {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Input, Badge } from '../../ui/Primitives';
 import { Search, Users } from 'lucide-react';
 import { useUserStore } from '../../../stores/userStore';
@@ -11,16 +11,25 @@ export const GlobalRoster = () => {
   const usersMap = useUserStore((s) => s.users);
   const groups = useGroupStore((s) => s.groups);
 
-  // Convert Map to array and filter
-  const allUsers = Array.from(usersMap.values());
-  const filteredPlayers = allUsers.filter(p => 
-    p.name.toLowerCase().includes(filter.toLowerCase())
-  );
+  const allUsers = useMemo(() => Array.from(usersMap.values()), [usersMap]);
 
-  // Helper to find user's group
-  const findUserGroup = (userId: string) => {
-    return groups.find(g => g.members.some(m => m.id === userId));
-  };
+  const filteredPlayers = useMemo(() => {
+    const normalizedFilter = filter.toLowerCase();
+    if (!normalizedFilter) {
+      return allUsers;
+    }
+    return allUsers.filter((p) => p.name.toLowerCase().includes(normalizedFilter));
+  }, [allUsers, filter]);
+
+  const userGroupMap = useMemo(() => {
+    const lookup = new Map<string, string>();
+    groups.forEach((group) => {
+      group.members.forEach((member) => {
+        lookup.set(member.id, group.name);
+      });
+    });
+    return lookup;
+  }, [groups]);
 
   return (
     <div className="h-full flex flex-col gap-4">
@@ -59,15 +68,15 @@ export const GlobalRoster = () => {
           ) : (
             <div className="space-y-1">
               {filteredPlayers.map(player => {
-                const group = findUserGroup(player.id);
+                const groupName = userGroupMap.get(player.id);
                 
                 return (
                   <div key={player.id} className="flex items-center gap-2">
                     <div className="flex-1">
                       <UserCardCompact user={player} showControls={true} />
                     </div>
-                    {group && (
-                      <Badge variant="neutral" className="shrink-0 text-[9px]">{group.name}</Badge>
+                    {groupName && (
+                      <Badge variant="neutral" className="shrink-0 text-[9px]">{groupName}</Badge>
                     )}
                   </div>
                 );

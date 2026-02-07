@@ -89,6 +89,15 @@ export interface AudioDevice {
   kind: 'audioinput' | 'audiooutput'
 }
 
+export interface AudioDiagnostics {
+  underruns: number
+  overruns: number
+  droppedSamples: number
+  lastFrameSize: number
+  bufferedSamples: number
+  updatedAt: number
+}
+
 // --- Connection Types ---
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'

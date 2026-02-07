@@ -3,13 +3,15 @@ import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { SavedServer } from '../lib/types'
 
+type AppTheme = 'industrial' | 'hytale'
+
 interface SettingsStore {
   // Saved Servers
   savedServers: SavedServer[]
   lastServerUrl: string | null
   
   // UI Preferences
-  theme: string
+  theme: AppTheme
   sidebarCollapsed: boolean
   
   // Actions - Servers
@@ -19,7 +21,7 @@ interface SettingsStore {
   setLastServerUrl: (url: string) => void
   
   // Actions - UI
-  setTheme: (theme: string) => void
+  setTheme: (theme: AppTheme) => void
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
 }

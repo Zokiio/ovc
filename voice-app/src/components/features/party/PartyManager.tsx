@@ -3,9 +3,14 @@ import { Panel, Button, Input, Switch, Modal, Badge } from '../../ui/Primitives'
 import { cn } from '../../../lib/utils';
 import { Users, Plus, Lock, Globe, LogOut } from 'lucide-react';
 import { useGroupStore } from '../../../stores/groupStore';
-import { useConnection } from '../../../hooks/useConnection';
+ 
+interface PartyManagerProps {
+  createGroup: (name: string, maxMembers?: number) => void;
+  joinGroup: (groupId: string) => void;
+  leaveGroup: () => void;
+}
 
-export const PartyManager = () => {
+export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManagerProps) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
@@ -17,7 +22,6 @@ export const PartyManager = () => {
   const groups = useGroupStore((s) => s.groups);
   const currentGroupId = useGroupStore((s) => s.currentGroupId);
   const currentGroup = groups.find((g) => g.id === currentGroupId) ?? null;
-  const { joinGroup, leaveGroup, createGroup } = useConnection();
 
   const filteredGroups = groups.filter(g => 
      g.name.toLowerCase().includes(searchTerm.toLowerCase())
