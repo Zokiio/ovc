@@ -27,6 +27,12 @@ public class NetworkConfig {
     public static final double PROXIMITY_ROLLOFF_FACTOR = 1.5;
     public static final double PROXIMITY_FADE_START_RATIO = 0.7;   // Fade starts at 70% of max range
     public static final double MAX_VOICE_DISTANCE = 100.0;
+    
+    // Position tracking defaults
+    public static final int DEFAULT_POSITION_SAMPLE_INTERVAL_MS = 50;     // 20 Hz
+    public static final int DEFAULT_POSITION_BROADCAST_INTERVAL_MS = 50;  // 20 Hz
+    public static final double DEFAULT_POSITION_MIN_DISTANCE_DELTA = 0.25;
+    public static final double DEFAULT_POSITION_ROTATION_THRESHOLD_DEG = 2.0;
 
     // WebRTC transport defaults
     public static final String DEFAULT_WEBRTC_TRANSPORT_MODE = "auto"; // auto | webrtc | websocket
@@ -66,6 +72,12 @@ public class NetworkConfig {
     private static double proximityRolloffFactor = PROXIMITY_ROLLOFF_FACTOR;
     private static double maxVoiceDistance = MAX_VOICE_DISTANCE;
     
+    // Position tracking settings - initialized from constants
+    private static int positionSampleIntervalMs = DEFAULT_POSITION_SAMPLE_INTERVAL_MS;
+    private static int positionBroadcastIntervalMs = DEFAULT_POSITION_BROADCAST_INTERVAL_MS;
+    private static double positionMinDistanceDelta = DEFAULT_POSITION_MIN_DISTANCE_DELTA;
+    private static double positionRotationThresholdDeg = DEFAULT_POSITION_ROTATION_THRESHOLD_DEG;
+    
     // Volume processing mode: "server", "client", or "both"
     private static String volumeProcessingMode = "server";
 
@@ -101,6 +113,10 @@ public class NetworkConfig {
             proximityFadeStart = com.hytale.voicechat.common.config.VoiceConfig.getDouble("ProximityFadeStart", proximityFadeStart);
             proximityRolloffFactor = com.hytale.voicechat.common.config.VoiceConfig.getDouble("ProximityRolloffFactor", proximityRolloffFactor);
             maxVoiceDistance = com.hytale.voicechat.common.config.VoiceConfig.getDouble("MaxVoiceDistance", maxVoiceDistance);
+            positionSampleIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("PositionSampleIntervalMs", positionSampleIntervalMs);
+            positionBroadcastIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("PositionBroadcastIntervalMs", positionBroadcastIntervalMs);
+            positionMinDistanceDelta = com.hytale.voicechat.common.config.VoiceConfig.getDouble("PositionMinDistanceDelta", positionMinDistanceDelta);
+            positionRotationThresholdDeg = com.hytale.voicechat.common.config.VoiceConfig.getDouble("PositionRotationThresholdDeg", positionRotationThresholdDeg);
             volumeProcessingMode = com.hytale.voicechat.common.config.VoiceConfig.getString("VolumeProcessingMode", volumeProcessingMode);
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupGlobalVoice", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupSpatialAudio", groupSpatialAudio);
@@ -123,6 +139,10 @@ public class NetworkConfig {
             proximityFadeStart = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.proximity.fade.start", proximityFadeStart);
             proximityRolloffFactor = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.proximity.rolloff", proximityRolloffFactor);
             maxVoiceDistance = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.proximity.max", maxVoiceDistance);
+            positionSampleIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.position.sample.interval.ms", positionSampleIntervalMs);
+            positionBroadcastIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.position.broadcast.interval.ms", positionBroadcastIntervalMs);
+            positionMinDistanceDelta = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.position.min.distance.delta", positionMinDistanceDelta);
+            positionRotationThresholdDeg = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.position.rotation.threshold.deg", positionRotationThresholdDeg);
             volumeProcessingMode = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.volume.processing", volumeProcessingMode);
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.global", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.spatial", groupSpatialAudio);
@@ -140,6 +160,11 @@ public class NetworkConfig {
 
         stunServerList = parseServerList(stunServers);
         turnServerList = parseServerList(turnServers);
+
+        positionSampleIntervalMs = clampInt(positionSampleIntervalMs, 20, 500);
+        positionBroadcastIntervalMs = clampInt(positionBroadcastIntervalMs, 20, 500);
+        positionMinDistanceDelta = clampDouble(positionMinDistanceDelta, 0.05, 5.0);
+        positionRotationThresholdDeg = clampDouble(positionRotationThresholdDeg, 0.1, 45.0);
     }
 
     private NetworkConfig() {
@@ -205,6 +230,34 @@ public class NetworkConfig {
      */
     public static double getMaxVoiceDistance() {
         return maxVoiceDistance;
+    }
+
+    /**
+     * Get position sampling interval (ms).
+     */
+    public static int getPositionSampleIntervalMs() {
+        return positionSampleIntervalMs;
+    }
+
+    /**
+     * Get position broadcast interval (ms).
+     */
+    public static int getPositionBroadcastIntervalMs() {
+        return positionBroadcastIntervalMs;
+    }
+
+    /**
+     * Get minimum distance delta for position updates.
+     */
+    public static double getPositionMinDistanceDelta() {
+        return positionMinDistanceDelta;
+    }
+
+    /**
+     * Get rotation threshold (degrees) for position updates.
+     */
+    public static double getPositionRotationThresholdDeg() {
+        return positionRotationThresholdDeg;
     }
     
     /**
@@ -331,6 +384,14 @@ public class NetworkConfig {
             return false;
         }
         return max >= min;
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static double clampDouble(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static List<String> parseServerList(String raw) {

@@ -95,6 +95,30 @@ ProximityRolloffFactor = 1.5
 # Default: 100.0
 MaxVoiceDistance = 100.0
 
+# Position sampling interval for player tracking (milliseconds)
+# Controls how often the server samples player movement
+# Range: 20 - 500
+# Default: 50
+PositionSampleIntervalMs = 50
+
+# Position broadcast interval to web clients (milliseconds)
+# Controls how often spatial positions are sent to clients
+# Range: 20 - 500
+# Default: 50
+PositionBroadcastIntervalMs = 50
+
+# Minimum distance delta to trigger a position update (blocks/meters)
+# Smaller values = more frequent updates
+# Range: 0.05 - 5.0
+# Default: 0.25
+PositionMinDistanceDelta = 0.25
+
+# Minimum rotation change to trigger a position update (degrees)
+# Smaller values = more responsive head turn tracking
+# Range: 0.1 - 45.0
+# Default: 2.0
+PositionRotationThresholdDeg = 2.0
+
 # Volume processing mode: where distance-based volume adjustment happens
 # Options:
 #   server - Audio volume is adjusted server-side before sending (more CPU on server)

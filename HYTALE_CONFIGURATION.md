@@ -101,6 +101,38 @@ Fixed UDP port range for ICE host candidates. Use this if your server is behind 
   - `-Dvoice.webrtc.ice.port.min=50000`
   - `-Dvoice.webrtc.ice.port.max=51000`
 
+### `PositionSampleIntervalMs` (Integer)
+Interval in milliseconds for sampling player positions on the server.
+
+- **Default**: `50`
+- **Range**: `20 - 500`
+- **Example**: `PositionSampleIntervalMs = 50`
+- **System Property**: `-Dvoice.position.sample.interval.ms=50`
+
+### `PositionBroadcastIntervalMs` (Integer)
+Interval in milliseconds for broadcasting positions to web clients.
+
+- **Default**: `50`
+- **Range**: `20 - 500`
+- **Example**: `PositionBroadcastIntervalMs = 50`
+- **System Property**: `-Dvoice.position.broadcast.interval.ms=50`
+
+### `PositionMinDistanceDelta` (Double)
+Minimum movement distance (blocks/meters) required to send a position update.
+
+- **Default**: `0.25`
+- **Range**: `0.05 - 5.0`
+- **Example**: `PositionMinDistanceDelta = 0.25`
+- **System Property**: `-Dvoice.position.min.distance.delta=0.25`
+
+### `PositionRotationThresholdDeg` (Double)
+Minimum rotation change (degrees) required to send a position update.
+
+- **Default**: `2.0`
+- **Range**: `0.1 - 45.0`
+- **Example**: `PositionRotationThresholdDeg = 2.0`
+- **System Property**: `-Dvoice.position.rotation.threshold.deg=2.0`
+
 ## Configuration Example
 
 ### HOCON Format (ovc.conf)
@@ -123,6 +155,12 @@ StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000
 IcePortMax = 51000
+
+# Position tracking intervals and thresholds
+PositionSampleIntervalMs = 50
+PositionBroadcastIntervalMs = 50
+PositionMinDistanceDelta = 0.25
+PositionRotationThresholdDeg = 2.0
 ```
 
 ### System Properties via JVM Arguments
