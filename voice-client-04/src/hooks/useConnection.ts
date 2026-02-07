@@ -57,20 +57,29 @@ export function useConnection() {
 
   // Audio data handler for voice activity
   const handleVoiceData = useCallback((float32Data: Float32Array) => {
-    if (!clientId) return
-    
+    if (!clientId) {
+      console.debug('[useConnection] No clientId, skipping audio')
+      return
+    }
+
     const int16Data = float32ToInt16(float32Data, inputVolume / 100)
     const payload = encodeAudioPayload(clientId, int16Data)
-    
+
     const webrtc = getWebRTCManager()
     if (webrtc.isReady()) {
-      webrtc.sendAudio(payload)
+      const sent = webrtc.sendAudio(payload)
+      console.debug('[useConnection] Audio sent via DataChannel:', sent, 'payload size:', payload.byteLength)
+    } else {
+      console.debug('[useConnection] WebRTC not ready, audio not sent')
     }
   }, [clientId, inputVolume])
 
   // Voice activity
+  const voiceEnabled = status === 'connected' && !isMicMuted
+  console.debug('[useConnection] Voice activity enabled:', voiceEnabled, '(status:', status, ', isMicMuted:', isMicMuted, ')')
+  
   const { isInitialized: isVoiceInitialized, stopListening } = useVoiceActivity({
-    enabled: status === 'connected' && !isMicMuted,
+    enabled: voiceEnabled,
     onAudioData: handleVoiceData,
   })
 
@@ -268,7 +277,7 @@ export function useConnection() {
       // Normalize players to ensure they have all required fields
       const players: User[] = rawPlayers.map(p => ({
         id: String(p.id || p.playerId || ''),
-        name: String(p.name || p.playerName || 'Unknown'),
+        name: String(p.username || p.name || p.playerName || 'Unknown'),
         avatarUrl: p.avatarUrl,
         isSpeaking: !!p.isSpeaking,
         isMuted: !!p.isMuted,
@@ -421,3 +430,4 @@ export function useConnection() {
     leaveGroup,
   }
 }
+

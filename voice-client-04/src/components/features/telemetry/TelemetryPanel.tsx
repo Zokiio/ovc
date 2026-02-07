@@ -214,23 +214,23 @@ export const SystemStatus = () => {
    return (
       <Panel title="Hardware Config">
          <div className="space-y-4">
-            <Select 
-               label="Input Source" 
+            <Select
+               label="Input Source"
                value={inputDeviceId}
                onChange={(e) => setInputDevice(e.target.value)}
                options={[
                   { value: 'default', label: 'Default Microphone' },
-                  ...inputDevices.map(d => ({ value: d.deviceId, label: d.label }))
-               ]} 
+                  ...inputDevices.filter(d => d.deviceId !== 'default').map(d => ({ value: d.deviceId, label: d.label }))
+               ]}
             />
-            <Select 
-               label="Output Destination" 
+            <Select
+               label="Output Destination"
                value={outputDeviceId}
                onChange={(e) => setOutputDevice(e.target.value)}
                options={[
                   { value: 'default', label: 'Default Speakers' },
-                  ...outputDevices.map(d => ({ value: d.deviceId, label: d.label }))
-               ]} 
+                  ...outputDevices.filter(d => d.deviceId !== 'default').map(d => ({ value: d.deviceId, label: d.label }))
+               ]}
             />
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2">

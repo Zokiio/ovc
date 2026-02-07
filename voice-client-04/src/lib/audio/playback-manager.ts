@@ -194,10 +194,14 @@ export class AudioPlaybackManager {
     const state = this.getOrCreateState(userId)
 
     // Skip if muted
-    if (state.isMuted || this.masterMuted) return
+    if (state.isMuted || this.masterMuted) {
+      console.debug('[AudioPlayback] Skipping audio for', userId, '- muted')
+      return
+    }
 
     // Initialize playback if needed
     if (!state.isInitialized) {
+      console.debug('[AudioPlayback] Initializing playback for user:', userId)
       await this.initializeUserPlayback(userId)
     }
 
@@ -207,6 +211,9 @@ export class AudioPlaybackManager {
         { type: 'samples', data: float32Data },
         [float32Data.buffer]
       )
+      console.debug('[AudioPlayback] Sent', float32Data.length, 'samples to worklet for user:', userId)
+    } else {
+      console.warn('[AudioPlayback] No playback processor for user:', userId)
     }
   }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Panel, Input, Button, Badge, Modal, Select, Meter } from '../../ui/Primitives';
+import { Panel, Input, Button, Badge, Modal, Select } from '../../ui/Primitives';
+import { MicTestDisplay } from '../../ui/MicLevelDisplay';
 import {
   Terminal, Palette, Eye, EyeOff,
   Save, Trash2, Play, Plus, Shield, ShieldOff,
@@ -11,7 +12,6 @@ import { useConnection } from '../../../hooks/useConnection';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useConnectionStore } from '../../../stores/connectionStore';
 import { useAudioDevices } from '../../../hooks/useAudioDevices';
-import { useAudioStore } from '../../../stores/audioStore';
 import type { SavedServer } from '../../../lib/types';
 
 export const LoginView = ({ onConnect }: { onConnect: (username: string, server: string) => void }) => {
@@ -27,9 +27,7 @@ export const LoginView = ({ onConnect }: { onConnect: (username: string, server:
   
   // Audio devices
   const { inputDevices, outputDevices, inputDeviceId, outputDeviceId, setInputDevice, setOutputDevice } = useAudioDevices();
-  const micLevel = useAudioStore((s) => s.micLevel);
-
-  const [username, setUsername] = useState('');
+    const [username, setUsername] = useState('');
   const [server, setServer] = useState(lastServerUrl || 'wss://comm.relay.v4');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -327,34 +325,27 @@ export const LoginView = ({ onConnect }: { onConnect: (username: string, server:
       >
          <div className="space-y-6 p-1">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-               <Select 
-                  label="Input Device" 
+               <Select
+                  label="Input Device"
                   value={inputDeviceId}
                   onChange={(e) => setInputDevice(e.target.value)}
                   options={[
                      { value: 'default', label: 'Default Microphone' },
-                     ...inputDevices.map(d => ({ value: d.deviceId, label: d.label }))
-                  ]} 
+                     ...inputDevices.filter(d => d.deviceId !== 'default').map(d => ({ value: d.deviceId, label: d.label }))
+                  ]}
                />
-               <Select 
-                  label="Output Device" 
+               <Select
+                  label="Output Device"
                   value={outputDeviceId}
                   onChange={(e) => setOutputDevice(e.target.value)}
                   options={[
                      { value: 'default', label: 'Default Speakers' },
-                     ...outputDevices.map(d => ({ value: d.deviceId, label: d.label }))
-                  ]} 
+                     ...outputDevices.filter(d => d.deviceId !== 'default').map(d => ({ value: d.deviceId, label: d.label }))
+                  ]}
                />
             </div>
 
-            <div className="bg-[var(--bg-input)] p-4 rounded-[var(--radius-btn)] border border-[var(--border-primary)] space-y-3 shadow-inner">
-               <div className="flex justify-between items-center text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                  <span>Microphone Test</span>
-                  <span className="text-[var(--accent-success)]">{Math.round(micLevel)}%</span>
-               </div>
-               <Meter value={micLevel} className="h-2.5" />
-               <p className="text-[9px] text-[var(--text-secondary)] italic">Speak to verify your input levels are registering correctly.</p>
-            </div>
+            <MicTestDisplay />
 
             <div className="flex flex-col gap-2 pt-2">
                <Button fullWidth onClick={() => setShowAudioSettings(false)}>
@@ -369,3 +360,5 @@ export const LoginView = ({ onConnect }: { onConnect: (username: string, server:
     </div>
   );
 };
+
+

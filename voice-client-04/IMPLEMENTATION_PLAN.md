@@ -75,12 +75,12 @@ Wire up stores and services to existing UI components.
   - Create group dialog
   - Group list from server
   - Group settings
-- [ ] **3.4 Update GlobalRoster** - Real user list
+- [x] **3.4 Update GlobalRoster** - Real user list
   - Connected users from store
   - Per-user volume controls
   - Mute/unmute controls
   - Speaking status indicators
-- [ ] **3.5 Update TelemetryPanel** - Real metrics
+- [x] **3.5 Update TelemetryPanel** - Real metrics
   - Connection latency (ping/pong)
   - Audio worklet status
   - WebRTC connection state
@@ -153,22 +153,26 @@ System configuration and persistent settings.
 Error handling, edge cases, and UX improvements.
 
 ### Tasks
-- [ ] **7.1 Connection error handling**
+- [x] **7.1 Connection error handling**
   - Reconnection logic
   - Error banners/toasts
   - Connection state UI
-- [ ] **7.2 Audio device handling**
+- [x] **7.2 Audio device handling**
   - Device plug/unplug detection
   - Fallback device selection
   - Permission error handling
-- [ ] **7.3 Empty states**
+- [x] **7.3 Empty states**
   - No group selected
   - Empty member list
   - No groups available
-- [ ] **7.4 Performance optimization**
+- [x] **7.4 Performance optimization**
   - Debounced slider updates
   - Efficient re-renders with Zustand selectors
   - Audio processing optimization
+- [x] **7.5 Keyboard shortcuts**
+  - M key for mute toggle
+  - D key for deafen toggle
+  - Shortcuts displayed in Settings
 
 ---
 
@@ -247,14 +251,14 @@ voice-client-04/src/
 
 ## Success Criteria
 
-- [ ] Can connect to server and authenticate
-- [ ] Can create/join/leave groups
-- [ ] Can transmit/receive audio via WebRTC DataChannel
-- [ ] VAD correctly detects speech
-- [ ] Per-user volume controls work
-- [ ] Settings persist across sessions
-- [ ] Both themes work correctly
-- [ ] Mobile layout functions properly
+- [x] Can connect to server and authenticate
+- [x] Can create/join/leave groups
+- [x] Can transmit/receive audio via WebRTC DataChannel
+- [x] VAD correctly detects speech
+- [x] Per-user volume controls work
+- [x] Settings persist across sessions
+- [x] Both themes work correctly
+- [x] Mobile layout functions properly
 
 ---
 

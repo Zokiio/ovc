@@ -36,9 +36,14 @@ export function useAudioPlayback() {
    * Handle incoming audio data from DataChannel
    */
   const handleAudioData = useCallback(async (data: ArrayBuffer) => {
+    console.debug('[useAudioPlayback] Received audio:', data.byteLength, 'bytes')
     const payload = decodeAudioPayload(data)
-    if (!payload) return
+    if (!payload) {
+      console.warn('[useAudioPlayback] Failed to decode audio payload')
+      return
+    }
 
+    console.debug('[useAudioPlayback] Playing audio from:', payload.senderId, 'samples:', payload.pcmData.length)
     const float32Data = int16ToFloat32(payload.pcmData)
     await managerRef.current.playAudio(payload.senderId, float32Data)
   }, [])

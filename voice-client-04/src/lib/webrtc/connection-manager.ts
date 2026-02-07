@@ -69,6 +69,7 @@ export class WebRTCConnectionManager {
 
     try {
       this.updateState({ connectionState: 'connecting' })
+      console.debug('[WebRTC] Starting connection...')
 
       // Create peer connection
       this.peerConnection = new RTCPeerConnection({
@@ -82,16 +83,19 @@ export class WebRTCConnectionManager {
         ordered: false, // Low latency, allow out-of-order
         maxRetransmits: 0, // No retransmits for real-time audio
       })
+      console.debug('[WebRTC] DataChannel created')
 
       this.setupDataChannelListeners()
 
       // Create and send offer
       const offer = await this.peerConnection.createOffer()
       await this.peerConnection.setLocalDescription(offer)
+      console.debug('[WebRTC] Offer created and local description set')
 
       // Send offer via signaling
       const signaling = getSignalingClient()
       signaling.sendWebRTCOffer(this.targetId, offer.sdp!)
+      console.debug('[WebRTC] Offer sent via signaling')
 
       // Listen for answer
       this.setupSignalingListeners()
@@ -147,7 +151,7 @@ export class WebRTCConnectionManager {
     this.dataChannel.binaryType = 'arraybuffer'
 
     this.dataChannel.onopen = () => {
-      console.debug('[WebRTC] DataChannel open')
+      console.debug('[WebRTC] DataChannel open - ready to send/receive audio')
       this.updateState({ dataChannelState: 'open' })
     }
 
@@ -162,6 +166,7 @@ export class WebRTCConnectionManager {
 
     this.dataChannel.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer && this.onAudioData) {
+        console.debug('[WebRTC] Received audio data:', event.data.byteLength, 'bytes')
         this.onAudioData(event.data)
       }
     }
@@ -176,8 +181,27 @@ export class WebRTCConnectionManager {
     }
 
     const handleIceCandidate = (data: unknown) => {
-      const { candidate } = data as { candidate: RTCIceCandidateInit }
-      this.handleIceCandidate(candidate)
+      const iceData = data as { candidate?: string; sdpMid?: string; sdpMLineIndex?: number; complete?: boolean }
+      
+      // Check for ICE gathering complete signal
+      if (iceData.complete) {
+        console.debug('[WebRTC] ICE gathering complete')
+        return
+      }
+      
+      if (!iceData.candidate) {
+        console.debug('[WebRTC] Received ICE candidate without candidate string')
+        return
+      }
+      
+      // Build RTCIceCandidateInit from server format
+      const candidateInit: RTCIceCandidateInit = {
+        candidate: iceData.candidate,
+        sdpMid: iceData.sdpMid || null,
+        sdpMLineIndex: iceData.sdpMLineIndex ?? null,
+      }
+      
+      this.handleIceCandidate(candidateInit)
     }
 
     signaling.on('webrtc_answer', handleAnswer)
@@ -188,11 +212,12 @@ export class WebRTCConnectionManager {
     if (!this.peerConnection) return
 
     try {
+      console.debug('[WebRTC] Received answer, setting remote description...')
       await this.peerConnection.setRemoteDescription({
         type: 'answer',
         sdp,
       })
-      console.debug('[WebRTC] Remote description set')
+      console.debug('[WebRTC] Remote description set successfully')
     } catch (error) {
       console.error('[WebRTC] Failed to set remote description:', error)
     }

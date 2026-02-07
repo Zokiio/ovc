@@ -134,7 +134,9 @@ export const DeviceSelector = ({ type, showLabel = true, compact = false, classN
 
   const options = [
     { value: 'default', label: `Default ${type === 'input' ? 'Microphone' : 'Speakers'}` },
-    ...devices.map(d => ({ value: d.deviceId, label: d.label || `${type === 'input' ? 'Microphone' : 'Speaker'} ${d.deviceId.slice(0, 8)}` }))
+    ...devices
+      .filter(d => d.deviceId !== 'default') // Filter out 'default' to avoid duplicate keys
+      .map(d => ({ value: d.deviceId, label: d.label || `${type === 'input' ? 'Microphone' : 'Speaker'} ${d.deviceId.slice(0, 8)}` }))
   ];
 
   if (compact) {
