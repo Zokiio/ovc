@@ -6,6 +6,10 @@
 
 import { PlayerPosition } from './types'
 
+interface TimedPosition extends PlayerPosition {
+  t: number
+}
+
 export interface UserAudioState {
   volume: number      // 0-100
   isMuted: boolean
@@ -13,6 +17,8 @@ export interface UserAudioState {
   pannerNode: PannerNode | null
   audioElement: HTMLAudioElement | null
   position: PlayerPosition | null
+  prevSample: TimedPosition | null
+  lastSample: TimedPosition | null
   // Continuous playback buffer (like old client)
   playbackBuffer: Float32Array | null
   playbackBufferSize: number
@@ -34,7 +40,13 @@ export class AudioPlaybackManager {
   private playbackWorkletReady: Promise<void> | null = null
   private spatialEnabled: boolean = true
   private listenerPose: PlayerPosition | null = null
+  private listenerPrevSample: TimedPosition | null = null
+  private listenerLastSample: TimedPosition | null = null
+  private interpolationFrameId: number | null = null
   private playbackPrebufferMs: number = 60
+  private static readonly INTERPOLATION_DELAY_MS = 30
+  private static readonly MAX_EXTRAPOLATION_MS = 100
+  private static readonly SPATIAL_SMOOTHING_TIME_CONSTANT = 0.02
 
   constructor() {
     // Initialize lazily on first audio interaction
@@ -111,33 +123,35 @@ export class AudioPlaybackManager {
    */
   public setSpatialEnabled(enabled: boolean): void {
     this.spatialEnabled = enabled
-    this.updateListenerFromPose()
+    this.applyListenerPose(this.listenerPose)
     for (const [userId, state] of this.userAudioStates) {
       if (state.pannerNode) {
         this.configurePanner(state.pannerNode)
       }
-      this.updateUserPannerPosition(userId)
+      const lastSample = state.lastSample ?? state.position
+      this.applyUserPannerPosition(userId, lastSample ?? null)
     }
   }
 
   /**
    * Set the listener pose (current user's position + orientation)
    */
-  public setListenerPose(pose: PlayerPosition): void {
-    this.listenerPose = pose
-    this.updateListenerFromPose()
-    for (const userId of this.userAudioStates.keys()) {
-      this.updateUserPannerPosition(userId)
-    }
+  public setListenerPose(pose: PlayerPosition, sampleTime?: number): void {
+    const t = sampleTime ?? performance.now()
+    this.listenerPrevSample = this.listenerLastSample
+    this.listenerLastSample = { ...pose, t }
+    this.startInterpolationLoop()
   }
 
   /**
    * Update a user's world position for spatialization
    */
-  public updateUserPosition(userId: string, position: PlayerPosition): void {
+  public updateUserPosition(userId: string, position: PlayerPosition, sampleTime?: number): void {
     const state = this.getOrCreateUserState(userId)
-    state.position = position
-    this.updateUserPannerPosition(userId)
+    const t = sampleTime ?? performance.now()
+    state.prevSample = state.lastSample
+    state.lastSample = { ...position, t }
+    this.startInterpolationLoop()
   }
 
   /**
@@ -269,6 +283,8 @@ export class AudioPlaybackManager {
       state.playbackMinBufferSamples = 0
       state.playbackPrimed = true
       state.position = null
+      state.prevSample = null
+      state.lastSample = null
       state.isPlaybackInitialized = false
     }
 
@@ -511,6 +527,8 @@ export class AudioPlaybackManager {
       state.playbackMinBufferSamples = 0
       state.playbackPrimed = true
       state.position = null
+      state.prevSample = null
+      state.lastSample = null
       state.isPlaybackInitialized = false
       this.userAudioStates.delete(userId)
     }
@@ -529,6 +547,8 @@ export class AudioPlaybackManager {
         pannerNode: null,
         audioElement: null,
         position: null,
+        prevSample: null,
+        lastSample: null,
         // Continuous playback buffer (like old client)
         playbackBuffer: null,
         playbackBufferSize: 48000 * 2, // 2 seconds at 48kHz
@@ -562,7 +582,8 @@ export class AudioPlaybackManager {
       state.pannerNode = this.audioContext.createPanner()
       this.configurePanner(state.pannerNode)
       state.pannerNode.connect(state.gainNode)
-      this.updateUserPannerPosition(userId)
+      const lastSample = state.lastSample ?? state.position
+      this.applyUserPannerPosition(userId, lastSample ?? null)
     }
   }
 
@@ -651,6 +672,139 @@ export class AudioPlaybackManager {
   }
 
   /**
+   * Apply listener pose immediately (after interpolation).
+   */
+  private applyListenerPose(pose: PlayerPosition | null): void {
+    this.listenerPose = pose
+    this.updateListenerFromPose()
+  }
+
+  /**
+   * Start the interpolation/render loop if not already running.
+   */
+  private startInterpolationLoop(): void {
+    if (this.interpolationFrameId !== null) {
+      return
+    }
+
+    const tick = (time: number) => {
+      this.renderSpatialFrame(time)
+      if (this.hasActiveSamples()) {
+        this.interpolationFrameId = requestAnimationFrame(tick)
+      } else {
+        this.interpolationFrameId = null
+      }
+    }
+
+    this.interpolationFrameId = requestAnimationFrame(tick)
+  }
+
+  /**
+   * Check if we have any active samples to interpolate.
+   */
+  private hasActiveSamples(): boolean {
+    if (this.listenerLastSample) {
+      return true
+    }
+    for (const state of this.userAudioStates.values()) {
+      if (state.lastSample) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /**
+   * Render interpolated spatial positions for listener and users.
+   */
+  private renderSpatialFrame(time: number): void {
+    const renderTime = time - AudioPlaybackManager.INTERPOLATION_DELAY_MS
+
+    if (this.listenerLastSample) {
+      const pose = this.interpolateTimedPosition(this.listenerPrevSample, this.listenerLastSample, renderTime)
+      this.applyListenerPose(pose)
+    }
+
+    for (const [userId, state] of this.userAudioStates.entries()) {
+      if (!state.lastSample) {
+        continue
+      }
+      const pos = this.interpolateTimedPosition(state.prevSample, state.lastSample, renderTime)
+      this.applyUserPannerPosition(userId, pos)
+    }
+  }
+
+  /**
+   * Interpolate (or extrapolate) a position sample for the given render time.
+   */
+  private interpolateTimedPosition(prev: TimedPosition | null, last: TimedPosition, renderTime: number): PlayerPosition {
+    if (!prev || last.t <= prev.t) {
+      return last
+    }
+
+    const dt = last.t - prev.t
+    if (dt <= 0) {
+      return last
+    }
+
+    if (renderTime <= last.t) {
+      const alpha = this.clamp((renderTime - prev.t) / dt, 0, 1)
+      return {
+        x: this.lerp(prev.x, last.x, alpha),
+        y: this.lerp(prev.y, last.y, alpha),
+        z: this.lerp(prev.z, last.z, alpha),
+        yaw: this.lerpAngleDeg(prev.yaw, last.yaw, alpha),
+        pitch: this.lerp(prev.pitch, last.pitch, alpha),
+        worldId: last.worldId
+      }
+    }
+
+    const extrapolationMs = Math.min(renderTime - last.t, AudioPlaybackManager.MAX_EXTRAPOLATION_MS)
+    const vx = (last.x - prev.x) / dt
+    const vy = (last.y - prev.y) / dt
+    const vz = (last.z - prev.z) / dt
+    const yawDelta = this.shortestAngleDeltaDeg(prev.yaw, last.yaw)
+    const yawVelocity = yawDelta / dt
+    const pitchVelocity = (last.pitch - prev.pitch) / dt
+
+    return {
+      x: last.x + vx * extrapolationMs,
+      y: last.y + vy * extrapolationMs,
+      z: last.z + vz * extrapolationMs,
+      yaw: this.normalizeAngleDeg(last.yaw + yawVelocity * extrapolationMs),
+      pitch: last.pitch + pitchVelocity * extrapolationMs,
+      worldId: last.worldId
+    }
+  }
+
+  private lerp(a: number, b: number, t: number): number {
+    return a + (b - a) * t
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value))
+  }
+
+  private shortestAngleDeltaDeg(from: number, to: number): number {
+    let delta = (to - from) % 360
+    if (delta > 180) delta -= 360
+    if (delta < -180) delta += 360
+    return delta
+  }
+
+  private normalizeAngleDeg(angle: number): number {
+    let normalized = angle % 360
+    if (normalized > 180) normalized -= 360
+    if (normalized < -180) normalized += 360
+    return normalized
+  }
+
+  private lerpAngleDeg(from: number, to: number, t: number): number {
+    const delta = this.shortestAngleDeltaDeg(from, to)
+    return this.normalizeAngleDeg(from + delta * t)
+  }
+
+  /**
    * Apply listener position + orientation with smoothing where supported
    */
   private setListenerPoseInternal(
@@ -664,7 +818,7 @@ export class AudioPlaybackManager {
 
     const listener = this.audioContext.listener
     const t = this.audioContext.currentTime
-    const timeConstant = 0.05
+    const timeConstant = AudioPlaybackManager.SPATIAL_SMOOTHING_TIME_CONSTANT
 
     if ('positionX' in listener) {
       listener.positionX.setTargetAtTime(position.x, t, timeConstant)
@@ -689,7 +843,7 @@ export class AudioPlaybackManager {
   /**
    * Update panner position based on stored user position
    */
-  private updateUserPannerPosition(userId: string): void {
+  private applyUserPannerPosition(userId: string, position: PlayerPosition | null): void {
     if (!this.audioContext) {
       return
     }
@@ -699,8 +853,9 @@ export class AudioPlaybackManager {
       return
     }
 
+    state.position = position
     const panner = state.pannerNode
-    const timeConstant = 0.05
+    const timeConstant = AudioPlaybackManager.SPATIAL_SMOOTHING_TIME_CONSTANT
     const t = this.audioContext.currentTime
 
     if (!this.spatialEnabled || !this.listenerPose || !state.position) {
@@ -773,6 +928,12 @@ export class AudioPlaybackManager {
       this.audioContext.close()
       this.audioContext = null
     }
+    if (this.interpolationFrameId !== null) {
+      cancelAnimationFrame(this.interpolationFrameId)
+      this.interpolationFrameId = null
+    }
+    this.listenerPrevSample = null
+    this.listenerLastSample = null
     
   }
 }

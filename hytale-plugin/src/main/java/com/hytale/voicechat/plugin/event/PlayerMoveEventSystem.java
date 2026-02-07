@@ -12,6 +12,7 @@ import com.hypixel.hytale.server.core.modules.entity.component.HeadRotation;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
+import com.hytale.voicechat.common.network.NetworkConfig;
 
 import javax.annotation.Nonnull;
 import java.util.Map;
@@ -22,13 +23,11 @@ import java.util.concurrent.ConcurrentHashMap;
  * Samples player movement and updates the position tracker with a small throttle
  * to keep positional audio accurate without spamming updates.
  * 
- * Performance: Updates throttled to max 10Hz per player (100ms minimum interval)
- * or when player moves >0.5 blocks to balance accuracy vs CPU usage.
+ * Performance: Updates throttled based on configurable interval, distance, and rotation thresholds
+ * to balance accuracy vs CPU usage.
  */
 public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements QuerySystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
-    private static final double MIN_DISTANCE_DELTA = 0.5; // blocks - update if moved this far
-    private static final long MIN_INTERVAL_MS = 100; // 10Hz max update rate per player
 
     private final PlayerPositionTracker positionTracker;
     private final Map<UUID, Sample> lastSamples = new ConcurrentHashMap<>();
@@ -114,12 +113,20 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
             long dt = now - prev.timestamp;
 
-            if (dist < MIN_DISTANCE_DELTA && dt < MIN_INTERVAL_MS) {
+            double yawDelta = angleDeltaDeg(yaw, prev.yaw);
+            double pitchDelta = Math.abs(pitch - prev.pitch);
+            double rotDelta = Math.max(yawDelta, pitchDelta);
+
+            double minDistanceDelta = NetworkConfig.getPositionMinDistanceDelta();
+            double rotationThreshold = NetworkConfig.getPositionRotationThresholdDeg();
+            long minIntervalMs = NetworkConfig.getPositionSampleIntervalMs();
+
+            if (dist < minDistanceDelta && rotDelta < rotationThreshold && dt < minIntervalMs) {
                 return; // small move within throttle window
             }
         }
 
-        lastSamples.put(playerUUID, new Sample(x, y, z, now));
+        lastSamples.put(playerUUID, new Sample(x, y, z, yaw, pitch, now));
         positionTracker.updatePosition(playerUUID, username, x, y, z, yaw, pitch, worldId);
     }
 
@@ -132,12 +139,16 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         final double x;
         final double y;
         final double z;
+        final double yaw;
+        final double pitch;
         final long timestamp;
 
-        Sample(double x, double y, double z, long timestamp) {
+        Sample(double x, double y, double z, double yaw, double pitch, long timestamp) {
             this.x = x;
             this.y = y;
             this.z = z;
+            this.yaw = yaw;
+            this.pitch = pitch;
             this.timestamp = timestamp;
         }
     }
@@ -167,5 +178,15 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
 
     private static String safeD(Double v) {
         return (v == null || v.isNaN() || v.isInfinite()) ? "null" : String.format("%.4f", v);
+    }
+
+    private static double angleDeltaDeg(double a, double b) {
+        double delta = (a - b) % 360.0;
+        if (delta > 180.0) {
+            delta -= 360.0;
+        } else if (delta < -180.0) {
+            delta += 360.0;
+        }
+        return Math.abs(delta);
     }
 }
