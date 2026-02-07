@@ -1,0 +1,290 @@
+import type { WebRTCState, WebRTCConnectionState } from '../types'
+import { getSignalingClient } from '../signaling'
+
+export interface RTCConfig {
+  iceServers: RTCIceServer[]
+}
+
+const DEFAULT_CONFIG: RTCConfig = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+}
+
+type ConnectionEventCallback = (state: WebRTCState) => void
+type DataChannelCallback = (data: ArrayBuffer) => void
+
+/**
+ * WebRTC Connection Manager
+ * Manages peer connection to the SFU server for audio transport via DataChannel.
+ */
+export class WebRTCConnectionManager {
+  private peerConnection: RTCPeerConnection | null = null
+  private dataChannel: RTCDataChannel | null = null
+  private config: RTCConfig
+  private state: WebRTCState = {
+    connectionState: 'new',
+    dataChannelState: 'closed',
+    iceConnectionState: 'new',
+  }
+  
+  private onStateChange: ConnectionEventCallback | null = null
+  private onAudioData: DataChannelCallback | null = null
+  private targetId: string = 'server' // SFU server target
+
+  constructor(config: RTCConfig = DEFAULT_CONFIG) {
+    this.config = config
+  }
+
+  /**
+   * Set callback for connection state changes
+   */
+  public setOnStateChange(callback: ConnectionEventCallback): void {
+    this.onStateChange = callback
+  }
+
+  /**
+   * Set callback for incoming audio data
+   */
+  public setOnAudioData(callback: DataChannelCallback): void {
+    this.onAudioData = callback
+  }
+
+  /**
+   * Get current connection state
+   */
+  public getState(): WebRTCState {
+    return { ...this.state }
+  }
+
+  /**
+   * Initialize WebRTC connection
+   */
+  public async connect(): Promise<void> {
+    if (this.peerConnection) {
+      console.warn('[WebRTC] Already connected or connecting')
+      return
+    }
+
+    try {
+      this.updateState({ connectionState: 'connecting' })
+
+      // Create peer connection
+      this.peerConnection = new RTCPeerConnection({
+        iceServers: this.config.iceServers,
+      })
+
+      this.setupPeerConnectionListeners()
+
+      // Create data channel for audio (before creating offer)
+      this.dataChannel = this.peerConnection.createDataChannel('audio', {
+        ordered: false, // Low latency, allow out-of-order
+        maxRetransmits: 0, // No retransmits for real-time audio
+      })
+
+      this.setupDataChannelListeners()
+
+      // Create and send offer
+      const offer = await this.peerConnection.createOffer()
+      await this.peerConnection.setLocalDescription(offer)
+
+      // Send offer via signaling
+      const signaling = getSignalingClient()
+      signaling.sendWebRTCOffer(this.targetId, offer.sdp!)
+
+      // Listen for answer
+      this.setupSignalingListeners()
+
+    } catch (error) {
+      console.error('[WebRTC] Connection error:', error)
+      this.updateState({ connectionState: 'failed' })
+      throw error
+    }
+  }
+
+  private setupPeerConnectionListeners(): void {
+    if (!this.peerConnection) return
+
+    this.peerConnection.onconnectionstatechange = () => {
+      const state = this.peerConnection?.connectionState
+      console.debug('[WebRTC] Connection state:', state)
+      
+      this.updateState({
+        connectionState: this.mapConnectionState(state),
+      })
+    }
+
+    this.peerConnection.oniceconnectionstatechange = () => {
+      const iceState = this.peerConnection?.iceConnectionState
+      console.debug('[WebRTC] ICE connection state:', iceState)
+      
+      this.updateState({
+        iceConnectionState: iceState || 'new',
+      })
+    }
+
+    this.peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        const signaling = getSignalingClient()
+        signaling.sendICECandidate(this.targetId, event.candidate.toJSON())
+      }
+    }
+
+    // Handle incoming data channel (if server creates one)
+    this.peerConnection.ondatachannel = (event) => {
+      console.debug('[WebRTC] Incoming data channel:', event.channel.label)
+      if (event.channel.label === 'audio' && !this.dataChannel) {
+        this.dataChannel = event.channel
+        this.setupDataChannelListeners()
+      }
+    }
+  }
+
+  private setupDataChannelListeners(): void {
+    if (!this.dataChannel) return
+
+    this.dataChannel.binaryType = 'arraybuffer'
+
+    this.dataChannel.onopen = () => {
+      console.debug('[WebRTC] DataChannel open')
+      this.updateState({ dataChannelState: 'open' })
+    }
+
+    this.dataChannel.onclose = () => {
+      console.debug('[WebRTC] DataChannel closed')
+      this.updateState({ dataChannelState: 'closed' })
+    }
+
+    this.dataChannel.onerror = (error) => {
+      console.error('[WebRTC] DataChannel error:', error)
+    }
+
+    this.dataChannel.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer && this.onAudioData) {
+        this.onAudioData(event.data)
+      }
+    }
+  }
+
+  private setupSignalingListeners(): void {
+    const signaling = getSignalingClient()
+
+    const handleAnswer = (data: unknown) => {
+      const { sdp } = data as { sdp: string }
+      this.handleAnswer(sdp)
+    }
+
+    const handleIceCandidate = (data: unknown) => {
+      const { candidate } = data as { candidate: RTCIceCandidateInit }
+      this.handleIceCandidate(candidate)
+    }
+
+    signaling.on('webrtc_answer', handleAnswer)
+    signaling.on('webrtc_ice_candidate', handleIceCandidate)
+  }
+
+  private async handleAnswer(sdp: string): Promise<void> {
+    if (!this.peerConnection) return
+
+    try {
+      await this.peerConnection.setRemoteDescription({
+        type: 'answer',
+        sdp,
+      })
+      console.debug('[WebRTC] Remote description set')
+    } catch (error) {
+      console.error('[WebRTC] Failed to set remote description:', error)
+    }
+  }
+
+  private async handleIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    if (!this.peerConnection) return
+
+    try {
+      await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+    } catch (error) {
+      console.error('[WebRTC] Failed to add ICE candidate:', error)
+    }
+  }
+
+  /**
+   * Send audio data over DataChannel
+   * Payload format: [version:1][senderIdLen:1][senderId UTF-8][PCM bytes]
+   */
+  public sendAudio(audioData: ArrayBuffer): boolean {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      return false
+    }
+
+    try {
+      this.dataChannel.send(audioData)
+      return true
+    } catch (error) {
+      console.error('[WebRTC] Failed to send audio:', error)
+      return false
+    }
+  }
+
+  /**
+   * Check if DataChannel is ready for sending
+   */
+  public isReady(): boolean {
+    return this.dataChannel?.readyState === 'open'
+  }
+
+  /**
+   * Disconnect and clean up
+   */
+  public disconnect(): void {
+    if (this.dataChannel) {
+      this.dataChannel.close()
+      this.dataChannel = null
+    }
+
+    if (this.peerConnection) {
+      this.peerConnection.close()
+      this.peerConnection = null
+    }
+
+    this.updateState({
+      connectionState: 'closed',
+      dataChannelState: 'closed',
+      iceConnectionState: 'closed',
+    })
+  }
+
+  private mapConnectionState(state?: RTCPeerConnectionState): WebRTCConnectionState {
+    switch (state) {
+      case 'new': return 'new'
+      case 'connecting': return 'connecting'
+      case 'connected': return 'connected'
+      case 'disconnected': return 'disconnected'
+      case 'failed': return 'failed'
+      case 'closed': return 'closed'
+      default: return 'new'
+    }
+  }
+
+  private updateState(updates: Partial<WebRTCState>): void {
+    this.state = { ...this.state, ...updates }
+    this.onStateChange?.(this.state)
+  }
+}
+
+// Singleton
+let instance: WebRTCConnectionManager | null = null
+
+export function getWebRTCManager(): WebRTCConnectionManager {
+  if (!instance) {
+    instance = new WebRTCConnectionManager()
+  }
+  return instance
+}
+
+export function resetWebRTCManager(): void {
+  if (instance) {
+    instance.disconnect()
+    instance = null
+  }
+}

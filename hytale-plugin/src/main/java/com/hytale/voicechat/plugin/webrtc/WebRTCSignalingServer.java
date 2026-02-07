@@ -478,7 +478,40 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     @Override
     public void onPlayerLeftGroup(UUID playerId, Group group, boolean groupDeleted) {
         logger.atFine().log("Broadcasting player left group: " + playerId + " left " + group.getName());
-        broadcastGroupList(); // Always refresh full list
+        
+        UUID groupId = group.getGroupId();
+        
+        // Send group_left to the leaving player's web client if connected
+        WebRTCClient leavingClient = clients.get(playerId);
+        if (leavingClient != null && leavingClient.isConnected()) {
+            // Remove from group state manager
+            groupStateManager.removeClientFromAllGroups(playerId);
+            
+            // Send group_left message
+            JsonObject leftData = new JsonObject();
+            leftData.addProperty("groupId", groupId.toString());
+            leftData.addProperty("memberCount", group.getMemberCount());
+            SignalingMessage leftMsg = new SignalingMessage("group_left", leftData);
+            leavingClient.sendMessage(leftMsg.toJson());
+            
+            logger.atFine().log("Sent group_left to web client: " + leavingClient.getUsername());
+        }
+        
+        // Broadcast updated member list to remaining group members
+        if (!groupDeleted) {
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
+            JsonObject broadcastData = new JsonObject();
+            broadcastData.addProperty("groupId", groupId.toString());
+            broadcastData.addProperty("groupName", group.getName());
+            broadcastData.addProperty("memberCount", membersArray.size());
+            broadcastData.add("members", membersArray);
+            
+            SignalingMessage membersMsg = new SignalingMessage("group_members_updated", broadcastData);
+            groupStateManager.broadcastToGroupAll(groupId, membersMsg);
+        }
+        
+        // Also refresh full group list for all clients
+        broadcastGroupList();
     }
     
     /**
@@ -508,7 +541,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         if (groupManager == null) {
             return;
         }
-        
+
         com.google.gson.JsonArray groupsArray = new com.google.gson.JsonArray();
         for (Group group : groupManager.listGroups()) {
             JsonObject groupObj = new JsonObject();
@@ -517,12 +550,17 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             groupObj.addProperty("memberCount", group.getMemberCount());
             groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
             groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+            
+            // Include members list so clients can verify membership
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
+            groupObj.add("members", membersArray);
+            
             groupsArray.add(groupObj);
         }
-        
+
         JsonObject data = new JsonObject();
         data.add("groups", groupsArray);
-        
+
         SignalingMessage message = new SignalingMessage("group_list", data);
         broadcastToAll(message);
     }

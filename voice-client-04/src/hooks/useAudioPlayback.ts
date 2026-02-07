@@ -1,0 +1,86 @@
+import { useCallback, useEffect, useRef } from 'react'
+import { getAudioPlaybackManager } from '../lib/audio/playback-manager'
+import { decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
+import { useAudioStore } from '../stores/audioStore'
+import { useUserStore } from '../stores/userStore'
+
+/**
+ * Hook for managing audio playback from WebRTC DataChannel.
+ */
+export function useAudioPlayback() {
+  const outputVolume = useAudioStore((s) => s.settings.outputVolume)
+  const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
+  const isDeafened = useAudioStore((s) => s.isDeafened)
+  
+  const setUserVolume = useUserStore((s) => s.setUserVolume)
+  const setUserMuted = useUserStore((s) => s.setUserMuted)
+
+  const managerRef = useRef(getAudioPlaybackManager())
+
+  // Sync master volume
+  useEffect(() => {
+    managerRef.current.setMasterVolume(outputVolume)
+  }, [outputVolume])
+
+  // Sync master mute (deafened)
+  useEffect(() => {
+    managerRef.current.setMasterMuted(isDeafened)
+  }, [isDeafened])
+
+  // Sync output device
+  useEffect(() => {
+    managerRef.current.setOutputDevice(outputDeviceId)
+  }, [outputDeviceId])
+
+  /**
+   * Handle incoming audio data from DataChannel
+   */
+  const handleAudioData = useCallback(async (data: ArrayBuffer) => {
+    const payload = decodeAudioPayload(data)
+    if (!payload) return
+
+    const float32Data = int16ToFloat32(payload.pcmData)
+    await managerRef.current.playAudio(payload.senderId, float32Data)
+  }, [])
+
+  /**
+   * Set volume for a specific user
+   */
+  const setVolume = useCallback((userId: string, volume: number) => {
+    managerRef.current.setUserVolume(userId, volume)
+    setUserVolume(userId, volume)
+  }, [setUserVolume])
+
+  /**
+   * Toggle mute for a specific user
+   */
+  const toggleMute = useCallback((userId: string) => {
+    const isMuted = managerRef.current.toggleUserMute(userId)
+    setUserMuted(userId, isMuted)
+    return isMuted
+  }, [setUserMuted])
+
+  /**
+   * Initialize playback (call after user interaction)
+   */
+  const initialize = useCallback(async () => {
+    await managerRef.current.initialize()
+  }, [])
+
+  /**
+   * Disconnect a user's audio
+   */
+  const disconnectUser = useCallback((userId: string) => {
+    managerRef.current.disconnectUser(userId)
+  }, [])
+
+  return {
+    handleAudioData,
+    setVolume,
+    toggleMute,
+    initialize,
+    disconnectUser,
+    getUserVolume: (userId: string) => managerRef.current.getUserVolume(userId),
+    isUserMuted: (userId: string) => managerRef.current.isUserMuted(userId),
+  }
+}
