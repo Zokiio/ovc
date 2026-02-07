@@ -154,6 +154,12 @@ StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000
 IcePortMax = 51000
+
+# Position tracking (spatial audio responsiveness)
+PositionSampleIntervalMs = 50
+PositionBroadcastIntervalMs = 50
+PositionMinDistanceDelta = 0.25
+PositionRotationThresholdDeg = 2.0
 ```
 
 ### Configuration Priority

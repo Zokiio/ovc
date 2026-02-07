@@ -72,7 +72,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private java.util.concurrent.ScheduledExecutorService positionBroadcastScheduler;
     private java.util.concurrent.ScheduledExecutorService pendingAuthScheduler;
     private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.concurrent.ScheduledFuture<?>> pendingAuthDisconnects = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final long POSITION_BROADCAST_INTERVAL_MS = 100; // 10 Hz
     private final java.util.Set<String> allowedOrigins;
     
     /**
@@ -786,14 +785,15 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             return t;
         });
         
+        long intervalMs = NetworkConfig.getPositionBroadcastIntervalMs();
         positionBroadcastScheduler.scheduleAtFixedRate(
             this::broadcastPositions,
-            POSITION_BROADCAST_INTERVAL_MS,
-            POSITION_BROADCAST_INTERVAL_MS,
+            intervalMs,
+            intervalMs,
             java.util.concurrent.TimeUnit.MILLISECONDS
         );
         
-        logger.atInfo().log("Position broadcaster started (interval: " + POSITION_BROADCAST_INTERVAL_MS + "ms)");
+        logger.atInfo().log("Position broadcaster started (interval: " + intervalMs + "ms)");
     }
     
     /**
