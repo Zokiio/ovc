@@ -173,22 +173,34 @@ export const useAudioStore = create<AudioStore>()(
 
       setMicMuted: (muted) =>
         set((state) => {
-          state.isMicMuted = muted
+          // Deafened users must remain muted.
+          state.isMicMuted = state.isDeafened ? true : muted
         }),
 
       toggleMicMuted: () =>
         set((state) => {
+          // Deafened users must remain muted.
+          if (state.isDeafened) {
+            state.isMicMuted = true
+            return
+          }
           state.isMicMuted = !state.isMicMuted
         }),
 
       setDeafened: (deafened) =>
         set((state) => {
           state.isDeafened = deafened
+          if (deafened) {
+            state.isMicMuted = true
+          }
         }),
 
       toggleDeafened: () =>
         set((state) => {
           state.isDeafened = !state.isDeafened
+          if (state.isDeafened) {
+            state.isMicMuted = true
+          }
         }),
 
       setSpeaking: (speaking) =>
