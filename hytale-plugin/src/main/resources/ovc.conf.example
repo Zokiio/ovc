@@ -107,6 +107,12 @@ PositionSampleIntervalMs = 50
 # Default: 50
 PositionBroadcastIntervalMs = 50
 
+# Enable live proximity radar metadata for the web client
+# When true, routed audio includes per-recipient distance/maxRange metadata
+# and auth/session signaling exposes the feature flag to clients.
+# Default: false
+USE_PROXIMITY_RADAR = false
+
 # Minimum distance delta to trigger a position update (blocks/meters)
 # Smaller values = more frequent updates
 # Range: 0.05 - 5.0

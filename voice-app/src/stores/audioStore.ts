@@ -3,6 +3,13 @@ import { immer } from 'zustand/middleware/immer'
 import { persist } from 'zustand/middleware'
 import type { AudioDiagnostics, AudioSettings, VADSettings, AudioDevice } from '../lib/types'
 
+export interface ProximityRadarContact {
+  userId: string
+  distance: number
+  maxRange: number
+  updatedAt: number
+}
+
 interface AudioStore {
   // Audio Settings
   settings: AudioSettings
@@ -21,6 +28,8 @@ interface AudioStore {
   localMutes: Map<string, boolean>
   userVolumes: Map<string, number>
   audioDiagnostics: Map<string, AudioDiagnostics>
+  isProximityRadarEnabled: boolean
+  proximityRadarContacts: Map<string, ProximityRadarContact>
   
   // Actions - Settings
   setInputDevice: (deviceId: string) => void
@@ -53,6 +62,9 @@ interface AudioStore {
   setLocalMute: (userId: string, muted: boolean) => void
   setUserVolume: (userId: string, volume: number) => void
   setAudioDiagnostics: (userId: string, diagnostics: AudioDiagnostics) => void
+  setProximityRadarEnabled: (enabled: boolean) => void
+  upsertProximityRadarContact: (userId: string, distance: number, maxRange: number) => void
+  pruneProximityRadarContacts: (maxAgeMs: number) => void
 }
 
 const VAD_PRESETS: Record<'quiet' | 'normal' | 'noisy', Partial<VADSettings>> = {
@@ -95,6 +107,8 @@ export const useAudioStore = create<AudioStore>()(
       localMutes: new Map<string, boolean>(),
       userVolumes: new Map<string, number>(),
       audioDiagnostics: new Map<string, AudioDiagnostics>(),
+      isProximityRadarEnabled: false,
+      proximityRadarContacts: new Map<string, ProximityRadarContact>(),
 
       // Audio Settings Actions
       setInputDevice: (deviceId) =>
@@ -232,6 +246,52 @@ export const useAudioStore = create<AudioStore>()(
       setAudioDiagnostics: (userId, diagnostics) =>
         set((state) => {
           state.audioDiagnostics.set(userId, diagnostics)
+        }),
+
+      setProximityRadarEnabled: (enabled) =>
+        set((state) => {
+          state.isProximityRadarEnabled = enabled
+          if (!enabled) {
+            state.proximityRadarContacts.clear()
+          }
+        }),
+
+      upsertProximityRadarContact: (userId, distance, maxRange) =>
+        set((state) => {
+          if (!state.isProximityRadarEnabled) {
+            return
+          }
+          const nextDistance = Math.max(0, distance)
+          const nextRange = Math.max(1, maxRange)
+          const now = Date.now()
+          const existing = state.proximityRadarContacts.get(userId)
+          if (existing) {
+            const distanceDelta = Math.abs(existing.distance - nextDistance)
+            const rangeDelta = Math.abs(existing.maxRange - nextRange)
+            const updateAgeMs = now - existing.updatedAt
+            if (distanceDelta < 0.1 && rangeDelta < 0.1 && updateAgeMs < 120) {
+              return
+            }
+          }
+          state.proximityRadarContacts.set(userId, {
+            userId,
+            distance: nextDistance,
+            maxRange: nextRange,
+            updatedAt: now,
+          })
+        }),
+
+      pruneProximityRadarContacts: (maxAgeMs) =>
+        set((state) => {
+          if (state.proximityRadarContacts.size === 0) {
+            return
+          }
+          const cutoff = Date.now() - maxAgeMs
+          state.proximityRadarContacts.forEach((contact, userId) => {
+            if (contact.updatedAt < cutoff) {
+              state.proximityRadarContacts.delete(userId)
+            }
+          })
         }),
     })),
     {

@@ -158,6 +158,7 @@ IcePortMax = 51000
 # Position tracking (spatial audio responsiveness)
 PositionSampleIntervalMs = 50
 PositionBroadcastIntervalMs = 50
+USE_PROXIMITY_RADAR = false
 PositionMinDistanceDelta = 0.25
 PositionRotationThresholdDeg = 2.0
 ```

@@ -12,6 +12,7 @@ export function useAudioPlayback() {
   const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
   const isDeafened = useAudioStore((s) => s.isDeafened)
   const setAudioDiagnostics = useAudioStore((s) => s.setAudioDiagnostics)
+  const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
   
   const setUserVolume = useUserStore((s) => s.setUserVolume)
   const setUserMuted = useUserStore((s) => s.setUserMuted)
@@ -55,23 +56,35 @@ export function useAudioPlayback() {
     }
 
     console.debug('[useAudioPlayback] Playing audio from:', payload.senderId, 'samples:', payload.pcmData.length)
+    if (payload.proximity && Number.isFinite(payload.proximity.distance) && Number.isFinite(payload.proximity.maxRange)) {
+      upsertProximityRadarContact(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
+    }
     const float32Data = int16ToFloat32(payload.pcmData)
     await managerRef.current.playAudio(payload.senderId, float32Data)
-  }, [])
+  }, [upsertProximityRadarContact])
 
   /**
    * Handle fallback WebSocket audio message payloads.
    */
-  const handleWebSocketAudio = useCallback(async (senderId: string, base64Audio: string) => {
+  const handleWebSocketAudio = useCallback(async (
+    senderId: string,
+    base64Audio: string,
+    distance?: number,
+    maxRange?: number,
+  ) => {
     const pcmData = base64ToInt16(base64Audio)
     if (!pcmData) {
       console.warn('[useAudioPlayback] Failed to decode WebSocket audio payload')
       return
     }
 
+    if (Number.isFinite(distance) && Number.isFinite(maxRange)) {
+      upsertProximityRadarContact(senderId, distance as number, maxRange as number)
+    }
+
     const float32Data = int16ToFloat32(pcmData)
     await managerRef.current.playAudio(senderId, float32Data)
-  }, [])
+  }, [upsertProximityRadarContact])
 
   /**
    * Set volume for a specific user

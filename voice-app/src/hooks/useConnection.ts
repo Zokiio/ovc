@@ -58,6 +58,7 @@ export function useConnection() {
   const setMicMuted = useAudioStore((s) => s.setMicMuted)
   const isSpeaking = useAudioStore((s) => s.isSpeaking)
   const inputVolume = useAudioStore((s) => s.settings.inputVolume)
+  const setProximityRadarEnabled = useAudioStore((s) => s.setProximityRadarEnabled)
 
   // Audio playback
   const { handleAudioData, handleWebSocketAudio, initialize: initializePlayback } = useAudioPlayback()
@@ -155,14 +156,37 @@ export function useConnection() {
     return null
   }, [])
 
+  const toPlayerPosition = useCallback((value: unknown): PlayerPosition | null => {
+    if (!value || typeof value !== 'object') {
+      return null
+    }
+    const raw = value as Record<string, unknown>
+    const x = Number(raw.x)
+    const y = Number(raw.y)
+    const z = Number(raw.z)
+    const yaw = Number(raw.yaw ?? 0)
+    const pitch = Number(raw.pitch ?? 0)
+    const worldId = typeof raw.worldId === 'string' ? raw.worldId : 'overworld'
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
+      return null
+    }
+    return { x, y, z, yaw, pitch, worldId }
+  }, [])
+
   // Setup signaling event listeners
   const setupSignalingListeners = useCallback(() => {
     const signaling = getSignalingClient()
 
     signaling.on('authenticated', (data) => {
-      const { clientId, username, pending } = data as { clientId: string; username: string; pending?: boolean }
+      const {
+        clientId,
+        username,
+        pending,
+        useProximityRadar,
+      } = data as { clientId: string; username: string; pending?: boolean; useProximityRadar?: boolean }
       setAuthenticated(clientId, username, !!pending)
       setLocalUserId(clientId)
+      setProximityRadarEnabled(!!useProximityRadar)
 
       if (pending) {
         return
@@ -174,6 +198,15 @@ export function useConnection() {
 
     signaling.on('pending_game_session', () => {
       setStatus('connecting')
+    })
+
+    signaling.on('hello', (data) => {
+      const payload = (data && typeof data === 'object')
+        ? (data as Record<string, unknown>)
+        : {}
+      if (typeof payload.useProximityRadar === 'boolean') {
+        setProximityRadarEnabled(payload.useProximityRadar)
+      }
     })
 
     signaling.on('game_session_ready', () => {
@@ -476,26 +509,60 @@ export function useConnection() {
       const payload = (data && typeof data === 'object')
         ? (data as Record<string, unknown>)
         : {}
-      const userId = resolveUserIdFromEvent(payload)
-      if (!userId || !payload.position) {
-        return
+
+      // New format: { positions: [...], listener: {...}, timestamp }
+      const positions = Array.isArray(payload.positions) ? payload.positions : null
+      if (positions) {
+        positions.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return
+          }
+          const row = entry as Record<string, unknown>
+          const userId = resolveUserIdFromEvent(row)
+          const position = toPlayerPosition(row)
+          if (!userId || !position) {
+            return
+          }
+          setUserPosition(userId, position)
+        })
       }
-      setUserPosition(userId, payload.position as PlayerPosition)
+
+      // Listener payload (local user position)
+      const listener = toPlayerPosition(payload.listener)
+      if (listener) {
+        const localUserId = useUserStore.getState().localUserId
+        if (localUserId) {
+          setUserPosition(localUserId, listener)
+        }
+      }
+
+      // Legacy format fallback: { userId, position }
+      const userId = resolveUserIdFromEvent(payload)
+      const legacyPosition = toPlayerPosition(payload.position)
+      if (userId && legacyPosition) {
+        setUserPosition(userId, legacyPosition)
+      }
     })
 
     signaling.on('audio', (data) => {
-      const { senderId, audioData } = data as { senderId?: string; audioData?: string }
+      const { senderId, audioData, distance, maxRange } = data as {
+        senderId?: string
+        audioData?: string
+        distance?: number
+        maxRange?: number
+      }
       if (!senderId || !audioData) {
         return
       }
-      void handleWebSocketAudio(senderId, audioData)
+      void handleWebSocketAudio(senderId, audioData, distance, maxRange)
     })
   }, [
     setAuthenticated, setLocalUserId, setStatus, setError, setLatency,
     setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
     updateMemberSpeaking, updateMemberMuted, setMicMuted, resolveUserIdFromEvent,
-    handleWebSocketAudio, connectWebRTCIfAllowed,
+    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled,
+    toPlayerPosition,
   ])
 
   // Setup WebRTC event listeners
@@ -558,10 +625,11 @@ export function useConnection() {
     stopListening()
     resetSignalingClient()
     resetWebRTCManager()
+    setProximityRadarEnabled(false)
     resetConnection()
     resetGroups()
     resetUsers()
-  }, [stopListening, resetConnection, resetGroups, resetUsers])
+  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers])
 
   /**
    * Create a new group

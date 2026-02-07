@@ -140,6 +140,18 @@ public class WebRTCClient {
      * @param audioData The audio data to send
      */
     public void sendAudio(String senderId, byte[] audioData) {
+        sendAudio(senderId, audioData, null, null);
+    }
+
+    /**
+     * Send audio data to this WebRTC client via WebSocket with optional proximity metadata.
+     *
+     * @param senderId The obfuscated sender ID (for client to know who's speaking)
+     * @param audioData The audio data to send
+     * @param distance Optional per-recipient distance between sender and listener
+     * @param maxRange Optional max audible range used for this routed frame
+     */
+    public void sendAudio(String senderId, byte[] audioData, Double distance, Double maxRange) {
         if (!isConnected()) {
             return;
         }
@@ -151,6 +163,12 @@ public class WebRTCClient {
             String encodedAudio = java.util.Base64.getEncoder().encodeToString(audioData);
             data.addProperty("audioData", encodedAudio);
             data.addProperty("senderId", senderId);
+            if (distance != null && Double.isFinite(distance)) {
+                data.addProperty("distance", distance);
+            }
+            if (maxRange != null && Double.isFinite(maxRange) && maxRange > 0.0) {
+                data.addProperty("maxRange", maxRange);
+            }
             
             SignalingMessage message = new SignalingMessage("audio", data);
             channel.writeAndFlush(new TextWebSocketFrame(message.toJson()));

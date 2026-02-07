@@ -207,8 +207,9 @@ async function initializeGlobal(settings: {
 
       globalWorkletNode.port.onmessage = (event) => {
         if (event.data.type === 'audioData') {
-          // Gate by VAD
-          if (!globalCaptureActive || !globalIsSpeaking) return
+          // Transmission is controlled by globalCaptureActive (connection + mute state).
+          // VAD drives indicators only; do not hard-gate outbound audio by VAD state.
+          if (!globalCaptureActive) return
 
           const float32Data = new Float32Array(event.data.data)
           // Notify all registered callbacks

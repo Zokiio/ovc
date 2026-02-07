@@ -144,6 +144,7 @@ export interface SignalingEvents {
     username: string
     transportMode: TransportMode
     stunServers: string[]
+    useProximityRadar?: boolean
     pending: boolean
     pendingMessage?: string
     pendingTimeoutSeconds?: number
@@ -155,7 +156,7 @@ export interface SignalingEvents {
   disconnected: { code: number; reason: string; wasClean: boolean }
   connection_error: Event
   error: { message?: string; code?: string }
-  hello: { heartbeatIntervalMs?: number; resumeWindowMs?: number }
+  hello: { heartbeatIntervalMs?: number; resumeWindowMs?: number; useProximityRadar?: boolean }
   pending_game_session: { message?: string; timeoutSeconds?: number }
   game_session_ready: { message?: string }
   latency: { latency: number }
@@ -188,9 +189,12 @@ export interface SignalingEvents {
     clientId?: string
     id?: string
     username?: string
-    position: PlayerPosition
+    position?: PlayerPosition
+    positions?: Array<PlayerPosition & { userId?: string; username?: string; distance?: number }>
+    listener?: (PlayerPosition & { userId?: string })
+    timestamp?: number
   }
-  audio: { senderId: string; audioData: string }
+  audio: { senderId: string; audioData: string; distance?: number; maxRange?: number }
   
   // WebRTC signaling
   webrtc_offer: { sdp: string; senderId?: string }

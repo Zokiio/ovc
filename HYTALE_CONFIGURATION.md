@@ -117,6 +117,14 @@ Interval in milliseconds for broadcasting positions to web clients.
 - **Example**: `PositionBroadcastIntervalMs = 50`
 - **System Property**: `-Dvoice.position.broadcast.interval.ms=50`
 
+### `USE_PROXIMITY_RADAR` (Boolean)
+Enables live proximity radar metadata for web clients.
+
+- **Default**: `false`
+- **Behavior**: When enabled, routed audio frames include per-recipient `distance` and `maxRange`, and signaling exposes `useProximityRadar` so the UI can activate radar mode.
+- **Example**: `USE_PROXIMITY_RADAR = true`
+- **System Property**: `-DUSE_PROXIMITY_RADAR=true`
+
 ### `PositionMinDistanceDelta` (Double)
 Minimum movement distance (blocks/meters) required to send a position update.
 
@@ -159,6 +167,7 @@ IcePortMax = 51000
 # Position tracking intervals and thresholds
 PositionSampleIntervalMs = 50
 PositionBroadcastIntervalMs = 50
+USE_PROXIMITY_RADAR = true
 PositionMinDistanceDelta = 0.25
 PositionRotationThresholdDeg = 2.0
 ```

@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Panel, Meter, Button, Slider, Select, Switch, Badge } from '../../ui/Primitives';
 import { cn } from '../../../lib/utils';
 import { Globe, MapPin, Cpu, Sun, Cloud, Wind } from 'lucide-react';
 import { useAudioStore } from '../../../stores/audioStore';
 import { useConnectionStore } from '../../../stores/connectionStore';
+import { useGroupStore } from '../../../stores/groupStore';
+import { useUserStore } from '../../../stores/userStore';
 import { useAudioDevices } from '../../../hooks/useAudioDevices';
 
 // --- Sub-components ---
@@ -156,6 +158,84 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
 
 export const SpatialRadar = () => {
    const [showMap, setShowMap] = useState(false);
+   const isProximityRadarEnabled = useAudioStore((s) => s.isProximityRadarEnabled);
+   const proximityRadarContacts = useAudioStore((s) => s.proximityRadarContacts);
+   const pruneProximityRadarContacts = useAudioStore((s) => s.pruneProximityRadarContacts);
+   const users = useUserStore((s) => s.users);
+   const localUser = useUserStore((s) => {
+      if (!s.localUserId) return undefined;
+      return s.users.get(s.localUserId);
+   });
+   const currentGroupRange = useGroupStore((s) => {
+      if (!s.currentGroupId) return undefined;
+      const group = s.groups.find((entry) => entry.id === s.currentGroupId);
+      return group?.settings.proximityRange;
+   });
+
+   useEffect(() => {
+      if (!isProximityRadarEnabled) {
+         return;
+      }
+      const interval = window.setInterval(() => {
+         pruneProximityRadarContacts(3000);
+      }, 500);
+      return () => window.clearInterval(interval);
+   }, [isProximityRadarEnabled, pruneProximityRadarContacts]);
+
+   const targets = useMemo(() => {
+      if (!isProximityRadarEnabled) {
+         return [];
+      }
+
+      const localPosition = localUser?.position;
+      const hashAngle = (seed: string) => {
+         let hash = 0;
+         for (let i = 0; i < seed.length; i++) {
+            hash = ((hash << 5) - hash) + seed.charCodeAt(i);
+            hash |= 0;
+         }
+         return ((Math.abs(hash) % 360) * Math.PI) / 180;
+      };
+
+      return Array.from(proximityRadarContacts.values())
+         .map((contact) => {
+            const user = users.get(contact.userId);
+            const clampedDistance = Math.min(contact.distance, contact.maxRange);
+            const normalizedDistance = Math.max(0, Math.min(1, clampedDistance / contact.maxRange));
+            let angle = hashAngle(contact.userId);
+
+            const targetPosition = user?.position;
+            if (
+               localPosition &&
+               targetPosition &&
+               localPosition.worldId === targetPosition.worldId
+            ) {
+               const dx = targetPosition.x - localPosition.x;
+               const dz = targetPosition.z - localPosition.z;
+               angle = Math.atan2(dz, dx);
+            }
+
+            const radius = normalizedDistance * 40; // Keep blips inside ring.
+
+            return {
+               userId: contact.userId,
+               label: user?.name ?? contact.userId.slice(0, 8),
+               distance: contact.distance,
+               maxRange: contact.maxRange,
+               x: 50 + Math.cos(angle) * radius,
+               y: 50 + Math.sin(angle) * radius,
+            };
+         })
+         .sort((a, b) => a.distance - b.distance);
+   }, [isProximityRadarEnabled, localUser?.position, proximityRadarContacts, users]);
+
+   const range = useMemo(() => {
+      if (typeof currentGroupRange === 'number' && Number.isFinite(currentGroupRange) && currentGroupRange > 0) {
+         return Math.round(currentGroupRange);
+      }
+      const nearestRange = targets[0]?.maxRange;
+      return nearestRange ? Math.round(nearestRange) : 50;
+   }, [currentGroupRange, targets]);
 
    return (
       <Panel title="Proximity Radar" className="relative overflow-hidden" 
@@ -188,16 +268,43 @@ export const SpatialRadar = () => {
             {/* Center Player */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-[var(--accent-primary)] rounded-full z-10 ring-2 ring-[var(--bg-input)]" />
 
-            {/* Mock Targets */}
-            <div className="absolute top-[30%] left-[60%] flex flex-col items-center gap-1 animate-pulse z-10">
-               <div className="w-2 h-2 bg-[var(--accent-success)] rounded-full shadow-[0_0_8px_var(--accent-success)]" />
-               <span className="text-[7px] font-bold text-[var(--accent-success)] bg-[var(--bg-app)]/90 px-1 rounded border border-[var(--accent-success)]/30 backdrop-blur-sm">Tessa</span>
-            </div>
+            {isProximityRadarEnabled ? (
+               targets.map((target) => (
+                  <div
+                     key={target.userId}
+                     className="absolute flex flex-col items-center gap-1 z-10 -translate-x-1/2 -translate-y-1/2"
+                     style={{ left: `${target.x}%`, top: `${target.y}%` }}
+                  >
+                     <div className="w-2 h-2 bg-[var(--accent-success)] rounded-full shadow-[0_0_8px_var(--accent-success)]" />
+                     <span className="text-[7px] font-bold text-[var(--accent-success)] bg-[var(--bg-app)]/90 px-1 rounded border border-[var(--accent-success)]/30 backdrop-blur-sm">
+                        {target.label}
+                     </span>
+                  </div>
+               ))
+            ) : (
+               <div className="absolute inset-0 z-10 grid place-items-center px-4 text-center">
+                  <p className="text-[9px] font-mono text-[var(--text-secondary)]">
+                     Proximity radar disabled by server config (`USE_PROXIMITY_RADAR = false`).
+                  </p>
+               </div>
+            )}
          </div>
 
          <div className="mt-3 flex justify-between text-[9px] font-mono text-[var(--text-secondary)] bg-[var(--bg-input)] p-1.5 rounded border border-[var(--border-primary)]">
-            <span>POS: <span className="text-[var(--text-primary)]">124, 66</span></span>
-            <span>RANGE: <span className="text-[var(--text-primary)]">50m</span></span>
+            <span>
+               POS:{' '}
+               <span className="text-[var(--text-primary)]">
+                  {localUser?.position
+                     ? `${Math.round(localUser.position.x)}, ${Math.round(localUser.position.z)}`
+                     : '--'}
+               </span>
+            </span>
+            <span>
+               RANGE: <span className="text-[var(--text-primary)]">{range}m</span>
+            </span>
+            <span>
+               ACTIVE: <span className="text-[var(--text-primary)]">{targets.length}</span>
+            </span>
          </div>
       </Panel>
    );

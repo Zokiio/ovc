@@ -3,21 +3,31 @@
  * 
  * Handles encoding/decoding of audio payloads for WebRTC DataChannel transport.
  * 
- * Payload format (server→client and client→server):
- * [version: 1 byte][senderIdLen: 1 byte][senderId: UTF-8 bytes][PCM data: remaining bytes]
+ * Payload format (server→client):
+ * v1: [version: 1 byte][senderIdLen: 1 byte][senderId: UTF-8 bytes][PCM data]
+ * v2: [version: 1 byte][senderIdLen: 1 byte][senderId: UTF-8 bytes]
+ *     [distance(float32): 4 bytes][maxRange(float32): 4 bytes][PCM data]
  * 
  * Max payload size: 900 bytes
  * Audio format: 16-bit little-endian PCM (Int16)
  */
 
-const PAYLOAD_VERSION = 1
+const PAYLOAD_VERSION_BASIC = 1
+const PAYLOAD_VERSION_WITH_PROXIMITY = 2
 const MAX_PAYLOAD_SIZE = 900
 const HEADER_SIZE = 2 // version + senderIdLen
+const PROXIMITY_METADATA_SIZE = 8 // distance(float32) + maxRange(float32)
+
+export interface AudioProximityMetadata {
+  distance: number
+  maxRange: number
+}
 
 export interface DecodedAudioPayload {
   version: number
   senderId: string
   pcmData: Int16Array
+  proximity?: AudioProximityMetadata
 }
 
 /**
@@ -37,7 +47,7 @@ export function encodeAudioPayload(senderId: string, pcmData: Int16Array): Array
   const uint8View = new Uint8Array(buffer)
   
   // Write header
-  view.setUint8(0, PAYLOAD_VERSION)
+  view.setUint8(0, PAYLOAD_VERSION_BASIC)
   view.setUint8(1, senderIdBytes.length)
   
   // Write sender ID
@@ -66,7 +76,7 @@ export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | n
   const version = view.getUint8(0)
   const senderIdLen = view.getUint8(1)
   
-  if (version !== PAYLOAD_VERSION) {
+  if (version !== PAYLOAD_VERSION_BASIC && version !== PAYLOAD_VERSION_WITH_PROXIMITY) {
     console.warn('[AudioChannel] Unknown payload version:', version)
     return null
   }
@@ -79,9 +89,23 @@ export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | n
   // Read sender ID
   const senderIdBytes = uint8View.slice(HEADER_SIZE, HEADER_SIZE + senderIdLen)
   const senderId = new TextDecoder().decode(senderIdBytes)
+
+  let pcmOffset = HEADER_SIZE + senderIdLen
+  let proximity: AudioProximityMetadata | undefined
+
+  if (version === PAYLOAD_VERSION_WITH_PROXIMITY) {
+    if (buffer.byteLength < pcmOffset + PROXIMITY_METADATA_SIZE) {
+      console.warn('[AudioChannel] Proximity metadata truncated')
+      return null
+    }
+    proximity = {
+      distance: view.getFloat32(pcmOffset, false),
+      maxRange: view.getFloat32(pcmOffset + 4, false),
+    }
+    pcmOffset += PROXIMITY_METADATA_SIZE
+  }
   
   // Read PCM data
-  const pcmOffset = HEADER_SIZE + senderIdLen
   const pcmBytes = buffer.byteLength - pcmOffset
   
   // Ensure even number of bytes for Int16
@@ -95,7 +119,7 @@ export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | n
     pcmData[i] = pcmView.getInt16(i * 2, true) // little-endian
   }
   
-  return { version, senderId, pcmData }
+  return { version, senderId, pcmData, proximity }
 }
 
 /**

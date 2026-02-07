@@ -289,6 +289,7 @@ export class SignalingClient {
       username: this.username,
       transportMode: this.transportMode,
       stunServers: this.stunServers,
+      useProximityRadar: this.readBoolean(data.useProximityRadar),
       pending,
       pendingMessage: typeof data.pendingMessage === 'string' ? data.pendingMessage : undefined,
       pendingTimeoutSeconds: this.readNumber(data.pendingTimeoutSeconds) || undefined,
@@ -314,6 +315,7 @@ export class SignalingClient {
     this.emit('hello', {
       heartbeatIntervalMs: heartbeatIntervalMs || undefined,
       resumeWindowMs: resumeWindowMs || undefined,
+      useProximityRadar: this.readBoolean(data.useProximityRadar),
     })
   }
 
@@ -398,6 +400,20 @@ export class SignalingClient {
       return Number.isFinite(parsed) ? parsed : 0
     }
     return 0
+  }
+
+  private readBoolean(value: unknown): boolean {
+    if (typeof value === 'boolean') {
+      return value
+    }
+    if (typeof value === 'number') {
+      return value === 1
+    }
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase()
+      return normalized === 'true' || normalized === '1' || normalized === 'yes'
+    }
+    return false
   }
 
   private normalizeResumeKey(serverUrl: string): string {

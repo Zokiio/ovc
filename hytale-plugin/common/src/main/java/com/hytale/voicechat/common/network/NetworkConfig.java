@@ -49,6 +49,7 @@ public class NetworkConfig {
     // Group behavior defaults
     public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
     public static final double DEFAULT_GROUP_MIN_VOLUME = 0.3;  // 30% minimum volume within proximity
+    public static final boolean DEFAULT_USE_PROXIMITY_RADAR = false;
     
     // ============================================================================
     // CONFIGURABLE RUNTIME VALUES (initialized from constants above)
@@ -94,6 +95,7 @@ public class NetworkConfig {
     private static boolean groupGlobalVoice = true;
     private static boolean groupSpatialAudio = true;
     private static double groupMinVolume = DEFAULT_GROUP_MIN_VOLUME;
+    private static boolean useProximityRadar = DEFAULT_USE_PROXIMITY_RADAR;
 
     // Grace period before disconnecting web client after game quit
     private static int gameQuitGraceSeconds = 10;
@@ -121,6 +123,7 @@ public class NetworkConfig {
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupGlobalVoice", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupSpatialAudio", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("GroupMinVolume", groupMinVolume);
+            useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("USE_PROXIMITY_RADAR", useProximityRadar);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("GameQuitGraceSeconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("PendingGameJoinTimeoutSeconds", pendingGameJoinTimeoutSeconds);
             webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("WebRtcTransportMode", webRtcTransportMode);
@@ -147,6 +150,7 @@ public class NetworkConfig {
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.global", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.spatial", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.group.minvolume", groupMinVolume);
+            useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.ui.proximity.radar.enabled", useProximityRadar);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.quit.grace.seconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.join.pending.timeout.seconds", pendingGameJoinTimeoutSeconds);
             webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.transport.mode", webRtcTransportMode);
@@ -337,6 +341,13 @@ public class NetworkConfig {
      */
     public static double getGroupMinVolume() {
         return groupMinVolume;
+    }
+
+    /**
+     * Check if live proximity radar metadata should be sent to web clients.
+     */
+    public static boolean isProximityRadarEnabled() {
+        return useProximityRadar;
     }
 
     /**

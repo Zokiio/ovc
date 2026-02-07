@@ -1035,6 +1035,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("resumeToken", client.getResumeToken());
             responseData.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             responseData.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
+            responseData.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
 
             if (!playerOnline) {
                 int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
@@ -1052,6 +1053,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             JsonObject data = new JsonObject();
             data.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             data.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
+            data.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
             SignalingMessage hello = new SignalingMessage(SignalingMessage.TYPE_HELLO, data);
             sendMessage(ctx, hello);
         }
