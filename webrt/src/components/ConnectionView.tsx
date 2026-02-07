@@ -26,7 +26,8 @@ interface HardwareEngineContentProps {
   onAudioSettingsChange: (settings: AudioSettings) => void
   onSpeakingChange?: (isSpeaking: boolean) => void
   enableAudioCapture: boolean
-  onAudioData?: (audioData: string) => void
+  onAudioData?: (audioData: string | ArrayBuffer) => void
+  audioOutputFormat?: 'base64' | 'binary'
   useVadThreshold: boolean
   onVadThresholdChange: (value: boolean) => void
 }
@@ -38,6 +39,7 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
   onSpeakingChange,
   enableAudioCapture,
   onAudioData,
+  audioOutputFormat = 'base64',
   useVadThreshold,
   onVadThresholdChange
 }: HardwareEngineContentProps) {
@@ -72,6 +74,10 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
   const handleVadThresholdToggle = useCallback(() => {
     onVadThresholdChange(!useVadThreshold)
   }, [useVadThreshold, onVadThresholdChange])
+
+  const handleSpatialAudioToggle = useCallback(() => {
+    onAudioSettingsChange({ ...audioSettings, spatialAudioEnabled: !audioSettings.spatialAudioEnabled })
+  }, [audioSettings, onAudioSettingsChange])
 
   return (
     <div className="space-y-5">
@@ -160,6 +166,7 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
         onSpeakingChange={onSpeakingChange}
         enableAudioCapture={enableAudioCapture}
         onAudioData={onAudioData}
+        audioOutputFormat={audioOutputFormat}
         useVadThreshold={useVadThreshold}
         onVadThresholdChange={onVadThresholdChange}
       />
@@ -209,6 +216,17 @@ const HardwareEngineContent = memo(function HardwareEngineContent({
         >
           Voice Det
         </button>
+        <button
+          type="button"
+          onClick={handleSpatialAudioToggle}
+          className={`text-[9px] font-black uppercase py-2 rounded-lg border transition-all ${
+            audioSettings.spatialAudioEnabled
+              ? 'bg-accent/10 border-accent/50 text-accent'
+              : 'bg-background border-border text-muted-foreground'
+          }`}
+        >
+          Spatial Audio
+        </button>
       </div>
     </div>
   )
@@ -222,7 +240,8 @@ interface ConnectionViewProps {
   onAudioSettingsChange: (settings: AudioSettings) => void
   onSpeakingChange?: (isSpeaking: boolean) => void
   enableAudioCapture?: boolean
-  onAudioData?: (audioData: string) => void
+  onAudioData?: (audioData: string | ArrayBuffer) => void
+  audioOutputFormat?: 'base64' | 'binary'
 }
 
 export const ConnectionView = memo(function ConnectionView({
@@ -233,7 +252,8 @@ export const ConnectionView = memo(function ConnectionView({
   onAudioSettingsChange,
   onSpeakingChange,
   enableAudioCapture = false,
-  onAudioData
+  onAudioData,
+  audioOutputFormat = 'base64'
 }: ConnectionViewProps) {
   const [serverUrl, setServerUrl] = useState(connectionState.serverUrl)
   const [username, setUsername] = useState('')
@@ -253,7 +273,7 @@ export const ConnectionView = memo(function ConnectionView({
   
   const { servers, addServer, updateServer, removeServer, markUsed } = useSavedServers()
   
-  const isConnected = connectionState.status === 'connected'
+  const isConnected = connectionState.status === 'connected' || connectionState.status === 'pending'
   const reconnectAttempt = connectionState.reconnectAttempt
   const disconnectReason = connectionState.disconnectReason
 
@@ -434,7 +454,7 @@ export const ConnectionView = memo(function ConnectionView({
             <Select 
               value={selectedServerId || 'new'} 
               onValueChange={handleSelectServer}
-              disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
             >
               <SelectTrigger className="flex-1 bg-background border-border text-xs h-9">
                 <SelectValue placeholder="Select a saved server" />
@@ -455,7 +475,7 @@ export const ConnectionView = memo(function ConnectionView({
                 variant="outline"
                 size="icon"
                 onClick={handleSaveServer}
-                disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
                 title="Save as new server"
                 className="h-9 w-9 shrink-0"
               >
@@ -467,7 +487,7 @@ export const ConnectionView = memo(function ConnectionView({
                   variant="outline"
                   size="icon"
                   onClick={handleUpdateServer}
-                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
                   title="Save changes"
                   className="h-9 w-9 shrink-0 text-accent"
                 >
@@ -477,7 +497,7 @@ export const ConnectionView = memo(function ConnectionView({
                   variant="outline"
                   size="icon"
                   onClick={handleCancelEdit}
-                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
                   title="Cancel editing"
                   className="h-9 w-9 shrink-0"
                 >
@@ -490,7 +510,7 @@ export const ConnectionView = memo(function ConnectionView({
                   variant="outline"
                   size="icon"
                   onClick={handleStartEdit}
-                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
                   title="Edit server"
                   className="h-9 w-9 shrink-0"
                 >
@@ -500,7 +520,7 @@ export const ConnectionView = memo(function ConnectionView({
                   variant="outline"
                   size="icon"
                   onClick={handleDeleteServer}
-                  disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+                  disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
                   title="Delete server"
                   className="h-9 w-9 shrink-0"
                 >
@@ -523,7 +543,7 @@ export const ConnectionView = memo(function ConnectionView({
               placeholder="My Server"
               value={serverNickname}
               onChange={(e) => setServerNickname(e.target.value)}
-              disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
             />
           </div>
@@ -539,7 +559,7 @@ export const ConnectionView = memo(function ConnectionView({
               placeholder="localhost:24455"
               value={serverUrl}
               onChange={(e) => setServerUrl(e.target.value)}
-              disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 pr-9 text-xs focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
             />
             <button
@@ -564,7 +584,7 @@ export const ConnectionView = memo(function ConnectionView({
               placeholder="Your username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
             />
           </div>
@@ -577,7 +597,7 @@ export const ConnectionView = memo(function ConnectionView({
                 placeholder="CODE"
                 value={authCode}
                 onChange={(e) => setAuthCode(e.target.value.toUpperCase())}
-                disabled={connectionState.status === 'connected' || connectionState.status === 'connecting'}
+              disabled={connectionState.status === 'connected' || connectionState.status === 'pending' || connectionState.status === 'connecting'}
                 maxLength={6}
                 className="w-full bg-background border border-border rounded-lg px-3 py-2 pr-8 text-xs font-mono uppercase tracking-widest focus:ring-1 ring-accent outline-none transition-all disabled:opacity-50"
               />
@@ -596,10 +616,10 @@ export const ConnectionView = memo(function ConnectionView({
 
         {/* Connect/Disconnect Button */}
         <button 
-          onClick={connectionState.status === 'connected' ? onDisconnect : handleConnect}
+          onClick={connectionState.status === 'connected' || connectionState.status === 'pending' ? onDisconnect : handleConnect}
           disabled={connectionState.status === 'connecting'}
           className={`w-full py-2.5 rounded-lg font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 ${
-            connectionState.status === 'connected' 
+            connectionState.status === 'connected' || connectionState.status === 'pending'
               ? 'bg-destructive/10 text-destructive border border-destructive/50 hover:bg-destructive/20' 
               : 'bg-accent hover:bg-accent/90 text-accent-foreground shadow-lg shadow-accent/20'
           }`}
@@ -609,12 +629,18 @@ export const ConnectionView = memo(function ConnectionView({
           ) : (
             <PowerIcon size={14} weight="bold" />
           )}
-          {connectionState.status === 'connected' ? 'Terminate Session' : 'Establish Link'}
+          {connectionState.status === 'connected' || connectionState.status === 'pending' ? 'Terminate Session' : 'Establish Link'}
         </button>
 
         {connectionState.status === 'connecting' && reconnectAttempt && (
           <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[10px] text-amber-300">
             Reconnecting (attempt {reconnectAttempt}/3)...
+          </div>
+        )}
+
+        {connectionState.status === 'pending' && connectionState.pendingMessage && (
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2 text-[10px] text-amber-300">
+            {connectionState.pendingMessage}
           </div>
         )}
 
@@ -662,6 +688,7 @@ export const ConnectionView = memo(function ConnectionView({
                 onSpeakingChange={onSpeakingChange}
                 enableAudioCapture={enableAudioCapture}
                 onAudioData={onAudioData}
+                audioOutputFormat={audioOutputFormat}
                 useVadThreshold={useVadThreshold}
                 onVadThresholdChange={handleVadThresholdChange}
               />
@@ -707,6 +734,7 @@ export const ConnectionView = memo(function ConnectionView({
           onSpeakingChange={onSpeakingChange}
           enableAudioCapture={enableAudioCapture}
           onAudioData={onAudioData}
+          audioOutputFormat={audioOutputFormat}
           useVadThreshold={useVadThreshold}
           onVadThresholdChange={handleVadThresholdChange}
         />

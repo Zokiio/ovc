@@ -9,9 +9,10 @@ interface VoiceActivityOptions {
   minSpeechDuration?: number
   minSilenceDuration?: number
   enableAudioCapture?: boolean  // Enable PCM capture for transmission
-  onAudioData?: (audioData: string) => void  // Callback for captured audio (base64)
+  onAudioData?: (audioData: string | ArrayBuffer) => void  // Callback for captured audio
   useVadThreshold?: boolean  // Apply VAD threshold gating to audio transmission (default: true)
   testMicMode?: boolean  // When true, plays mic back to speakers and mutes transmission
+  audioOutputFormat?: 'base64' | 'binary'
 }
 
 interface VoiceActivityResult {
@@ -37,7 +38,7 @@ function float32ToBase64(float32Array: Float32Array, volumeMultiplier?: number):
     // Apply volume multiplier, then clamp and convert float [-1, 1] to int16 [-32768, 32767]
     const amplified = float32Array[i] * multiplier
     const s = Math.max(-1, Math.min(1, amplified))
-    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7fff
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
   }
   
   // Convert Int16Array to binary string
@@ -50,6 +51,22 @@ function float32ToBase64(float32Array: Float32Array, volumeMultiplier?: number):
   return btoa(binary)
 }
 
+/**
+ * Convert Float32 PCM samples to an ArrayBuffer containing Int16 PCM.
+ */
+function float32ToInt16Buffer(float32Array: Float32Array, volumeMultiplier?: number): ArrayBuffer {
+  const multiplier = volumeMultiplier ?? 1
+  const int16Array = new Int16Array(float32Array.length)
+
+  for (let i = 0; i < float32Array.length; i++) {
+    const amplified = float32Array[i] * multiplier
+    const s = Math.max(-1, Math.min(1, amplified))
+    int16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+  }
+
+  return int16Array.buffer
+}
+
 export function useVoiceActivity({
   enabled,
   audioSettings,
@@ -60,7 +77,8 @@ export function useVoiceActivity({
   enableAudioCapture = false,
   onAudioData,
   useVadThreshold = true,
-  testMicMode = false
+  testMicMode = false,
+  audioOutputFormat = 'base64'
 }: VoiceActivityOptions): VoiceActivityResult {
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [isTestMicActive, setIsTestMicActive] = useState(false)
@@ -81,6 +99,8 @@ export function useVoiceActivity({
   const lastLevelUpdateRef = useRef<number>(0)
   const lastReportedLevelRef = useRef<number>(0)
   const isSpeakingRef = useRef(false) // Track speaking state for gating audio transmission
+  const preRollBufferRef = useRef<{ timestamp: number; payload: ArrayBuffer | string }[]>([])
+  const speakingStartSignalRef = useRef(false)
   const thresholdRef = useRef(threshold) // Track current threshold for detection loop
   const deviceSwitchTimerRef = useRef<number | null>(null) // Track device switch restart timer
   
@@ -90,6 +110,7 @@ export function useVoiceActivity({
   const onAudioDataRef = useRef(onAudioData)  // Keep callback ref updated
   const enableAudioCaptureRef = useRef(enableAudioCapture)
   const useVadThresholdRef = useRef(useVadThreshold)  // Track VAD threshold gating setting
+  const audioOutputFormatRef = useRef(audioOutputFormat)
   
   // Test mic loopback refs
   const loopbackGainRef = useRef<GainNode | null>(null)
@@ -102,11 +123,39 @@ export function useVoiceActivity({
   const minSpeechDurationRef = useRef(minSpeechDuration)
   const minSilenceDurationRef = useRef(minSilenceDuration)
   const smoothingTimeConstantRef = useRef(smoothingTimeConstant)
+
+  const getPreRollWindowMs = () => Math.min(200, Math.max(40, minSpeechDurationRef.current))
+
+  const enqueuePreRoll = (payload: ArrayBuffer | string) => {
+    const now = Date.now()
+    const buffer = preRollBufferRef.current
+    buffer.push({ timestamp: now, payload })
+    const cutoff = now - getPreRollWindowMs()
+    while (buffer.length > 0 && buffer[0].timestamp < cutoff) {
+      buffer.shift()
+    }
+  }
+
+  const flushPreRoll = () => {
+    const buffer = preRollBufferRef.current
+    if (!buffer.length || !onAudioDataRef.current) {
+      buffer.length = 0
+      return
+    }
+    buffer.forEach(item => {
+      onAudioDataRef.current?.(item.payload)
+    })
+    buffer.length = 0
+  }
   
   // Update refs when props change
   useEffect(() => {
     onAudioDataRef.current = onAudioData
   }, [onAudioData])
+
+  useEffect(() => {
+    audioOutputFormatRef.current = audioOutputFormat
+  }, [audioOutputFormat])
   
   useEffect(() => {
     useVadThresholdRef.current = useVadThreshold
@@ -240,6 +289,8 @@ export function useVoiceActivity({
 
     setIsSpeaking(false)
     isSpeakingRef.current = false // Reset ref for audio gating
+    speakingStartSignalRef.current = false
+    preRollBufferRef.current = []
     audioLevelRef.current = 0
     setIsSwitchingDevice(false) // Reset switching state on cleanup
     
@@ -326,16 +377,26 @@ export function useVoiceActivity({
               return // Don't transmit during mic test
             }
             
-            // Gate audio transmission: only send when speech is detected above threshold (if VAD threshold is enabled)
-            if (useVadThresholdRef.current && !isSpeakingRef.current) {
-              return // Discard audio below VAD threshold
-            }
-            
             const float32Data = new Float32Array(event.data.data)
             // Apply input volume multiplier when converting to base64
             const volumeMultiplier = audioSettings.inputVolume / 100
-            const audioData = float32ToBase64(float32Data, volumeMultiplier)
-            onAudioDataRef.current(audioData)
+            const payload = audioOutputFormatRef.current === 'binary'
+              ? float32ToInt16Buffer(float32Data, volumeMultiplier)
+              : float32ToBase64(float32Data, volumeMultiplier)
+
+            // Gate audio transmission: only send when speech is detected above threshold (if VAD threshold is enabled)
+            if (useVadThresholdRef.current) {
+              if (!isSpeakingRef.current) {
+                enqueuePreRoll(payload)
+                return // Hold pre-roll until speech starts
+              }
+              if (speakingStartSignalRef.current) {
+                speakingStartSignalRef.current = false
+                flushPreRoll()
+              }
+            }
+
+            onAudioDataRef.current(payload)
           }
         }
         
@@ -412,6 +473,7 @@ export function useVoiceActivity({
             speakingTimeoutRef.current = window.setTimeout(() => {
               setIsSpeaking(true)
               isSpeakingRef.current = true
+              speakingStartSignalRef.current = true
               speakingTimeoutRef.current = null
             }, minSpeechDurationRef.current)
           }

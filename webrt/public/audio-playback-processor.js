@@ -8,6 +8,9 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     this.playbackBuffer = new Float32Array(this.playbackBufferSize)
     this.playbackWritePos = 0
     this.playbackReadPos = 0
+    const prebufferMs = options?.processorOptions?.prebufferMs ?? 0
+    this.minBufferSamples = Math.max(0, Math.floor(sampleRate * (prebufferMs / 1000)))
+    this.isPrimed = this.minBufferSamples === 0
 
     this.port.onmessage = (event) => {
       const message = event.data
@@ -21,6 +24,7 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
         this.playbackWritePos = 0
         this.playbackReadPos = 0
         this.playbackBuffer.fill(0)
+        this.isPrimed = this.minBufferSamples === 0
       }
     }
   }
@@ -48,6 +52,14 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     }
 
     const channel = output[0]
+    if (!this.isPrimed) {
+      const bufferFill = this.playbackWritePos - this.playbackReadPos
+      if (bufferFill < this.minBufferSamples) {
+        channel.fill(0)
+        return true
+      }
+      this.isPrimed = true
+    }
     for (let i = 0; i < channel.length; i++) {
       if (this.playbackReadPos < this.playbackWritePos) {
         channel[i] = this.playbackBuffer[this.playbackReadPos % this.playbackBufferSize]

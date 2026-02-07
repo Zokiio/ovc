@@ -4,16 +4,22 @@
  * All volume/mute settings are client-local only.
  */
 
+import { PlayerPosition } from './types'
+
 export interface UserAudioState {
   volume: number      // 0-100
   isMuted: boolean
   gainNode: GainNode | null
+  pannerNode: PannerNode | null
   audioElement: HTMLAudioElement | null
+  position: PlayerPosition | null
   // Continuous playback buffer (like old client)
   playbackBuffer: Float32Array | null
   playbackBufferSize: number
   playbackWritePos: number
   playbackReadPos: number
+  playbackMinBufferSamples: number
+  playbackPrimed: boolean
   playbackProcessor: AudioWorkletNode | ScriptProcessorNode | null
   isPlaybackInitialized: boolean
 }
@@ -26,6 +32,9 @@ export class AudioPlaybackManager {
   private masterMuted: boolean = false
   private outputDeviceId: string = 'default'
   private playbackWorkletReady: Promise<void> | null = null
+  private spatialEnabled: boolean = true
+  private listenerPose: PlayerPosition | null = null
+  private playbackPrebufferMs: number = 60
 
   constructor() {
     // Initialize lazily on first audio interaction
@@ -42,6 +51,14 @@ export class AudioPlaybackManager {
     this.masterGainNode = this.audioContext.createGain()
     this.masterGainNode.connect(this.audioContext.destination)
     this.updateMasterGain()
+    this.updateListenerFromPose()
+
+    // Preload playback worklet to avoid first-audio stutter
+    if (this.audioContext.audioWorklet) {
+      this.ensurePlaybackWorklet().catch(err => {
+        console.warn('[AudioPlayback] Failed to preload playback worklet:', err)
+      })
+    }
     
     // Apply output device if one was set before initialization
     if (this.outputDeviceId !== 'default' && 'setSinkId' in this.audioContext) {
@@ -87,6 +104,40 @@ export class AudioPlaybackManager {
     }
 
     await this.playbackWorkletReady
+  }
+
+  /**
+   * Enable or disable spatial audio (panning model + positioning)
+   */
+  public setSpatialEnabled(enabled: boolean): void {
+    this.spatialEnabled = enabled
+    this.updateListenerFromPose()
+    for (const [userId, state] of this.userAudioStates) {
+      if (state.pannerNode) {
+        this.configurePanner(state.pannerNode)
+      }
+      this.updateUserPannerPosition(userId)
+    }
+  }
+
+  /**
+   * Set the listener pose (current user's position + orientation)
+   */
+  public setListenerPose(pose: PlayerPosition): void {
+    this.listenerPose = pose
+    this.updateListenerFromPose()
+    for (const userId of this.userAudioStates.keys()) {
+      this.updateUserPannerPosition(userId)
+    }
+  }
+
+  /**
+   * Update a user's world position for spatialization
+   */
+  public updateUserPosition(userId: string, position: PlayerPosition): void {
+    const state = this.getOrCreateUserState(userId)
+    state.position = position
+    this.updateUserPannerPosition(userId)
   }
 
   /**
@@ -204,6 +255,10 @@ export class AudioPlaybackManager {
         state.playbackProcessor.disconnect()
         state.playbackProcessor = null
       }
+      if (state.pannerNode) {
+        state.pannerNode.disconnect()
+        state.pannerNode = null
+      }
       if (state.gainNode) {
         state.gainNode.disconnect()
         state.gainNode = null
@@ -211,6 +266,9 @@ export class AudioPlaybackManager {
       state.playbackBuffer = null
       state.playbackWritePos = 0
       state.playbackReadPos = 0
+      state.playbackMinBufferSamples = 0
+      state.playbackPrimed = true
+      state.position = null
       state.isPlaybackInitialized = false
     }
 
@@ -271,6 +329,39 @@ export class AudioPlaybackManager {
   }
 
   /**
+   * Play audio data for a user (raw Int16 PCM ArrayBuffer)
+   */
+  public async playUserAudioBinary(userId: string, audioData: ArrayBuffer): Promise<void> {
+    await this.ensureReady()
+
+    const state = this.getOrCreateUserState(userId)
+    if (state.isMuted || this.masterMuted) {
+      return
+    }
+
+    try {
+      if (!state.isPlaybackInitialized) {
+        await this.initializeUserPlayback(userId)
+      }
+
+      const byteLength = audioData.byteLength
+      if (byteLength < 2) {
+        return
+      }
+
+      const int16Array = new Int16Array(audioData, 0, Math.floor(byteLength / 2))
+      const float32Array = new Float32Array(int16Array.length)
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / (int16Array[i] < 0 ? 0x8000 : 0x7FFF)
+      }
+
+      this.writeToPlaybackBuffer(userId, float32Array)
+    } catch (err) {
+      console.error('[AudioPlayback] Error playing binary audio:', err)
+    }
+  }
+
+  /**
    * Initialize continuous playback buffer for a user
    */
   private async initializeUserPlayback(userId: string): Promise<void> {
@@ -278,14 +369,8 @@ export class AudioPlaybackManager {
     if (!state || state.isPlaybackInitialized || !this.audioContext) {
       return
     }
-
-
-    // Create gain node if not exists
-    if (!state.gainNode) {
-      state.gainNode = this.audioContext.createGain()
-      state.gainNode.connect(this.masterGainNode!)
-      this.updateUserGain(userId)
-    }
+    
+    this.ensureUserNodes(userId, state)
 
     // Prefer AudioWorkletNode for playback
     if (this.audioContext.audioWorklet) {
@@ -296,10 +381,11 @@ export class AudioPlaybackManager {
           numberOfOutputs: 1,
           outputChannelCount: [1],
           processorOptions: {
-            bufferSize: state.playbackBufferSize
+            bufferSize: state.playbackBufferSize,
+            prebufferMs: this.playbackPrebufferMs
           }
         })
-        playbackNode.connect(state.gainNode)
+        playbackNode.connect(state.pannerNode ?? state.gainNode!)
         state.playbackProcessor = playbackNode
         state.isPlaybackInitialized = true
         return
@@ -312,6 +398,8 @@ export class AudioPlaybackManager {
     state.playbackBuffer = new Float32Array(state.playbackBufferSize)
     state.playbackWritePos = 0
     state.playbackReadPos = 0
+    state.playbackMinBufferSamples = Math.floor(this.audioContext.sampleRate * (this.playbackPrebufferMs / 1000))
+    state.playbackPrimed = state.playbackMinBufferSamples === 0
     const bufferSize = 4096 // ~85ms at 48kHz
     const processor = this.audioContext.createScriptProcessor(bufferSize, 0, 1)
     processor.onaudioprocess = (event) => {
@@ -323,6 +411,15 @@ export class AudioPlaybackManager {
         return
       }
 
+      if (!userState.playbackPrimed) {
+        const bufferFill = userState.playbackWritePos - userState.playbackReadPos
+        if (bufferFill < userState.playbackMinBufferSamples) {
+          output.fill(0)
+          return
+        }
+        userState.playbackPrimed = true
+      }
+
       for (let i = 0; i < output.length; i++) {
         if (userState.playbackReadPos < userState.playbackWritePos) {
           output[i] = userState.playbackBuffer[userState.playbackReadPos % userState.playbackBufferSize]
@@ -332,7 +429,7 @@ export class AudioPlaybackManager {
         }
       }
     }
-    processor.connect(state.gainNode)
+    processor.connect(state.pannerNode ?? state.gainNode!)
     state.playbackProcessor = processor
     state.isPlaybackInitialized = true
     
@@ -379,17 +476,11 @@ export class AudioPlaybackManager {
     }
 
     const state = this.getOrCreateUserState(userId)
-    
-    // Create gain node if not exists
-    if (!state.gainNode) {
-      state.gainNode = this.audioContext.createGain()
-      state.gainNode.connect(this.masterGainNode)
-      this.updateUserGain(userId)
-    }
+    this.ensureUserNodes(userId, state)
 
     // Create source from stream
     const source = this.audioContext.createMediaStreamSource(stream)
-    source.connect(state.gainNode)
+    source.connect(state.pannerNode ?? state.gainNode!)
     
   }
 
@@ -403,6 +494,10 @@ export class AudioPlaybackManager {
         state.playbackProcessor.disconnect()
         state.playbackProcessor = null
       }
+      if (state.pannerNode) {
+        state.pannerNode.disconnect()
+        state.pannerNode = null
+      }
       if (state.gainNode) {
         state.gainNode.disconnect()
         state.gainNode = null
@@ -413,6 +508,9 @@ export class AudioPlaybackManager {
         state.audioElement = null
       }
       state.playbackBuffer = null
+      state.playbackMinBufferSamples = 0
+      state.playbackPrimed = true
+      state.position = null
       state.isPlaybackInitialized = false
       this.userAudioStates.delete(userId)
     }
@@ -428,18 +526,206 @@ export class AudioPlaybackManager {
         volume: 100,
         isMuted: false,
         gainNode: null,
+        pannerNode: null,
         audioElement: null,
+        position: null,
         // Continuous playback buffer (like old client)
         playbackBuffer: null,
         playbackBufferSize: 48000 * 2, // 2 seconds at 48kHz
         playbackWritePos: 0,
         playbackReadPos: 0,
+        playbackMinBufferSamples: 0,
+        playbackPrimed: true,
         playbackProcessor: null,
         isPlaybackInitialized: false
       }
       this.userAudioStates.set(userId, state)
     }
     return state
+  }
+
+  /**
+   * Ensure gain + panner nodes exist and are connected
+   */
+  private ensureUserNodes(userId: string, state: UserAudioState): void {
+    if (!this.audioContext || !this.masterGainNode) {
+      return
+    }
+
+    if (!state.gainNode) {
+      state.gainNode = this.audioContext.createGain()
+      state.gainNode.connect(this.masterGainNode)
+      this.updateUserGain(userId)
+    }
+
+    if (!state.pannerNode) {
+      state.pannerNode = this.audioContext.createPanner()
+      this.configurePanner(state.pannerNode)
+      state.pannerNode.connect(state.gainNode)
+      this.updateUserPannerPosition(userId)
+    }
+  }
+
+  /**
+   * Configure panner settings for spatialization
+   */
+  private configurePanner(panner: PannerNode): void {
+    panner.panningModel = this.spatialEnabled ? 'HRTF' : 'equalpower'
+    panner.distanceModel = 'linear'
+    panner.refDistance = 1
+    panner.maxDistance = 10000
+    panner.rolloffFactor = 0
+    panner.coneInnerAngle = 360
+    panner.coneOuterAngle = 0
+    panner.coneOuterGain = 0
+  }
+
+  /**
+   * Update the listener from the last known pose
+   */
+  private updateListenerFromPose(): void {
+    if (!this.audioContext) {
+      return
+    }
+
+    if (!this.spatialEnabled || !this.listenerPose) {
+      this.setListenerDefault()
+      return
+    }
+
+    const pose = this.listenerPose
+    const yawRad = (pose.yaw * Math.PI) / 180
+    const pitchRad = (-pose.pitch * Math.PI) / 180
+    const cosPitch = Math.cos(pitchRad)
+
+    let forwardX = Math.sin(yawRad) * cosPitch
+    let forwardY = Math.sin(pitchRad)
+    let forwardZ = Math.cos(yawRad) * cosPitch
+
+    const forwardLen = Math.hypot(forwardX, forwardY, forwardZ) || 1
+    forwardX /= forwardLen
+    forwardY /= forwardLen
+    forwardZ /= forwardLen
+
+    const worldUp = { x: 0, y: 1, z: 0 }
+    let rightX = worldUp.y * forwardZ - worldUp.z * forwardY
+    let rightY = worldUp.z * forwardX - worldUp.x * forwardZ
+    let rightZ = worldUp.x * forwardY - worldUp.y * forwardX
+    const rightLen = Math.hypot(rightX, rightY, rightZ)
+
+    if (rightLen < 1e-5) {
+      rightX = 1
+      rightY = 0
+      rightZ = 0
+    } else {
+      rightX /= rightLen
+      rightY /= rightLen
+      rightZ /= rightLen
+    }
+
+    let upX = forwardY * rightZ - forwardZ * rightY
+    let upY = forwardZ * rightX - forwardX * rightZ
+    let upZ = forwardX * rightY - forwardY * rightX
+    const upLen = Math.hypot(upX, upY, upZ) || 1
+    upX /= upLen
+    upY /= upLen
+    upZ /= upLen
+
+    // Map to Web Audio coordinates (flip Z)
+    const listenerPos = { x: pose.x, y: pose.y, z: -pose.z }
+    const listenerForward = { x: forwardX, y: forwardY, z: -forwardZ }
+    const listenerUp = { x: upX, y: upY, z: -upZ }
+
+    this.setListenerPoseInternal(listenerPos, listenerForward, listenerUp)
+  }
+
+  /**
+   * Set a default listener pose when spatial audio is disabled or pose is missing
+   */
+  private setListenerDefault(): void {
+    this.setListenerPoseInternal(
+      { x: 0, y: 0, z: 0 },
+      { x: 0, y: 0, z: -1 },
+      { x: 0, y: 1, z: 0 }
+    )
+  }
+
+  /**
+   * Apply listener position + orientation with smoothing where supported
+   */
+  private setListenerPoseInternal(
+    position: { x: number; y: number; z: number },
+    forward: { x: number; y: number; z: number },
+    up: { x: number; y: number; z: number }
+  ): void {
+    if (!this.audioContext) {
+      return
+    }
+
+    const listener = this.audioContext.listener
+    const t = this.audioContext.currentTime
+    const timeConstant = 0.05
+
+    if ('positionX' in listener) {
+      listener.positionX.setTargetAtTime(position.x, t, timeConstant)
+      listener.positionY.setTargetAtTime(position.y, t, timeConstant)
+      listener.positionZ.setTargetAtTime(position.z, t, timeConstant)
+    } else if ('setPosition' in listener) {
+      ;(listener as any).setPosition(position.x, position.y, position.z)
+    }
+
+    if ('forwardX' in listener) {
+      listener.forwardX.setTargetAtTime(forward.x, t, timeConstant)
+      listener.forwardY.setTargetAtTime(forward.y, t, timeConstant)
+      listener.forwardZ.setTargetAtTime(forward.z, t, timeConstant)
+      listener.upX.setTargetAtTime(up.x, t, timeConstant)
+      listener.upY.setTargetAtTime(up.y, t, timeConstant)
+      listener.upZ.setTargetAtTime(up.z, t, timeConstant)
+    } else if ('setOrientation' in listener) {
+      ;(listener as any).setOrientation(forward.x, forward.y, forward.z, up.x, up.y, up.z)
+    }
+  }
+
+  /**
+   * Update panner position based on stored user position
+   */
+  private updateUserPannerPosition(userId: string): void {
+    if (!this.audioContext) {
+      return
+    }
+
+    const state = this.userAudioStates.get(userId)
+    if (!state?.pannerNode) {
+      return
+    }
+
+    const panner = state.pannerNode
+    const timeConstant = 0.05
+    const t = this.audioContext.currentTime
+
+    if (!this.spatialEnabled || !this.listenerPose || !state.position) {
+      if ('positionX' in panner) {
+        panner.positionX.setTargetAtTime(0, t, timeConstant)
+        panner.positionY.setTargetAtTime(0, t, timeConstant)
+        panner.positionZ.setTargetAtTime(-1, t, timeConstant)
+      } else if ('setPosition' in panner) {
+        ;(panner as any).setPosition(0, 0, -1)
+      }
+      return
+    }
+
+    const pos = state.position
+    const x = pos.x
+    const y = pos.y
+    const z = -pos.z
+
+    if ('positionX' in panner) {
+      panner.positionX.setTargetAtTime(x, t, timeConstant)
+      panner.positionY.setTargetAtTime(y, t, timeConstant)
+      panner.positionZ.setTargetAtTime(z, t, timeConstant)
+    } else if ('setPosition' in panner) {
+      ;(panner as any).setPosition(x, y, z)
+    }
   }
 
   /**

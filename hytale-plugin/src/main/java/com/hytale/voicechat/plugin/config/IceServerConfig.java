@@ -1,5 +1,8 @@
 package com.hytale.voicechat.plugin.config;
 
+import com.hytale.voicechat.common.network.NetworkConfig;
+
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -25,12 +28,14 @@ public class IceServerConfig {
     }
 
     public static IceServerConfig defaults() {
-        return new IceServerConfig(
-            List.of(
-                "stun:stun.cloudflare.com:3478",
-                "stun:stun.cloudflare.com:53"
-            ),
-            List.of()
-        );
+        List<String> stunServers = new ArrayList<>(NetworkConfig.getStunServers());
+        List<String> turnServers = new ArrayList<>(NetworkConfig.getTurnServers());
+
+        if (stunServers.isEmpty()) {
+            stunServers.add("stun:stun.cloudflare.com:3478");
+            stunServers.add("stun:stun.cloudflare.com:53");
+        }
+
+        return new IceServerConfig(stunServers, turnServers);
     }
 }
