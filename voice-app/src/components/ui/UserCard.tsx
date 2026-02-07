@@ -4,6 +4,7 @@ import { useAudioStore } from '../../stores/audioStore';
 import { Volume2, VolumeX, MicOff } from 'lucide-react';
 import { AudioLevelMeter, SpeakingIndicator } from './AudioControls';
 import type { GroupMember, User } from '../../lib/types';
+import { getAudioPlaybackManager } from '../../lib/audio/playback-manager';
 
 // --- Full User Card ---
 
@@ -22,6 +23,7 @@ const UserCardComponent = ({ user, showVolumeControls = true, showSpeakingLevel 
   const volume = useAudioStore(selectUserVolume);
   const setLocalMute = useAudioStore((s) => s.setLocalMute);
   const setUserVolume = useAudioStore((s) => s.setUserVolume);
+  const playbackManager = getAudioPlaybackManager()
   const isSpeaking = user.isSpeaking;
   const isMicMuted = user.isMicMuted;
 
@@ -100,7 +102,11 @@ const UserCardComponent = ({ user, showVolumeControls = true, showSpeakingLevel 
               value={volume}
               min={0}
               max={200}
-              onChange={(e) => setUserVolume(user.id, Number(e.target.value))}
+              onChange={(e) => {
+                const nextVolume = Number(e.target.value)
+                setUserVolume(user.id, nextVolume)
+                playbackManager.setUserVolume(user.id, nextVolume)
+              }}
             />
             <button 
               className={cn(
@@ -109,7 +115,11 @@ const UserCardComponent = ({ user, showVolumeControls = true, showSpeakingLevel 
                   ? "bg-[var(--accent-danger)]/20 text-[var(--accent-danger)] border-[var(--accent-danger)]"
                   : "bg-[var(--bg-panel)] text-[var(--text-secondary)] border-[var(--border-primary)] hover:text-[var(--accent-danger)] hover:border-[var(--accent-danger)]"
               )}
-              onClick={() => setLocalMute(user.id, !isLocalMuted)}
+              onClick={() => {
+                const nextMuted = !isLocalMuted
+                setLocalMute(user.id, nextMuted)
+                playbackManager.setUserMuted(user.id, nextMuted)
+              }}
               title={isLocalMuted ? "Unmute User" : "Mute User"}
             >
               {isLocalMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -149,6 +159,7 @@ const UserCardCompactComponent = ({ user, onClick, showControls = true, classNam
   const volume = useAudioStore(selectUserVolume);
   const setLocalMute = useAudioStore((s) => s.setLocalMute);
   const setUserVolume = useAudioStore((s) => s.setUserVolume);
+  const playbackManager = getAudioPlaybackManager()
   const isSpeaking = user.isSpeaking;
   const isMicMuted = user.isMicMuted;
 
@@ -199,7 +210,11 @@ const UserCardCompactComponent = ({ user, onClick, showControls = true, classNam
             min={0}
             max={200}
             onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setUserVolume(user.id, Number(e.target.value))}
+            onChange={(e) => {
+              const nextVolume = Number(e.target.value)
+              setUserVolume(user.id, nextVolume)
+              playbackManager.setUserVolume(user.id, nextVolume)
+            }}
             title={`Volume: ${volume}%`}
           />
           <button 
@@ -209,7 +224,12 @@ const UserCardCompactComponent = ({ user, onClick, showControls = true, classNam
                 ? "text-[var(--accent-danger)]"
                 : "text-[var(--text-secondary)] hover:text-[var(--accent-danger)]"
             )}
-            onClick={(e) => { e.stopPropagation(); setLocalMute(user.id, !isLocalMuted); }}
+            onClick={(e) => {
+              e.stopPropagation()
+              const nextMuted = !isLocalMuted
+              setLocalMute(user.id, nextMuted)
+              playbackManager.setUserMuted(user.id, nextMuted)
+            }}
             title={isLocalMuted ? "Unmute" : "Mute"}
           >
             {isLocalMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}

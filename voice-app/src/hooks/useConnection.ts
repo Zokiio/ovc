@@ -38,7 +38,7 @@ export function useConnection() {
   const setCurrentGroupId = useGroupStore((s) => s.setCurrentGroupId)
   const setGroupMembers = useGroupStore((s) => s.setGroupMembers)
   const updateMemberSpeaking = useGroupStore((s) => s.updateMemberSpeaking)
-  const currentGroupId = useGroupStore((s) => s.currentGroupId)
+  const updateMemberMuted = useGroupStore((s) => s.updateMemberMuted)
   const resetGroups = useGroupStore((s) => s.reset)
 
   // User store
@@ -55,6 +55,7 @@ export function useConnection() {
 
   // Audio store
   const isMicMuted = useAudioStore((s) => s.isMicMuted)
+  const setMicMuted = useAudioStore((s) => s.setMicMuted)
   const isSpeaking = useAudioStore((s) => s.isSpeaking)
   const inputVolume = useAudioStore((s) => s.settings.inputVolume)
 
@@ -126,6 +127,28 @@ export function useConnection() {
       }
       console.warn('[useConnection] WebRTC unavailable, using WebSocket fallback audio')
     }
+  }, [])
+
+  const resolveUserIdFromEvent = useCallback((payload: Record<string, unknown>): string | null => {
+    const candidate = [payload.playerId, payload.userId, payload.clientId, payload.id]
+      .find((value): value is string => typeof value === 'string' && value.length > 0)
+    if (candidate) {
+      return candidate
+    }
+
+    const username = typeof payload.username === 'string' ? payload.username : null
+    if (!username) {
+      return null
+    }
+
+    const users = useUserStore.getState().users
+    for (const user of users.values()) {
+      if (user.name === username) {
+        return user.id
+      }
+    }
+
+    return null
   }, [])
 
   // Setup signaling event listeners
@@ -387,21 +410,73 @@ export function useConnection() {
     })
 
     signaling.on('user_speaking_status', (data) => {
-      const { playerId, isSpeaking } = data as { playerId: string; isSpeaking: boolean }
-      setUserSpeaking(playerId, isSpeaking)
-      if (currentGroupId) {
-        updateMemberSpeaking(currentGroupId, playerId, isSpeaking)
+      const payload = (data && typeof data === 'object')
+        ? (data as Record<string, unknown>)
+        : {}
+      const userId = resolveUserIdFromEvent(payload)
+      if (!userId) {
+        return
+      }
+
+      const speaking = !!payload.isSpeaking
+      setUserSpeaking(userId, speaking)
+
+      const activeGroupId = useGroupStore.getState().currentGroupId
+      if (activeGroupId) {
+        updateMemberSpeaking(activeGroupId, userId, speaking)
       }
     })
 
     signaling.on('user_mute_status', (data) => {
-      const { playerId, isMuted } = data as { playerId: string; isMuted: boolean }
-      setUserMicMuted(playerId, isMuted)
+      const payload = (data && typeof data === 'object')
+        ? (data as Record<string, unknown>)
+        : {}
+      const userId = resolveUserIdFromEvent(payload)
+      if (!userId) {
+        return
+      }
+
+      const muted = !!payload.isMuted
+      setUserMicMuted(userId, muted)
+
+      const activeGroupId = useGroupStore.getState().currentGroupId
+      if (activeGroupId) {
+        updateMemberMuted(activeGroupId, userId, muted)
+      }
+
+      if (userId === useUserStore.getState().localUserId) {
+        setMicMuted(muted)
+      }
+    })
+
+    signaling.on('set_mic_mute', (data) => {
+      const payload = (data && typeof data === 'object')
+        ? (data as Record<string, unknown>)
+        : {}
+      const muted = !!payload.isMuted
+      setMicMuted(muted)
+
+      const localUserId = useUserStore.getState().localUserId
+      if (!localUserId) {
+        return
+      }
+
+      setUserMicMuted(localUserId, muted)
+      const activeGroupId = useGroupStore.getState().currentGroupId
+      if (activeGroupId) {
+        updateMemberMuted(activeGroupId, localUserId, muted)
+      }
     })
 
     signaling.on('position_update', (data) => {
-      const { playerId, position } = data as { playerId: string; position: PlayerPosition }
-      setUserPosition(playerId, position)
+      const payload = (data && typeof data === 'object')
+        ? (data as Record<string, unknown>)
+        : {}
+      const userId = resolveUserIdFromEvent(payload)
+      if (!userId || !payload.position) {
+        return
+      }
+      setUserPosition(userId, payload.position as PlayerPosition)
     })
 
     signaling.on('audio', (data) => {
@@ -415,7 +490,8 @@ export function useConnection() {
     setAuthenticated, setLocalUserId, setStatus, setError, setLatency,
     setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
-    currentGroupId, updateMemberSpeaking, handleWebSocketAudio, connectWebRTCIfAllowed,
+    updateMemberSpeaking, updateMemberMuted, setMicMuted, resolveUserIdFromEvent,
+    handleWebSocketAudio, connectWebRTCIfAllowed,
   ])
 
   // Setup WebRTC event listeners

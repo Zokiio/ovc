@@ -165,9 +165,31 @@ export interface SignalingEvents {
   group_list: { groups: Group[] }
   group_members_updated: { groupId: string; members: GroupMember[] }
   player_list: { players: User[] }
-  user_speaking_status: { playerId: string; isSpeaking: boolean }
-  user_mute_status: { playerId: string; isMuted: boolean }
-  position_update: { playerId: string; position: PlayerPosition }
+  user_speaking_status: {
+    playerId?: string
+    userId?: string
+    clientId?: string
+    id?: string
+    username?: string
+    isSpeaking: boolean
+  }
+  user_mute_status: {
+    playerId?: string
+    userId?: string
+    clientId?: string
+    id?: string
+    username?: string
+    isMuted: boolean
+  }
+  set_mic_mute: { isMuted: boolean }
+  position_update: {
+    playerId?: string
+    userId?: string
+    clientId?: string
+    id?: string
+    username?: string
+    position: PlayerPosition
+  }
   audio: { senderId: string; audioData: string }
   
   // WebRTC signaling

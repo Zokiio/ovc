@@ -235,6 +235,9 @@ export class SignalingClient {
       case 'user_mute_status':
         this.emit('user_mute_status', data)
         break
+      case 'set_mic_mute':
+        this.emit('set_mic_mute', data)
+        break
       case 'position_update':
         this.emit('position_update', data)
         break
