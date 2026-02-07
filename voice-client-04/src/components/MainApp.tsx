@@ -12,6 +12,7 @@ import { Clock } from 'lucide-react';
 import { useAudioStore } from '../stores/audioStore';
 import { useGroupStore } from '../stores/groupStore';
 import { useConnection } from '../hooks/useConnection';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 
 interface MainAppProps {
   user: { name: string; server: string };
@@ -27,12 +28,15 @@ export const MainApp = ({ user, onLogout }: MainAppProps) => {
   const micLevel = useAudioStore((s) => s.micLevel);
   const isSpeaking = useAudioStore((s) => s.isSpeaking);
   const vadSettings = useAudioStore((s) => s.vadSettings);
-  
+
   // Use individual selectors for proper reactivity
   const groups = useGroupStore((s) => s.groups);
   const currentGroupId = useGroupStore((s) => s.currentGroupId);
   const currentGroup = groups.find((g) => g.id === currentGroupId) ?? null;
   const { disconnect } = useConnection();
+
+  // Keyboard shortcuts for mute (M) and deafen (D)
+  useKeyboardShortcuts();
   
   // Uptime tracker
   const [uptime, setUptime] = useState(0);

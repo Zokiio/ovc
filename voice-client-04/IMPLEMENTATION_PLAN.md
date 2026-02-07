@@ -1,10 +1,10 @@
 # Voice Client 04 Implementation Plan
 
 ## Problem Statement
-Migrate functionality from `webrt` to `voice-client-04` with improved architecture:
+Migrate functionality from `old-webclient` to `voice-client-04` with improved architecture:
 - **Better state management** using Zustand instead of scattered local state
 - **WebRTC DataChannel only** for audio transport (no WebSocket audio fallback)
-- **Full feature parity** with webrt
+- **Full feature parity** with old-webclient
 - **Flexible theming** system that supports multiple themes
 
 ## Proposed Approach
@@ -17,7 +17,7 @@ Set up clean architecture with Zustand stores and types.
 
 ### Tasks
 - [x] **1.1 Install dependencies** - Zustand for state management
-- [x] **1.2 Create type definitions** - Port and improve types from webrt (`lib/types.ts`)
+- [x] **1.2 Create type definitions** - Port and improve types from old-webclient (`lib/types.ts`)
   - User, Group, GroupSettings, AudioSettings, VADSettings, ConnectionState, PlayerPosition
 - [x] **1.3 Create Zustand stores**
   - [x] `stores/connectionStore.ts` - Server connection state, latency, status
@@ -258,9 +258,9 @@ voice-client-04/src/
 
 ---
 
-## Reference: webrt Features to Port
+## Reference: old-webclient Features to Port
 
-From `webrt/PRD.md` and source analysis:
+From `old-webclient/PRD.md` and source analysis:
 - Connection management with latency monitoring
 - Voice Activity Detection (VAD) with environment presets
 - Group/party management (create, join, leave, settings)

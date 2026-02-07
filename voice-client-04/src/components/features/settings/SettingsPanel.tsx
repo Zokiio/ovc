@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { Panel, Button, Input, Switch, Modal, Badge, Slider } from '../../ui/Primitives';
 import { AudioLevelMeter, DeviceSelector } from '../../ui/AudioControls';
 import { cn } from '../../../lib/utils';
-import { 
-  Settings, 
-  Mic, 
-  Volume2, 
-  Server, 
-  Palette, 
+import {
+  Settings,
+  Mic,
+  Volume2,
+  Server,
+  Palette,
   Activity,
   Trash2,
   Plus,
@@ -15,10 +15,44 @@ import {
   Sun,
   Cloud,
   Wind,
-  RefreshCw
+  RefreshCw,
+  Keyboard
 } from 'lucide-react';
 import { useAudioStore } from '../../../stores/audioStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
+
+// --- Keyboard Shortcuts Info ---
+
+export const KeyboardShortcutsInfo = ({ className }: { className?: string }) => {
+  const shortcuts = [
+    { key: 'M', action: 'Toggle Microphone Mute' },
+    { key: 'D', action: 'Toggle Deafen (Speaker Mute)' },
+  ];
+
+  return (
+    <div className={cn("space-y-3", className)}>
+      <div className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+        <Keyboard className="w-3.5 h-3.5" /> Keyboard Shortcuts
+      </div>
+      <div className="space-y-2">
+        {shortcuts.map(({ key, action }) => (
+          <div
+            key={key}
+            className="flex items-center justify-between p-2 bg-[var(--bg-input)] rounded-[var(--radius-btn)] border border-[var(--border-primary)]"
+          >
+            <span className="text-xs text-[var(--text-primary)]">{action}</span>
+            <kbd className="px-2 py-1 bg-[var(--bg-panel)] border border-[var(--border-primary)] rounded text-[10px] font-mono font-bold text-[var(--accent-primary)]">
+              {key}
+            </kbd>
+          </div>
+        ))}
+      </div>
+      <p className="text-[9px] text-[var(--text-secondary)] italic">
+        Shortcuts are active when connected and not typing in an input field.
+      </p>
+    </div>
+  );
+};
 
 // --- Theme Selector ---
 
@@ -377,9 +411,14 @@ export const SettingsPanel = ({ className }: { className?: string }) => {
         )}
 
         {activeTab === 'appearance' && (
-          <Panel title="Appearance">
-            <ThemeSelector />
-          </Panel>
+          <div className="space-y-4">
+            <Panel title="Appearance">
+              <ThemeSelector />
+            </Panel>
+            <Panel title="Controls">
+              <KeyboardShortcutsInfo />
+            </Panel>
+          </div>
         )}
       </div>
     </div>
