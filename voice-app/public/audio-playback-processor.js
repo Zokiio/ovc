@@ -10,7 +10,6 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     this.playbackReadPos = 0
     this.prebufferSamples = Math.max(128, Math.round(sampleRate * 0.06)) // 60ms minimum
     this.isPrimed = false
-    this.lastSample = 0
 
     this.underruns = 0
     this.overruns = 0
@@ -38,7 +37,6 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     this.playbackReadPos = 0
     this.playbackBuffer.fill(0)
     this.isPrimed = false
-    this.lastSample = 0
     this.underruns = 0
     this.overruns = 0
     this.droppedSamples = 0
@@ -91,30 +89,24 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     const availableBeforeWrite = this.playbackWritePos - this.playbackReadPos
 
     if (!this.isPrimed && availableBeforeWrite < this.prebufferSamples) {
-      for (let i = 0; i < channel.length; i++) {
-        this.lastSample *= 0.98
-        if (Math.abs(this.lastSample) < 0.00001) {
-          this.lastSample = 0
-        }
-        channel[i] = this.lastSample
-      }
+      channel.fill(0)
     } else {
       this.isPrimed = true
+      let hadUnderrun = false
       for (let i = 0; i < channel.length; i++) {
         if (this.playbackReadPos < this.playbackWritePos) {
           const sample = this.playbackBuffer[this.playbackReadPos % this.playbackBufferSize]
           channel[i] = sample
-          this.lastSample = sample
           this.playbackReadPos++
         } else {
-          this.underruns++
-          this.lastSample *= 0.98
-          if (Math.abs(this.lastSample) < 0.00001) {
-            this.lastSample = 0
-          }
-          channel[i] = this.lastSample
-          this.isPrimed = false
+          channel[i] = 0
+          hadUnderrun = true
         }
+      }
+
+      if (hadUnderrun) {
+        this.underruns++
+        this.isPrimed = false
       }
     }
 

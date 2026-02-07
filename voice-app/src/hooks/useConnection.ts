@@ -11,6 +11,9 @@ import { useVoiceActivity } from './useVoiceActivity'
 import { useAudioPlayback } from './useAudioPlayback'
 import type { Group, GroupMember, User, PlayerPosition } from '../lib/types'
 
+// Keep outbound PCM chunks comfortably below the server's DataChannel payload cap (900 bytes).
+const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
+
 /**
  * Main connection hook that orchestrates signaling, WebRTC, and audio.
  */
@@ -66,12 +69,22 @@ export function useConnection() {
 
     const webrtc = getWebRTCManager()
     if (webrtc.isReady()) {
-      const pcmBuffer = new ArrayBuffer(int16Data.byteLength)
-      new Uint8Array(pcmBuffer).set(
-        new Uint8Array(int16Data.buffer, int16Data.byteOffset, int16Data.byteLength)
-      )
-      webrtc.sendAudio(pcmBuffer)
-      return
+      let allChunksSent = true
+      for (let offset = 0; offset < int16Data.length; offset += MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK) {
+        const end = Math.min(offset + MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK, int16Data.length)
+        const chunk = int16Data.subarray(offset, end)
+        const pcmBuffer = new ArrayBuffer(chunk.byteLength)
+        new Uint8Array(pcmBuffer).set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
+
+        if (!webrtc.sendAudio(pcmBuffer)) {
+          allChunksSent = false
+          break
+        }
+      }
+
+      if (allChunksSent) {
+        return
+      }
     }
 
     if (transportMode !== 'webrtc' && signaling.isConnected()) {
