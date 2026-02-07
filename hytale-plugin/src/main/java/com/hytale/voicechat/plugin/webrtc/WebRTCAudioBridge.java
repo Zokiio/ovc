@@ -403,6 +403,7 @@ public class WebRTCAudioBridge {
         // If the frame is too large to fit in a single payload, skip sending it to
         // avoid fragmenting over an unordered/unreliable channel.
         if (audioData.length > maxChunkSize) {
+            logger.atWarning().log("Dropping oversized audio frame: " + audioData.length + " bytes (max: " + maxChunkSize + ") for client " + recipientId);
             return false;
         }
 

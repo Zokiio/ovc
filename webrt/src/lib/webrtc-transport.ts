@@ -126,8 +126,11 @@ export class WebRTCTransport {
       }
     }
 
+    // Create DataChannel with unreliable, unordered delivery for real-time audio.
+    // Each message contains a complete audio frame (no fragmentation), so ordering
+    // is not needed. Unreliable delivery prevents head-of-line blocking for lower latency.
     this.setupDataChannel(this.pc.createDataChannel('audio', {
-      ordered: true,
+      ordered: false,
       maxRetransmits: 0
     }))
 
