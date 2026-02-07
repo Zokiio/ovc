@@ -49,6 +49,8 @@ const DEFAULT_AUDIO_SETTINGS: AudioSettings = {
   spatialAudioEnabled: true
 }
 
+type TransportMode = 'auto' | 'webrtc' | 'websocket'
+
 function loadAudioSettings(): AudioSettings {
   try {
     const stored = localStorage.getItem(AUDIO_SETTINGS_STORAGE_KEY)
@@ -111,8 +113,8 @@ function App() {
     serverUrl: ''
   })
   const [transportStatus, setTransportStatus] = useState<'disabled' | 'connecting' | 'webrtc' | 'websocket' | 'failed'>('disabled')
-  const [transportMode, setTransportMode] = useState<'auto' | 'webrtc' | 'websocket'>('auto')
-  const transportModeRef = useRef<'auto' | 'webrtc' | 'websocket'>('auto')
+  const [transportMode, setTransportMode] = useState<TransportMode>('auto')
+  const transportModeRef = useRef<TransportMode>('auto')
   const stunServersRef = useRef<string[]>([
     'stun:stun.cloudflare.com:3478',
     'stun:stun.cloudflare.com:53'

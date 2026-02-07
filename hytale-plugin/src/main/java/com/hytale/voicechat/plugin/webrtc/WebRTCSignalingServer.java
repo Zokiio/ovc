@@ -1062,6 +1062,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
             client.setSessionId(generateSessionId());
             client.setResumeToken(generateResumeToken());
+            client.setLastHeartbeatAt(System.currentTimeMillis());
             boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
             client.setPendingGameSession(!playerOnline);
             clients.put(clientId, client);
@@ -1139,6 +1140,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
             client.setSessionId(session.sessionId);
             client.setResumeToken(generateResumeToken());
+            client.setLastHeartbeatAt(System.currentTimeMillis());
 
             boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
             client.setPendingGameSession(!playerOnline);

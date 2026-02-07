@@ -126,18 +126,47 @@ export class WebRTCTransport {
       }
     }
 
+    // Create DataChannel with unreliable, unordered delivery for real-time audio.
+    // Each message contains a complete audio frame (no fragmentation), so ordering
+    // is not needed. Unreliable delivery prevents head-of-line blocking for lower latency.
     this.setupDataChannel(this.pc.createDataChannel('audio', {
       ordered: false,
       maxRetransmits: 0
     }))
 
-    const offer = await this.pc.createOffer()
-    await this.pc.setLocalDescription(offer)
-    console.info(`${this.logPrefix} Local description set, sending offer`)
-    this.signaling.sendOffer(offer.sdp || '')
+    try {
+      const offer = await this.pc.createOffer()
+      await this.pc.setLocalDescription(offer)
+      console.info(`${this.logPrefix} Local description set, sending offer`)
 
-    this.signaling.on('message:answer', this.handleAnswer)
-    this.signaling.on('message:ice_candidate', this.handleRemoteCandidate)
+      this.signaling.on('message:answer', this.handleAnswer)
+      this.signaling.on('message:ice_candidate', this.handleRemoteCandidate)
+
+      this.signaling.sendOffer(offer.sdp || '')
+    } catch (error) {
+      console.error(`${this.logPrefix} Failed to create or set local offer`, error)
+
+      if (this.dataChannel) {
+        try {
+          this.dataChannel.close()
+        } catch {
+          // ignore
+        }
+        this.dataChannel = null
+      }
+
+      if (this.pc) {
+        try {
+          this.pc.close()
+        } catch {
+          // ignore
+        }
+        this.pc = null
+      }
+
+      this.updateState('failed')
+      throw error
+    }
   }
 
   public close(): void {

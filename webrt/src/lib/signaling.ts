@@ -193,6 +193,26 @@ export class SignalingClient {
       })()
     
     if (shouldLog) {
+      // Recursively redact sensitive data (sessionId, resumeToken) and large payloads (SDP)
+      const redactData = (data: any): any => {
+        if (data === null || data === undefined) return data
+        if (typeof data !== 'object') return data
+        if (Array.isArray(data)) return data.map(redactData)
+        
+        return Object.keys(data).reduce((acc, key) => {
+          if (key === 'sessionId' || key === 'resumeToken') {
+            acc[key] = '[REDACTED]'
+          } else if (key === 'sdp' && typeof data[key] === 'string') {
+            acc[key] = `[SDP ${data[key].length} bytes]`
+          } else {
+            acc[key] = redactData(data[key])
+          }
+          return acc
+        }, {} as Record<string, any>)
+      }
+      
+      const redactedData = redactData(message.data)
+      console.debug('[Signaling] Message received:', message.type, redactedData)
     }
 
     const isResumeFailed = message.type === 'error' && (message.data as { code?: string })?.code === 'resume_failed'
