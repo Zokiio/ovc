@@ -70,7 +70,7 @@ public class DataChannelAudioHandler {
             return false;
         }
         sender.send(pcmFrame);
-        recordFlow(outboundFlow, clientId, opusFrame.length, "outbound");
+        recordFlow(outboundFlow, clientId, pcmFrame.length, "outbound");
         return true;
     }
 
