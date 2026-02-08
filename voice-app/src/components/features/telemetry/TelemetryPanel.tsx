@@ -167,6 +167,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
 export const SpatialRadar = () => {
    const [showMap, setShowMap] = useState(false);
    const isProximityRadarEnabled = useAudioStore((s) => s.isProximityRadarEnabled);
+   const isProximityRadarSpeakingOnly = useAudioStore((s) => s.isProximityRadarSpeakingOnly);
    const proximityRadarContacts = useAudioStore((s) => s.proximityRadarContacts);
    const pruneProximityRadarContacts = useAudioStore((s) => s.pruneProximityRadarContacts);
    const users = useUserStore((s) => s.users);
@@ -205,7 +206,16 @@ export const SpatialRadar = () => {
          return ((Math.abs(hash) % 360) * Math.PI) / 180;
       };
 
-      return Array.from(proximityRadarContacts.values())
+      const contacts = Array.from(proximityRadarContacts.values())
+         .filter((contact) => {
+            if (!isProximityRadarSpeakingOnly) {
+               return true;
+            }
+            const user = users.get(contact.userId);
+            return !user || user.isSpeaking;
+         });
+
+      return contacts
          .map((contact) => {
             const user = users.get(contact.userId);
             const clampedDistance = Math.min(contact.distance, contact.maxRange);
@@ -235,7 +245,7 @@ export const SpatialRadar = () => {
             };
          })
          .sort((a, b) => a.distance - b.distance);
-   }, [isProximityRadarEnabled, localUser?.position, proximityRadarContacts, users]);
+   }, [isProximityRadarEnabled, isProximityRadarSpeakingOnly, localUser?.position, proximityRadarContacts, users]);
 
    const range = useMemo(() => {
       if (typeof currentGroupRange === 'number' && Number.isFinite(currentGroupRange) && currentGroupRange > 0) {

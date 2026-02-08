@@ -108,6 +108,11 @@ PositionBroadcastIntervalMs = 50
 # Default: false
 USE_PROXIMITY_RADAR = false
 
+# When proximity radar is enabled, only show currently speaking players on radar
+# This is server-authoritative and affects all clients.
+# Default: false
+USE_PROXIMITY_RADAR_SPEAKING_ONLY = false
+
 # Minimum distance delta to trigger a position update (blocks/meters)
 # Smaller values = more frequent updates
 # Range: 0.05 - 5.0

@@ -1102,6 +1102,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             responseData.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
             responseData.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
+            responseData.addProperty("useProximityRadarSpeakingOnly", NetworkConfig.isProximityRadarSpeakingOnlyEnabled());
             responseData.addProperty("audioCodec", client.getNegotiatedAudioCodec());
             responseData.add("audioCodecs", buildSupportedAudioCodecs());
             responseData.add("audioCodecConfig", buildAudioCodecConfig());
@@ -1123,6 +1124,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             data.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             data.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
             data.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
+            data.addProperty("useProximityRadarSpeakingOnly", NetworkConfig.isProximityRadarSpeakingOnlyEnabled());
             data.addProperty("audioCodec", NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM);
             data.add("audioCodecs", buildSupportedAudioCodecs());
             data.add("audioCodecConfig", buildAudioCodecConfig());

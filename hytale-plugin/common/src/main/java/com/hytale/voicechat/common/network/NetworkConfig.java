@@ -55,6 +55,7 @@ public class NetworkConfig {
     public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
     public static final double DEFAULT_GROUP_MIN_VOLUME = 0.3;  // 30% minimum volume within proximity
     public static final boolean DEFAULT_USE_PROXIMITY_RADAR = false;
+    public static final boolean DEFAULT_USE_PROXIMITY_RADAR_SPEAKING_ONLY = false;
     
     // ============================================================================
     // CONFIGURABLE RUNTIME VALUES (initialized from constants above)
@@ -105,6 +106,7 @@ public class NetworkConfig {
     private static boolean groupSpatialAudio = true;
     private static double groupMinVolume = DEFAULT_GROUP_MIN_VOLUME;
     private static boolean useProximityRadar = DEFAULT_USE_PROXIMITY_RADAR;
+    private static boolean useProximityRadarSpeakingOnly = DEFAULT_USE_PROXIMITY_RADAR_SPEAKING_ONLY;
 
     // Grace period before disconnecting web client after game quit
     private static int gameQuitGraceSeconds = 10;
@@ -133,6 +135,7 @@ public class NetworkConfig {
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupSpatialAudio", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("GroupMinVolume", groupMinVolume);
             useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("USE_PROXIMITY_RADAR", useProximityRadar);
+            useProximityRadarSpeakingOnly = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("USE_PROXIMITY_RADAR_SPEAKING_ONLY", useProximityRadarSpeakingOnly);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("GameQuitGraceSeconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("PendingGameJoinTimeoutSeconds", pendingGameJoinTimeoutSeconds);
             stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("StunServers", stunServers);
@@ -164,6 +167,7 @@ public class NetworkConfig {
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.spatial", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.group.minvolume", groupMinVolume);
             useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.ui.proximity.radar.enabled", useProximityRadar);
+            useProximityRadarSpeakingOnly = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.ui.proximity.radar.speaking.only", useProximityRadarSpeakingOnly);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.quit.grace.seconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.join.pending.timeout.seconds", pendingGameJoinTimeoutSeconds);
             stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.stun.servers", stunServers);
@@ -405,6 +409,13 @@ public class NetworkConfig {
      */
     public static boolean isProximityRadarEnabled() {
         return useProximityRadar;
+    }
+
+    /**
+     * Check if proximity radar should display only speaking players.
+     */
+    public static boolean isProximityRadarSpeakingOnlyEnabled() {
+        return useProximityRadarSpeakingOnly;
     }
 
     /**

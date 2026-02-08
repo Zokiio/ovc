@@ -46,6 +46,18 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     })
   }, [])
 
+  const upsertRadarIfInRange = useCallback((userId: string, distance: number, maxRange: number) => {
+    if (!Number.isFinite(distance) || !Number.isFinite(maxRange)) {
+      return
+    }
+    const nextDistance = Math.max(0, distance)
+    const nextRange = Math.max(1, maxRange)
+    if (nextDistance > nextRange) {
+      return
+    }
+    upsertProximityRadarContact(userId, nextDistance, nextRange)
+  }, [upsertProximityRadarContact])
+
   const syncSpatialState = useCallback(() => {
     const manager = managerRef.current
     const { users, localUserId } = useUserStore.getState()
@@ -132,7 +144,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     )
 
     if (payload.proximity && Number.isFinite(payload.proximity.distance) && Number.isFinite(payload.proximity.maxRange)) {
-      upsertProximityRadarContact(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
+      upsertRadarIfInRange(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
     }
 
     if (payload.codec === 'opus') {
@@ -168,7 +180,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
 
     const float32Data = int16ToFloat32(payload.pcmData)
     await managerRef.current.playAudio(payload.senderId, float32Data)
-  }, [ensureOpusDecoderReady, runtimeWarningHandler, upsertProximityRadarContact])
+  }, [ensureOpusDecoderReady, runtimeWarningHandler, upsertRadarIfInRange])
 
   /**
    * Handle fallback WebSocket audio message payloads.
@@ -186,7 +198,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     }
 
     if (Number.isFinite(distance) && Number.isFinite(maxRange)) {
-      upsertProximityRadarContact(senderId, distance as number, maxRange as number)
+      upsertRadarIfInRange(senderId, distance as number, maxRange as number)
     }
     managerRef.current.updateUserSpatialMetadata(
       senderId,
@@ -195,7 +207,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
 
     const float32Data = int16ToFloat32(pcmData)
     await managerRef.current.playAudio(senderId, float32Data)
-  }, [upsertProximityRadarContact])
+  }, [upsertRadarIfInRange])
 
   /**
    * Set volume for a specific user

@@ -29,6 +29,7 @@ interface AudioStore {
   userVolumes: Map<string, number>
   audioDiagnostics: Map<string, AudioDiagnostics>
   isProximityRadarEnabled: boolean
+  isProximityRadarSpeakingOnly: boolean
   proximityRadarContacts: Map<string, ProximityRadarContact>
   
   // Actions - Settings
@@ -63,6 +64,7 @@ interface AudioStore {
   setUserVolume: (userId: string, volume: number) => void
   setAudioDiagnostics: (userId: string, diagnostics: AudioDiagnostics) => void
   setProximityRadarEnabled: (enabled: boolean) => void
+  setProximityRadarSpeakingOnly: (enabled: boolean) => void
   upsertProximityRadarContact: (userId: string, distance: number, maxRange: number) => void
   pruneProximityRadarContacts: (maxAgeMs: number) => void
 }
@@ -108,6 +110,7 @@ export const useAudioStore = create<AudioStore>()(
       userVolumes: new Map<string, number>(),
       audioDiagnostics: new Map<string, AudioDiagnostics>(),
       isProximityRadarEnabled: false,
+      isProximityRadarSpeakingOnly: false,
       proximityRadarContacts: new Map<string, ProximityRadarContact>(),
 
       // Audio Settings Actions
@@ -254,6 +257,11 @@ export const useAudioStore = create<AudioStore>()(
           if (!enabled) {
             state.proximityRadarContacts.clear()
           }
+        }),
+
+      setProximityRadarSpeakingOnly: (enabled) =>
+        set((state) => {
+          state.isProximityRadarSpeakingOnly = enabled
         }),
 
       upsertProximityRadarContact: (userId, distance, maxRange) =>

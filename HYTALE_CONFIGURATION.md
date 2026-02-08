@@ -123,6 +123,14 @@ Enables live proximity radar metadata for web clients.
 - **Example**: `USE_PROXIMITY_RADAR = true`
 - **System Property**: `-DUSE_PROXIMITY_RADAR=true`
 
+### `USE_PROXIMITY_RADAR_SPEAKING_ONLY` (Boolean)
+When proximity radar is enabled, limits radar blips to currently speaking players.
+
+- **Default**: `false`
+- **Behavior**: Server-authoritative gameplay setting. Signaling exposes `useProximityRadarSpeakingOnly`; clients must not override it locally.
+- **Example**: `USE_PROXIMITY_RADAR_SPEAKING_ONLY = true`
+- **System Property**: `-DUSE_PROXIMITY_RADAR_SPEAKING_ONLY=true`
+
 ### `PositionMinDistanceDelta` (Double)
 Minimum movement distance (blocks/meters) required to send a position update.
 
@@ -165,6 +173,7 @@ IcePortMax = 51000
 PositionSampleIntervalMs = 50
 PositionBroadcastIntervalMs = 50
 USE_PROXIMITY_RADAR = true
+USE_PROXIMITY_RADAR_SPEAKING_ONLY = false
 PositionMinDistanceDelta = 0.25
 PositionRotationThresholdDeg = 2.0
 ```

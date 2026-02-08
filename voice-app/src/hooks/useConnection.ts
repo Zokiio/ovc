@@ -24,6 +24,7 @@ const PENDING_CREATE_GROUP_WINDOW_MS = 5000
 const WEBRTC_RECONNECT_BASE_DELAY_MS = 750
 const WEBRTC_RECONNECT_MAX_DELAY_MS = 5000
 const WEBRTC_RECONNECT_MAX_ATTEMPTS = 6
+const DEFAULT_RADAR_MAX_RANGE = 50
 const logger = createLogger('useConnection')
 const DEFAULT_OPUS_CODEC_CONFIG: AudioCodecConfig = {
   sampleRate: 48000,
@@ -145,6 +146,8 @@ export function useConnection() {
   const isSpeaking = useAudioStore((s) => s.isSpeaking)
   const inputVolume = useAudioStore((s) => s.settings.inputVolume)
   const setProximityRadarEnabled = useAudioStore((s) => s.setProximityRadarEnabled)
+  const setProximityRadarSpeakingOnly = useAudioStore((s) => s.setProximityRadarSpeakingOnly)
+  const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
 
   // Audio playback
   const { handleAudioData, handleWebSocketAudio, initialize: initializePlayback } = useAudioPlayback({
@@ -477,6 +480,19 @@ export function useConnection() {
     return { x, y, z, yaw, pitch, worldId }
   }, [])
 
+  const resolveRadarMaxRange = useCallback(() => {
+    const { currentGroupId, groups } = useGroupStore.getState()
+    if (!currentGroupId) {
+      return DEFAULT_RADAR_MAX_RANGE
+    }
+    const activeGroup = groups.find((group) => group.id === currentGroupId)
+    const proximityRange = Number(activeGroup?.settings.proximityRange)
+    if (!Number.isFinite(proximityRange) || proximityRange <= 0) {
+      return DEFAULT_RADAR_MAX_RANGE
+    }
+    return proximityRange
+  }, [])
+
   // Setup signaling event listeners
   const setupSignalingListeners = useCallback(() => {
     const signaling = getSignalingClient()
@@ -487,6 +503,7 @@ export function useConnection() {
         username,
         pending,
         useProximityRadar,
+        useProximityRadarSpeakingOnly,
         audioCodec,
         audioCodecConfig,
       } = data as {
@@ -494,12 +511,14 @@ export function useConnection() {
         username: string
         pending?: boolean
         useProximityRadar?: boolean
+        useProximityRadarSpeakingOnly?: boolean
         audioCodec?: string
         audioCodecConfig?: AudioCodecConfig
       }
       setAuthenticated(clientId, username, !!pending)
       setLocalUserId(clientId)
       setProximityRadarEnabled(!!useProximityRadar)
+      setProximityRadarSpeakingOnly(!!useProximityRadarSpeakingOnly)
 
       if (audioCodec && audioCodec !== 'opus') {
         setError('Server selected unsupported audio codec. This client requires Opus.')
@@ -533,6 +552,9 @@ export function useConnection() {
         : {}
       if (typeof payload.useProximityRadar === 'boolean') {
         setProximityRadarEnabled(payload.useProximityRadar)
+      }
+      if (typeof payload.useProximityRadarSpeakingOnly === 'boolean') {
+        setProximityRadarSpeakingOnly(payload.useProximityRadarSpeakingOnly)
       }
       if (payload.audioCodec === 'opus') {
         const config = payload.audioCodecConfig && typeof payload.audioCodecConfig === 'object'
@@ -916,6 +938,7 @@ export function useConnection() {
       // New format: { positions: [...], listener: {...}, timestamp }
       const positions = Array.isArray(payload.positions) ? payload.positions : null
       if (positions) {
+        const radarMaxRange = resolveRadarMaxRange()
         positions.forEach((entry) => {
           if (!entry || typeof entry !== 'object') {
             return
@@ -927,6 +950,11 @@ export function useConnection() {
             return
           }
           setUserPosition(userId, position)
+
+          const distance = Number(row.distance)
+          if (Number.isFinite(distance) && distance >= 0 && distance <= radarMaxRange) {
+            upsertProximityRadarContact(userId, distance, radarMaxRange)
+          }
         })
       }
 
@@ -965,8 +993,8 @@ export function useConnection() {
     setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
     updateMemberSpeaking, updateMemberMuted, setMicMuted, resolveUserIdFromEvent,
-    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, resetReconnectAttempt,
-    toPlayerPosition,
+    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, setProximityRadarSpeakingOnly, resetReconnectAttempt,
+    toPlayerPosition, resolveRadarMaxRange, upsertProximityRadarContact,
   ])
 
   // Setup WebRTC event listeners
@@ -1143,6 +1171,7 @@ export function useConnection() {
     resetWebRTCManager()
     pendingCreateGroupRef.current = null
     setProximityRadarEnabled(false)
+    setProximityRadarSpeakingOnly(false)
     resetConnection()
     resetGroups()
     resetUsers()
@@ -1151,6 +1180,7 @@ export function useConnection() {
     resetReconnectAttempt,
     stopListening,
     setProximityRadarEnabled,
+    setProximityRadarSpeakingOnly,
     resetConnection,
     resetGroups,
     resetUsers,
