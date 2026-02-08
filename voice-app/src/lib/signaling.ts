@@ -1,4 +1,5 @@
 import type { GroupSettings, SignalingEvents, TransportMode } from './types'
+import { createLogger } from './logger'
 
 export interface SignalingMessage {
   type: string
@@ -15,6 +16,7 @@ type EventCallback<T = unknown> = (data: T) => void
 
 const HEARTBEAT_FALLBACK_INTERVAL_MS = 5000
 const RESUME_STORAGE_PREFIX = 'voice_app_resume_v1'
+const logger = createLogger('Signaling')
 
 /**
  * WebSocket signaling client for WebRTC coordination.
@@ -82,12 +84,12 @@ export class SignalingClient {
             const message: SignalingMessage = JSON.parse(event.data)
             this.handleMessage(message)
           } catch (error) {
-            console.error('[Signaling] Failed to parse message:', error)
+            logger.error('Failed to parse message:', error)
           }
         }
 
         this.ws.onerror = (event) => {
-          console.error('[Signaling] WebSocket error:', event)
+          logger.error('WebSocket error:', event)
           this.emit('connection_error', event)
           this.rejectPendingConnect(new Error('WebSocket error'))
         }
@@ -180,7 +182,7 @@ export class SignalingClient {
     const { type, data } = message
 
     if (!this.highFrequencyMessages.has(type)) {
-      console.debug('[Signaling] Received:', type)
+      logger.debug('Received:', type)
     }
 
     switch (type) {

@@ -12,11 +12,14 @@
  * Audio format: 16-bit little-endian PCM (Int16)
  */
 
+import { createLogger } from '../logger'
+
 const PAYLOAD_VERSION_BASIC = 1
 const PAYLOAD_VERSION_WITH_PROXIMITY = 2
 const MAX_PAYLOAD_SIZE = 900
 const HEADER_SIZE = 2 // version + senderIdLen
 const PROXIMITY_METADATA_SIZE = 8 // distance(float32) + maxRange(float32)
+const logger = createLogger('AudioChannel')
 
 export interface AudioProximityMetadata {
   distance: number
@@ -65,7 +68,7 @@ export function encodeAudioPayload(senderId: string, pcmData: Int16Array): Array
  */
 export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | null {
   if (buffer.byteLength < HEADER_SIZE) {
-    console.warn('[AudioChannel] Payload too small')
+    logger.debug('Payload too small')
     return null
   }
 
@@ -77,12 +80,12 @@ export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | n
   const senderIdLen = view.getUint8(1)
   
   if (version !== PAYLOAD_VERSION_BASIC && version !== PAYLOAD_VERSION_WITH_PROXIMITY) {
-    console.warn('[AudioChannel] Unknown payload version:', version)
+    logger.debug('Unknown payload version:', version)
     return null
   }
   
   if (buffer.byteLength < HEADER_SIZE + senderIdLen) {
-    console.warn('[AudioChannel] Payload truncated')
+    logger.debug('Payload truncated')
     return null
   }
   
@@ -95,7 +98,7 @@ export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | n
 
   if (version === PAYLOAD_VERSION_WITH_PROXIMITY) {
     if (buffer.byteLength < pcmOffset + PROXIMITY_METADATA_SIZE) {
-      console.warn('[AudioChannel] Proximity metadata truncated')
+      logger.debug('Proximity metadata truncated')
       return null
     }
     proximity = {

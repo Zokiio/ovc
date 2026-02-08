@@ -1,5 +1,6 @@
 import type { WebRTCState, WebRTCConnectionState } from '../types'
 import { getSignalingClient } from '../signaling'
+import { createLogger } from '../logger'
 
 export interface RTCConfig {
   iceServers: RTCIceServer[]
@@ -15,6 +16,7 @@ const DEFAULT_CONFIG: RTCConfig = {
 type ConnectionEventCallback = (state: WebRTCState) => void
 type DataChannelCallback = (data: ArrayBuffer) => void
 type SignalingDataHandler = (data: unknown) => void
+const logger = createLogger('WebRTC')
 
 /**
  * WebRTC Connection Manager
@@ -89,13 +91,13 @@ export class WebRTCConnectionManager {
    */
   public async connect(): Promise<void> {
     if (this.peerConnection) {
-      console.warn('[WebRTC] Already connected or connecting')
+      logger.warn('Already connected or connecting')
       return
     }
 
     try {
       this.updateState({ connectionState: 'connecting' })
-      console.debug('[WebRTC] Starting connection...')
+      logger.debug('Starting connection...')
 
       // Create peer connection
       this.peerConnection = new RTCPeerConnection({
@@ -112,22 +114,22 @@ export class WebRTCConnectionManager {
         // Real-time voice prefers low latency over strict ordering.
         ordered: false,
       })
-      console.debug('[WebRTC] DataChannel created')
+      logger.debug('DataChannel created')
 
       this.setupDataChannelListeners()
 
       // Create and send offer
       const offer = await this.peerConnection.createOffer()
       await this.peerConnection.setLocalDescription(offer)
-      console.debug('[WebRTC] Offer created and local description set')
+      logger.debug('Offer created and local description set')
 
       // Send offer via signaling
       const signaling = getSignalingClient()
       signaling.sendWebRTCOffer(offer.sdp!)
-      console.debug('[WebRTC] Offer sent via signaling')
+      logger.debug('Offer sent via signaling')
 
     } catch (error) {
-      console.error('[WebRTC] Connection error:', error)
+      logger.error('Connection error:', error)
       this.updateState({ connectionState: 'failed' })
       throw error
     }
@@ -138,7 +140,7 @@ export class WebRTCConnectionManager {
 
     this.peerConnection.onconnectionstatechange = () => {
       const state = this.peerConnection?.connectionState
-      console.debug('[WebRTC] Connection state:', state)
+      logger.debug('Connection state:', state)
       
       this.updateState({
         connectionState: this.mapConnectionState(state),
@@ -147,7 +149,7 @@ export class WebRTCConnectionManager {
 
     this.peerConnection.oniceconnectionstatechange = () => {
       const iceState = this.peerConnection?.iceConnectionState
-      console.debug('[WebRTC] ICE connection state:', iceState)
+      logger.debug('ICE connection state:', iceState)
       
       this.updateState({
         iceConnectionState: iceState || 'new',
@@ -170,7 +172,7 @@ export class WebRTCConnectionManager {
 
     // Handle incoming data channel (if server creates one)
     this.peerConnection.ondatachannel = (event) => {
-      console.debug('[WebRTC] Incoming data channel:', event.channel.label)
+      logger.debug('Incoming data channel:', event.channel.label)
       if (event.channel.label === 'audio' && !this.dataChannel) {
         this.dataChannel = event.channel
         this.setupDataChannelListeners()
@@ -184,22 +186,22 @@ export class WebRTCConnectionManager {
     this.dataChannel.binaryType = 'arraybuffer'
 
     this.dataChannel.onopen = () => {
-      console.debug('[WebRTC] DataChannel open - ready to send/receive audio')
+      logger.debug('DataChannel open - ready to send/receive audio')
       this.updateState({ dataChannelState: 'open' })
     }
 
     this.dataChannel.onclose = () => {
-      console.debug('[WebRTC] DataChannel closed')
+      logger.debug('DataChannel closed')
       this.updateState({ dataChannelState: 'closed' })
     }
 
     this.dataChannel.onerror = (error) => {
-      console.error('[WebRTC] DataChannel error:', error)
+      logger.error('DataChannel error:', error)
     }
 
     this.dataChannel.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer && this.onAudioData) {
-        console.debug('[WebRTC] Received audio data:', event.data.byteLength, 'bytes')
+        logger.debug('Received audio data:', event.data.byteLength, 'bytes')
         this.onAudioData(event.data)
       }
     }
@@ -225,13 +227,13 @@ export class WebRTCConnectionManager {
       
       // Check for ICE gathering complete signal
       if (iceData.complete) {
-        console.debug('[WebRTC] ICE gathering complete')
+        logger.debug('ICE gathering complete')
         return
       }
 
       const candidateInit = this.normalizeCandidate(iceData)
       if (!candidateInit?.candidate) {
-        console.debug('[WebRTC] Received ICE candidate without candidate string')
+        logger.debug('Received ICE candidate without candidate string')
         return
       }
 
@@ -282,15 +284,15 @@ export class WebRTCConnectionManager {
     if (!this.peerConnection) return
 
     try {
-      console.debug('[WebRTC] Received answer, setting remote description...')
+      logger.debug('Received answer, setting remote description...')
       await this.peerConnection.setRemoteDescription({
         type: 'answer',
         sdp,
       })
-      console.debug('[WebRTC] Remote description set successfully')
+      logger.debug('Remote description set successfully')
       this.flushPendingRemoteCandidates()
     } catch (error) {
-      console.error('[WebRTC] Failed to set remote description:', error)
+      logger.error('Failed to set remote description:', error)
     }
   }
 
@@ -299,7 +301,7 @@ export class WebRTCConnectionManager {
 
     // Ignore malformed trickle candidates that cannot be mapped to an m-line.
     if (!candidate.sdpMid && candidate.sdpMLineIndex == null) {
-      console.debug('[WebRTC] Skipping ICE candidate missing sdpMid and sdpMLineIndex')
+      logger.debug('Skipping ICE candidate missing sdpMid and sdpMLineIndex')
       return
     }
 
@@ -311,7 +313,7 @@ export class WebRTCConnectionManager {
     try {
       await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
     } catch (error) {
-      console.error('[WebRTC] Failed to add ICE candidate:', error)
+      logger.error('Failed to add ICE candidate:', error)
     }
   }
 
@@ -340,7 +342,7 @@ export class WebRTCConnectionManager {
       this.dataChannel.send(audioData)
       return true
     } catch (error) {
-      console.error('[WebRTC] Failed to send audio:', error)
+      logger.error('Failed to send audio:', error)
       return false
     }
   }

@@ -1,5 +1,8 @@
 import { useEffect, useCallback, useState } from 'react'
 import { useAudioStore } from '../stores/audioStore'
+import { createLogger } from '../lib/logger'
+
+const logger = createLogger('VAD')
 
 interface UseVoiceActivityOptions {
   enabled: boolean
@@ -61,7 +64,7 @@ function setGlobalCaptureActive(active: boolean): void {
 }
 
 function cleanupGlobal() {
-  console.log('[VAD] Cleaning up global audio resources')
+  logger.debug('Cleaning up global audio resources')
   
   if (globalAnimationFrame) {
     cancelAnimationFrame(globalAnimationFrame)
@@ -123,9 +126,9 @@ async function tryResumeAudioContext(reason: string): Promise<void> {
 
   try {
     await globalAudioContext.resume()
-    console.log(`[VAD] AudioContext resumed (${reason})`)
+    logger.debug(`AudioContext resumed (${reason})`)
   } catch (err) {
-    console.debug('[VAD] AudioContext resume deferred:', err)
+    logger.debug('AudioContext resume deferred:', err)
   }
 }
 
@@ -156,12 +159,12 @@ async function initializeGlobal(settings: {
   smoothingTimeConstant: number
 }): Promise<void> {
   if (globalIsInitializing || globalIsInitialized) {
-    console.log('[VAD] Already initializing or initialized, skipping')
+    logger.debug('Already initializing or initialized, skipping')
     return
   }
 
   globalIsInitializing = true
-  console.log('[VAD] Beginning global mic initialization...')
+  logger.debug('Beginning global mic initialization...')
 
   try {
     const audioConstraints: MediaTrackConstraints = {
@@ -183,9 +186,9 @@ async function initializeGlobal(settings: {
       audioConstraints.autoGainControl = true
     }
 
-    console.log('[VAD] Requesting microphone with constraints:', audioConstraints)
+    logger.debug('Requesting microphone with constraints:', audioConstraints)
     globalStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints })
-    console.log('[VAD] Got microphone stream:', globalStream.getTracks().map(t => t.label))
+    logger.debug('Got microphone stream:', globalStream.getTracks().map(t => t.label))
 
     globalAudioContext = new AudioContext({ sampleRate: 48000 })
     installResumeOnInteraction()
@@ -229,12 +232,12 @@ async function initializeGlobal(settings: {
 
       setGlobalCaptureActive(globalCaptureActive)
     } catch (workletError) {
-      console.error('[VAD] AudioWorklet setup failed:', workletError)
+      logger.error('AudioWorklet setup failed:', workletError)
     }
 
     globalIsInitialized = true
     globalIsInitializing = false
-    console.log('[VAD] Global initialization complete, starting VAD detection loop')
+    logger.debug('Global initialization complete, starting VAD detection loop')
 
     // Start VAD detection loop
     const bufferLength = globalAnalyser.frequencyBinCount
@@ -308,7 +311,7 @@ async function initializeGlobal(settings: {
 
     detectVoiceActivity()
   } catch (err) {
-    console.error('[VAD] Initialization error:', err)
+    logger.error('Initialization error:', err)
     globalIsInitializing = false
     cleanupGlobal()
     throw err
@@ -367,7 +370,7 @@ export function useVoiceActivity({
 
   const startListening = useCallback(async () => {
     if (globalIsInitialized || globalIsInitializing) {
-      console.log('[VAD] startListening: already initialized/initializing')
+      logger.debug('startListening: already initialized/initializing')
       setGlobalCaptureActive(enabled)
       setIsInitialized(true)
       return
@@ -407,7 +410,7 @@ export function useVoiceActivity({
     setGlobalCaptureActive(enabled)
 
     if (enabled && !globalIsInitialized && !globalIsInitializing) {
-      console.log('[VAD] Starting listening...')
+      logger.debug('Starting listening...')
       const startTimer = window.setTimeout(() => {
         void startListening()
       }, 0)

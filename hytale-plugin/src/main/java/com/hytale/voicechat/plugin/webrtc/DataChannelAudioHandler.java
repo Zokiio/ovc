@@ -130,7 +130,7 @@ public class DataChannelAudioHandler {
             long packetCount = state.packets.getAndSet(0);
             long byteCount = state.bytes.getAndSet(0);
             if (packetCount > 0) {
-                logger.atInfo().log(
+                logger.atFine().log(
                     "DataChannel audio " + direction + " for client " + clientId +
                         ": packets=" + packetCount + ", bytes=" + byteCount +
                         " (last " + (FLOW_LOG_INTERVAL_MS / 1000) + "s)"

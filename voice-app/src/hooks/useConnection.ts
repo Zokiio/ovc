@@ -9,12 +9,14 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useAudioStore } from '../stores/audioStore'
 import { useVoiceActivity } from './useVoiceActivity'
 import { useAudioPlayback } from './useAudioPlayback'
+import { createLogger } from '../lib/logger'
 import type { Group, GroupMember, User, PlayerPosition } from '../lib/types'
 
 // Keep outbound PCM chunks comfortably below the server's DataChannel payload cap (900 bytes).
 const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
 const OUTBOUND_PCM_MAX_FLUSH_DELAY_MS = 20
 const PENDING_CREATE_GROUP_WINDOW_MS = 5000
+const logger = createLogger('useConnection')
 
 function concatInt16Arrays(left: Int16Array, right: Int16Array): Int16Array {
   if (left.length === 0) return right
@@ -212,7 +214,7 @@ export function useConnection() {
 
   // Voice activity
   const voiceEnabled = status === 'connected' && !isMicMuted
-  console.debug('[useConnection] Voice activity enabled:', voiceEnabled, '(status:', status, ', isMicMuted:', isMicMuted, ')')
+  logger.debug('Voice activity enabled:', voiceEnabled, '(status:', status, ', isMicMuted:', isMicMuted, ')')
   
   const { isInitialized: isVoiceInitialized, stopListening } = useVoiceActivity({
     enabled: voiceEnabled,
@@ -242,7 +244,7 @@ export function useConnection() {
       if (mode === 'webrtc') {
         throw webrtcError
       }
-      console.warn('[useConnection] WebRTC unavailable, using WebSocket fallback audio')
+      logger.warn('WebRTC unavailable, using WebSocket fallback audio')
     }
   }, [])
 
@@ -447,7 +449,7 @@ export function useConnection() {
         if (currentGroup && currentGroup.members.length > 0) {
           const stillInGroup = currentGroup.members.some(m => m.id === localUserId)
           if (!stillInGroup) {
-            console.debug('[useConnection] group_list: User no longer in group, clearing currentGroupId')
+            logger.debug('group_list: User no longer in group, clearing currentGroupId')
             setCurrentGroupId(null)
           }
         }
@@ -546,7 +548,7 @@ export function useConnection() {
       const payload = data as { groupId?: string; members?: unknown[] }
       const groupId = String(payload.groupId ?? '')
       const rawMembers = payload.members ?? []
-      console.debug('[useConnection] group_members_updated:', { groupId, rawMembersCount: rawMembers?.length })
+      logger.debug('group_members_updated:', { groupId, rawMembersCount: rawMembers?.length })
       
       // Normalize and deduplicate members
       const seenIds = new Set<string>()
@@ -574,7 +576,7 @@ export function useConnection() {
       // Check if local user is no longer in the group (was removed/left in-game)
       const localUserId = useUserStore.getState().localUserId
       const { currentGroupId } = useGroupStore.getState()
-      console.debug('[useConnection] group_members_updated check:', { 
+      logger.debug('group_members_updated check:', { 
         localUserId, 
         currentGroupId, 
         groupId,
@@ -584,7 +586,7 @@ export function useConnection() {
       if (currentGroupId === groupId && localUserId) {
         const stillInGroup = members.some(m => m.id === localUserId)
         if (!stillInGroup) {
-          console.debug('[useConnection] User no longer in group, clearing currentGroupId')
+          logger.debug('User no longer in group, clearing currentGroupId')
           // User was removed from group (e.g., left in-game)
           setCurrentGroupId(null)
         }

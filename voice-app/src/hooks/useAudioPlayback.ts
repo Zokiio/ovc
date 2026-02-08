@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { getAudioPlaybackManager } from '../lib/audio/playback-manager'
+import { createLogger } from '../lib/logger'
 import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
 import { useAudioStore } from '../stores/audioStore'
 import { useUserStore } from '../stores/userStore'
+
+const logger = createLogger('useAudioPlayback')
 
 /**
  * Hook for managing audio playback from WebRTC DataChannel.
@@ -48,14 +51,14 @@ export function useAudioPlayback() {
    * Handle incoming audio data from DataChannel
    */
   const handleAudioData = useCallback(async (data: ArrayBuffer) => {
-    console.debug('[useAudioPlayback] Received audio:', data.byteLength, 'bytes')
+    logger.debug('Received audio:', data.byteLength, 'bytes')
     const payload = decodeAudioPayload(data)
     if (!payload) {
-      console.warn('[useAudioPlayback] Failed to decode audio payload')
+      logger.warn('Failed to decode audio payload')
       return
     }
 
-    console.debug('[useAudioPlayback] Playing audio from:', payload.senderId, 'samples:', payload.pcmData.length)
+    logger.debug('Playing audio from:', payload.senderId, 'samples:', payload.pcmData.length)
     if (payload.proximity && Number.isFinite(payload.proximity.distance) && Number.isFinite(payload.proximity.maxRange)) {
       upsertProximityRadarContact(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
     }
@@ -74,7 +77,7 @@ export function useAudioPlayback() {
   ) => {
     const pcmData = base64ToInt16(base64Audio)
     if (!pcmData) {
-      console.warn('[useAudioPlayback] Failed to decode WebSocket audio payload')
+      logger.warn('Failed to decode WebSocket audio payload')
       return
     }
 

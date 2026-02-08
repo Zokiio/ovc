@@ -5,6 +5,9 @@
  */
 
 import type { AudioDiagnostics } from '../types'
+import { createLogger } from '../logger'
+
+const logger = createLogger('AudioPlayback')
 
 export interface UserAudioState {
   volume: number // 0-200 (allow boost)
@@ -79,7 +82,7 @@ export class AudioPlaybackManager {
       this.workletReady = this.audioContext.audioWorklet
         .addModule(`/audio-playback-processor.js${cacheBuster}`)
         .catch((err) => {
-          console.warn('[AudioPlayback] Failed to load worklet:', err)
+          logger.warn('Failed to load worklet:', err)
           this.workletReady = null
           throw err
         })
@@ -174,7 +177,7 @@ export class AudioPlaybackManager {
       try {
         await (this.audioContext as AudioContextWithSinkId).setSinkId(this.outputDeviceId)
       } catch (err) {
-        console.warn('[AudioPlayback] Failed to set output device:', err)
+        logger.warn('Failed to set output device:', err)
       }
     }
   }
@@ -222,13 +225,13 @@ export class AudioPlaybackManager {
 
     // Skip if muted
     if (state.isMuted || this.masterMuted) {
-      console.debug('[AudioPlayback] Skipping audio for', userId, '- muted')
+      logger.debug('Skipping audio for', userId, '- muted')
       return
     }
 
     // Initialize playback if needed
     if (!state.isInitialized) {
-      console.debug('[AudioPlayback] Initializing playback for user:', userId)
+      logger.debug('Initializing playback for user:', userId)
       await this.initializeUserPlayback(userId)
     }
 
@@ -238,9 +241,9 @@ export class AudioPlaybackManager {
         { type: 'samples', data: float32Data },
         [float32Data.buffer]
       )
-      console.debug('[AudioPlayback] Sent', float32Data.length, 'samples to worklet for user:', userId)
+      logger.debug('Sent', float32Data.length, 'samples to worklet for user:', userId)
     } else {
-      console.warn('[AudioPlayback] No playback processor for user:', userId)
+      logger.warn('No playback processor for user:', userId)
     }
   }
 
@@ -286,7 +289,7 @@ export class AudioPlaybackManager {
       state.playbackProcessor = workletNode
       state.isInitialized = true
     } catch (err) {
-      console.error('[AudioPlayback] Failed to initialize playback:', err)
+      logger.error('Failed to initialize playback:', err)
     }
   }
 

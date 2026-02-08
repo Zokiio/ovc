@@ -169,6 +169,13 @@ public class WebRTCPeerManager {
 
         // Quiet the noisy ICE "Completed -> Terminated" transition log.
         try {
+            // Reduce third-party ICE/Jitsi INFO chatter; keep warnings and errors.
+            java.util.logging.Logger.getLogger("org.ice4j").setLevel(java.util.logging.Level.WARNING);
+            java.util.logging.Logger.getLogger("org.jitsi").setLevel(java.util.logging.Level.WARNING);
+            java.util.logging.Logger.getLogger("org.jitsi.config").setLevel(java.util.logging.Level.WARNING);
+            java.util.logging.Logger.getLogger("org.jitsi.utils").setLevel(java.util.logging.Level.WARNING);
+            java.util.logging.Logger.getLogger("org.jitsi.dcsctp4j").setLevel(java.util.logging.Level.WARNING);
+
             java.util.logging.Logger iceAgentLogger = java.util.logging.Logger.getLogger("org.ice4j.ice.Agent");
             iceAgentLogger.setFilter(record -> {
                 String message = record.getMessage();
@@ -185,6 +192,7 @@ public class WebRTCPeerManager {
             // This warning is benign and can occur during normal ICE nomination.
             java.util.logging.Logger componentSocketLogger =
                 java.util.logging.Logger.getLogger("org.ice4j.ice.ComponentSocket");
+            componentSocketLogger.setLevel(java.util.logging.Level.WARNING);
             componentSocketLogger.setFilter(record -> {
                 String message = record.getMessage();
                 return message == null || !message.contains("Active socket already initialized");
