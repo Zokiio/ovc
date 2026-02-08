@@ -15,7 +15,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class DataChannelAudioHandler {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
-    private static final long FLOW_LOG_INTERVAL_MS = 5000L;
+    // Keep flow logs useful but avoid high-volume spam in normal operation.
+    private static final long FLOW_LOG_INTERVAL_MS = 30000L;
     private static final long BACKPRESSURE_COOLDOWN_MS = 250L;
     private static final long BACKPRESSURE_LOG_INTERVAL_MS = 5000L;
 

@@ -41,6 +41,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -172,6 +173,21 @@ public class WebRTCPeerManager {
             iceAgentLogger.setFilter(record -> {
                 String message = record.getMessage();
                 return message == null || !message.contains("ICE state changed from Completed to Terminated");
+            });
+
+            // Suppress high-volume candidate harvester chatter that is expected on
+            // multi-interface hosts (utun/awdl/llw bind retries and connector reuse).
+            java.util.logging.Logger.getLogger("org.ice4j.ice.harvest.HostCandidateHarvester")
+                .setLevel(java.util.logging.Level.WARNING);
+            java.util.logging.Logger.getLogger("org.ice4j.stack.NetAccessManager")
+                .setLevel(java.util.logging.Level.WARNING);
+
+            // This warning is benign and can occur during normal ICE nomination.
+            java.util.logging.Logger componentSocketLogger =
+                java.util.logging.Logger.getLogger("org.ice4j.ice.ComponentSocket");
+            componentSocketLogger.setFilter(record -> {
+                String message = record.getMessage();
+                return message == null || !message.contains("Active socket already initialized");
             });
         } catch (Exception e) {
             logger.atWarning().log("Failed to install ICE log filter: " + e.getMessage());
@@ -306,6 +322,8 @@ public class WebRTCPeerManager {
         private final String dtlsFingerprint;
         private PrivateKey dtlsPrivateKey;
         private final AtomicReference<Short> audioStreamId = new AtomicReference<>(null);
+        private final AtomicBoolean dataChannelTransportStarting = new AtomicBoolean(false);
+        private final AtomicBoolean closed = new AtomicBoolean(false);
         private DtlsTransport dtlsTransport;
         private SctpTransport sctpTransport;
         private DataChannelManager dataChannelManager;
@@ -517,6 +535,7 @@ public class WebRTCPeerManager {
         }
 
         void close() {
+            closed.set(true);
             try {
                 if (dataChannelManager != null && audioHandler != null) {
                     audioHandler.unregisterClient(clientId);
@@ -541,8 +560,32 @@ public class WebRTCPeerManager {
          * NOTE: Requires ICE selected pair to be established on the datachannel component.
          */
         void startDataChannelTransport() {
+            if (closed.get()) {
+                logger.atWarning().log("DataChannel transport requested for closed session " + clientId);
+                return;
+            }
             if (dtlsTransport != null || sctpTransport != null) {
                 logger.atWarning().log("DataChannel transport already started for client " + clientId);
+                return;
+            }
+            if (!dataChannelTransportStarting.compareAndSet(false, true)) {
+                logger.atFine().log("DataChannel transport start already in progress for client " + clientId);
+                return;
+            }
+
+            Thread startThread = new Thread(() -> {
+                try {
+                    startDataChannelTransportInternal();
+                } finally {
+                    dataChannelTransportStarting.set(false);
+                }
+            }, "datachannel-start-" + clientId);
+            startThread.setDaemon(true);
+            startThread.start();
+        }
+
+        private void startDataChannelTransportInternal() {
+            if (closed.get()) {
                 return;
             }
 
@@ -562,6 +605,16 @@ public class WebRTCPeerManager {
                     "DataChannel transport unavailable: Ice4j component not ready after 10s " +
                     "(found " + componentCount + " components)"
                 );
+                return;
+            }
+
+            logger.atInfo().log("Waiting for ICE selected pair on datachannel component for client " + clientId + "...");
+            if (!waitForSelectedPair(dataComponent, 10000)) {
+                logger.atSevere().log("DataChannel transport unavailable: ICE selected pair not established after 10s for client " + clientId);
+                return;
+            }
+
+            if (closed.get()) {
                 return;
             }
 
@@ -677,6 +730,35 @@ public class WebRTCPeerManager {
                     logger.atSevere().log("DTLS handshake error for client " + clientId + ": " + e.getMessage());
                 }
             }, "dtls-handshake-" + clientId).start();
+        }
+
+        private boolean waitForSelectedPair(Component component, long maxWaitMs) {
+            long startTime = System.currentTimeMillis();
+            long checkInterval = 25;
+            int checkCount = 0;
+
+            while (System.currentTimeMillis() - startTime < maxWaitMs) {
+                if (closed.get()) {
+                    return false;
+                }
+                if (component.getSelectedPair() != null) {
+                    logger.atInfo().log("ICE selected pair ready (after " + checkCount + " polls, " +
+                        (System.currentTimeMillis() - startTime) + "ms) for client " + clientId);
+                    return true;
+                }
+
+                try {
+                    Thread.sleep(checkInterval);
+                    checkCount++;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+
+            logger.atWarning().log("ICE selected pair not available after " + maxWaitMs + "ms for client " + clientId +
+                " (ICE state: " + iceAgent.getState() + ")");
+            return false;
         }
 
         private void startCandidateTrickle() {
