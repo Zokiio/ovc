@@ -62,8 +62,8 @@ let targetBitrate = 24000
 let encoder: AudioEncoder | null = null
 let decoder: AudioDecoder | null = null
 
-const encodeRequestByTimestamp = new Map<number, number>()
-const decodeRequestByTimestamp = new Map<number, number>()
+const encodeRequestQueue: number[] = []
+const decodeRequestQueue: number[] = []
 
 function postEvent(event: WorkerEvent, transfer: Transferable[] = []): void {
   scope.postMessage(event, transfer)
@@ -95,8 +95,8 @@ function teardownCodecs(): void {
     }
     decoder = null
   }
-  encodeRequestByTimestamp.clear()
-  decodeRequestByTimestamp.clear()
+  encodeRequestQueue.length = 0
+  decodeRequestQueue.length = 0
 }
 
 function ensureCodecsInitialized(): boolean {
@@ -107,11 +107,11 @@ function ensureCodecsInitialized(): boolean {
   try {
     encoder = new AudioEncoder({
       output: (chunk: EncodedAudioChunk) => {
-        const requestId = encodeRequestByTimestamp.get(chunk.timestamp)
+        const requestId = encodeRequestQueue.shift()
         if (requestId == null) {
+          postError('encode-output', 'Received encoded chunk with no pending encode request')
           return
         }
-        encodeRequestByTimestamp.delete(chunk.timestamp)
         const encoded = new Uint8Array(chunk.byteLength)
         chunk.copyTo(encoded)
         postEvent({ type: 'encoded', requestId, packet: encoded.buffer }, [encoded.buffer])
@@ -130,12 +130,12 @@ function ensureCodecsInitialized(): boolean {
 
     decoder = new AudioDecoder({
       output: (audioData: AudioData) => {
-        const requestId = decodeRequestByTimestamp.get(audioData.timestamp)
+        const requestId = decodeRequestQueue.shift()
         if (requestId == null) {
           audioData.close()
+          postError('decode-output', 'Received decoded frame with no pending decode request')
           return
         }
-        decodeRequestByTimestamp.delete(audioData.timestamp)
         const sampleCount = audioData.numberOfFrames
         const pcm = new Float32Array(sampleCount)
         try {
@@ -194,7 +194,7 @@ function handleEncode(message: EncodeMessage): void {
       timestamp: message.timestampUs,
       data: pcmData,
     })
-    encodeRequestByTimestamp.set(message.timestampUs, message.requestId)
+    encodeRequestQueue.push(message.requestId)
     encoder.encode(audioData)
     audioData.close()
   } catch (error) {
@@ -217,7 +217,7 @@ function handleDecode(message: DecodeMessage): void {
       duration: message.durationUs,
       data: packet,
     })
-    decodeRequestByTimestamp.set(message.timestampUs, message.requestId)
+    decodeRequestQueue.push(message.requestId)
     decoder.decode(chunk)
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Failed to decode Opus packet'
