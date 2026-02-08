@@ -4,6 +4,7 @@ import com.hypixel.hytale.logger.HytaleLogger;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.hytale.voicechat.common.network.NetworkConfig;
+import org.jitsi.dcsctp4j.SendStatus;
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
@@ -596,11 +597,23 @@ public class WebRTCPeerManager {
                                     }
 
                                     @Override
-                                    public void send(byte[] audioData) {
+                                    public DataChannelAudioHandler.SendResult send(byte[] audioData) {
                                         Short streamId = audioStreamId.get();
-                                        if (streamId != null) {
-                                            dataChannelManager.sendBinary(streamId, audioData);
+                                        if (streamId == null || dataChannelManager == null) {
+                                            return DataChannelAudioHandler.SendResult.CLOSED;
                                         }
+
+                                        SendStatus sendStatus = dataChannelManager.sendBinary(streamId, audioData);
+                                        if (sendStatus == SendStatus.kSuccess) {
+                                            return DataChannelAudioHandler.SendResult.SUCCESS;
+                                        }
+                                        if (sendStatus == SendStatus.kErrorResourceExhaustion) {
+                                            return DataChannelAudioHandler.SendResult.BACKPRESSURED;
+                                        }
+                                        if (sendStatus == SendStatus.kErrorShuttingDown) {
+                                            return DataChannelAudioHandler.SendResult.CLOSED;
+                                        }
+                                        return DataChannelAudioHandler.SendResult.ERROR;
                                     }
                                 });
                             }
