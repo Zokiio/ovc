@@ -94,6 +94,7 @@ export function useConnection() {
   const pendingOutboundOpusPcmRef = useRef<Float32Array>(new Float32Array(0))
   const outboundOpusFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const opusEncoderRef = useRef(new OpusCodecManager())
+  const opusEncoderGenerationRef = useRef(0)
   const opusDrainChainRef = useRef<Promise<void>>(Promise.resolve())
   
   // Connection store
@@ -168,6 +169,12 @@ export function useConnection() {
     resetOutboundOpusQueue()
   }, [resetOutboundPcmQueue, resetOutboundOpusQueue])
 
+  const resetOpusEncoder = useCallback(() => {
+    opusEncoderGenerationRef.current += 1
+    opusEncoderRef.current.dispose()
+    opusEncoderRef.current = new OpusCodecManager()
+  }, [])
+
   const tryDrainOutboundPcmQueue = useCallback((forceFlushRemainder: boolean) => {
     const webrtc = getWebRTCManager()
     if (!webrtc.isReady()) {
@@ -233,15 +240,29 @@ export function useConnection() {
   }, [])
 
   const enqueueOpusDrain = useCallback(() => {
+    const generationAtEnqueue = opusEncoderGenerationRef.current
     opusDrainChainRef.current = opusDrainChainRef.current
       .then(async () => {
+        if (generationAtEnqueue !== opusEncoderGenerationRef.current) {
+          return
+        }
         const drained = await tryDrainOutboundOpusQueue()
+        if (generationAtEnqueue !== opusEncoderGenerationRef.current) {
+          return
+        }
         if (!drained) {
           pendingOutboundOpusPcmRef.current = new Float32Array(0)
         }
       })
       .catch((error) => {
+        if (generationAtEnqueue !== opusEncoderGenerationRef.current) {
+          return
+        }
         const message = error instanceof Error ? error.message : 'Unknown Opus drain failure'
+        if (message.toLowerCase().includes('disposed')) {
+          logger.debug('Ignoring expected Opus drain cancellation during teardown')
+          return
+        }
         logger.warn('Failed to drain Opus outbound queue:', message)
         pendingOutboundOpusPcmRef.current = new Float32Array(0)
       })
@@ -959,8 +980,7 @@ export function useConnection() {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
       resetOutboundAudioQueues()
-      opusEncoderRef.current.dispose()
-      opusEncoderRef.current = new OpusCodecManager()
+      resetOpusEncoder()
       setServerUrl('')
       setError(message)
       resetSignalingClient()
@@ -971,7 +991,7 @@ export function useConnection() {
   }, [
     setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
-    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed, resetOutboundAudioQueues,
+    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed, resetOutboundAudioQueues, resetOpusEncoder,
   ])
 
   /**
@@ -979,8 +999,7 @@ export function useConnection() {
    */
   const disconnect = useCallback(() => {
     resetOutboundAudioQueues()
-    opusEncoderRef.current.dispose()
-    opusEncoderRef.current = new OpusCodecManager()
+    resetOpusEncoder()
     stopListening()
     resetSignalingClient()
     resetWebRTCManager()
@@ -989,7 +1008,7 @@ export function useConnection() {
     resetConnection()
     resetGroups()
     resetUsers()
-  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers, resetOutboundAudioQueues])
+  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers, resetOutboundAudioQueues, resetOpusEncoder])
 
   /**
    * Create a new group
@@ -1034,9 +1053,9 @@ export function useConnection() {
   useEffect(() => {
     return () => {
       resetOutboundAudioQueues()
-      opusEncoderRef.current.dispose()
+      resetOpusEncoder()
     }
-  }, [resetOutboundAudioQueues])
+  }, [resetOutboundAudioQueues, resetOpusEncoder])
 
   // Sync mic mute status to server
   useEffect(() => {
