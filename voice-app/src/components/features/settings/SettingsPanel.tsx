@@ -79,7 +79,7 @@ export const ThemeSelector = ({ className }: { className?: string }) => {
               "p-3 rounded-[var(--radius-btn)] border-2 transition-all text-left",
               theme === t.id
                 ? "border-[var(--accent-primary)] bg-[var(--accent-primary)]/10"
-                : "border-[var(--border-primary)] hover:border-[var(--accent-primary)]/50"
+                : "border-[var(--border-primary)]"
             )}
           >
             <div className="text-sm font-bold text-[var(--text-primary)]">{t.name}</div>
@@ -363,7 +363,7 @@ export const SettingsPanel = ({ className }: { className?: string }) => {
               "flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] font-bold uppercase rounded-[var(--radius-btn)] transition-all",
               activeTab === tab.id
                 ? "bg-[var(--bg-panel)] text-[var(--accent-primary)] shadow-sm"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                : "text-[var(--text-secondary)]"
             )}
           >
             <tab.icon className="w-3.5 h-3.5" />

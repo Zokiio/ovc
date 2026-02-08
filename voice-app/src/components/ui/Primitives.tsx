@@ -10,7 +10,6 @@ export const Panel = ({ className, title, children, rightElement, ...props }: Re
     <div 
       className={cn(
         "bg-[var(--bg-panel)] border border-[var(--border-primary)] shadow-lg flex flex-col rounded-[var(--radius-panel)] transition-all duration-300 relative group overflow-hidden", 
-        "hover:shadow-[var(--shadow-glow)]", // Subtle glow on hover
         className
       )} 
       {...props}
@@ -54,8 +53,8 @@ export const Button = ({
   const baseClass = "font-[family-name:var(--font-heading)] font-bold uppercase tracking-wide transition-all active:scale-[0.98] rounded-[var(--radius-btn)] border flex items-center justify-center gap-2 relative overflow-hidden";
   
   const variants = {
-    primary: 'bg-[var(--accent-primary)] hover:brightness-110 text-white border-[var(--accent-primary)] shadow-[var(--shadow-glow)]',
-    secondary: 'bg-[var(--bg-input)] hover:bg-[var(--bg-panel-header)] text-[var(--text-primary)] border-[var(--border-primary)] hover:border-[var(--text-secondary)]',
+    primary: 'bg-[var(--accent-primary)] hover:brightness-110 text-white border-[var(--accent-primary)]',
+    secondary: 'bg-[var(--bg-input)] hover:bg-[var(--bg-panel-header)] text-[var(--text-primary)] border-[var(--border-primary)]',
     danger: 'bg-[var(--accent-danger)] hover:brightness-110 text-white border-[var(--accent-danger)]',
     ghost: 'bg-transparent hover:bg-[var(--bg-panel-header)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-transparent',
   };
@@ -109,7 +108,7 @@ export const Slider = ({ className, label, ...props }: React.InputHTMLAttributes
   return (
     <div className="space-y-1 w-full group">
       {label && (
-        <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase font-[family-name:var(--font-heading)] group-hover:text-[var(--text-primary)] transition-colors">
+        <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase font-[family-name:var(--font-heading)] transition-colors">
           {label}
         </label>
       )}
@@ -127,19 +126,52 @@ export const Slider = ({ className, label, ...props }: React.InputHTMLAttributes
 
 export const Switch = ({ checked, onChange, label }: { checked: boolean, onChange: (checked: boolean) => void, label: string }) => {
    return (
-      <div className="flex items-center justify-between py-1 group cursor-pointer" onClick={() => onChange(!checked)}>
-         <span className="text-xs font-bold text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] font-[family-name:var(--font-heading)] uppercase transition-colors">{label}</span>
+      <div className="flex items-center justify-between py-1 group cursor-pointer select-none" onClick={() => onChange(!checked)}>
+         <span className="text-xs font-bold text-[var(--text-secondary)] font-[family-name:var(--font-heading)] uppercase transition-colors">{label}</span>
          <div className={cn(
-             "w-9 h-5 rounded-full relative transition-colors duration-200 border",
-             checked ? "bg-[var(--accent-primary)] border-[var(--accent-primary)]" : "bg-[var(--bg-input)] border-[var(--border-primary)]"
+             "w-9 h-5 rounded-full relative transition-all duration-300 border-2",
+             checked 
+               ? "bg-[var(--accent-primary)] border-[var(--accent-primary)]" 
+               : "bg-[var(--bg-input)] border-[var(--border-primary)]"
            )}>
             <div className={cn(
-               "absolute top-0.5 w-3.5 h-3.5 bg-white rounded-full transition-all duration-200 shadow-sm",
-               checked ? "left-[calc(100%-1.125rem)]" : "left-0.5"
+               "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-md",
+               checked ? "left-[calc(100%-0.9rem)]" : "left-0.5"
             )} />
          </div>
       </div>
    );
+};
+
+export const Checkbox = ({ checked, onChange, label, className }: { checked: boolean, onChange: (checked: boolean) => void, label: string, className?: string }) => {
+  return (
+    <div 
+      className={cn("flex items-center gap-3 py-1 group cursor-pointer select-none", className)} 
+      onClick={() => onChange(!checked)}
+    >
+      <div className={cn(
+        "w-5 h-5 rounded-[var(--radius-btn)] border-2 flex items-center justify-center transition-all duration-200",
+        checked 
+          ? "bg-[var(--accent-primary)] border-[var(--accent-primary)]" 
+          : "bg-[var(--bg-input)] border-[var(--border-primary)]"
+      )}>
+        {checked && (
+          <svg 
+            className="w-3.5 h-3.5 text-white animate-in zoom-in-50 duration-200" 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor" 
+            strokeWidth={4}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+      </div>
+      <span className="text-xs font-bold text-[var(--text-secondary)] font-[family-name:var(--font-heading)] uppercase transition-colors">
+        {label}
+      </span>
+    </div>
+  );
 };
 
 export const Select = ({ className, label, options, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { label?: string, options: {value: string, label: string}[] }) => {

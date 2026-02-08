@@ -271,6 +271,12 @@ export const SpatialRadar = () => {
             {/* Sweep Animation */}
             <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,transparent_270deg,var(--accent-primary)_360deg)] opacity-10 animate-[spin_4s_linear_infinite]" />
 
+            {/* Directional Indicators */}
+            <div className="absolute top-1.5 left-1/2 -translate-x-1/2 text-[8px] font-black text-[var(--text-secondary)] opacity-40 pointer-events-none select-none">N</div>
+            <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[8px] font-black text-[var(--text-secondary)] opacity-40 pointer-events-none select-none">S</div>
+            <div className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[8px] font-black text-[var(--text-secondary)] opacity-40 pointer-events-none select-none">W</div>
+            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[8px] font-black text-[var(--text-secondary)] opacity-40 pointer-events-none select-none">E</div>
+
             {/* Center Player */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-[var(--accent-primary)] rounded-full z-10 ring-2 ring-[var(--bg-input)]" />
 

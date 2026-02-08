@@ -95,5 +95,5 @@ body {
 
 [data-theme="hytale"] button:hover,
 :root:not([data-theme="industrial"]) button:hover {
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+  /* text-shadow: 0 0 8px rgba(255, 255, 255, 0.5); */
 }
