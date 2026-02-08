@@ -582,6 +582,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
                 playerObj.addProperty("username", client.getUsername());
                 playerObj.addProperty("isSpeaking", client.isSpeaking());
+                playerObj.addProperty("isMuted", client.isMuted());
                 
                 // Include group info if player is in a group
                 java.util.UUID groupId = groupStateManager.getClientGroup(client.getClientId());
@@ -654,7 +655,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 client.getUsername(),
                 client.getSessionId(),
                 client.getResumeToken(),
-                client.isPendingGameSession(),
                 lastGroupId,
                 System.currentTimeMillis() + RESUME_WINDOW_MS
             ));
@@ -1001,7 +1001,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         handleHeartbeat(ctx, message);
                         break;
                     case "audio":
-                        handleAudioData(ctx, message);
+                        sendError(ctx, "WebSocket audio transport is no longer supported; use WebRTC DataChannel");
                         break;
                     case "start_datachannel":
                         handleStartDataChannel(ctx);
@@ -1273,43 +1273,10 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             sendMessage(ctx, errorMessage);
         }
         
-        private void handleAudioData(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            
-            try {
-                // Extract audio data from message
-                JsonObject data = message.getData();
-                if (data.has("audioData")) {
-                    // Audio data is sent as base64 or direct bytes
-                    String audioDataStr = data.get("audioData").getAsString();
-                    byte[] audioData = decodeAudioData(audioDataStr);
-                    // logger.atInfo().log("Received audio data from WebRTC client " + client.getClientId() + " (" + audioData.length + " bytes)");
-                    
-                    // Send to audio bridge for SFU routing
-                    if (audioBridge != null) {
-                        // logger.atInfo().log("Forwarding audio to WebRTC audio bridge (running=" + audioBridge.isRunning() + ")");
-                        audioBridge.receiveAudioFromWebRTC(client.getClientId(), audioData);
-                    } else {
-                        logger.atWarning().log("Audio bridge not set; dropping WebRTC audio from " + client.getClientId());
-                    }
-                }
-            } catch (Exception e) {
-                logger.atWarning().log("Error handling audio data from client " + client.getClientId() + ": " + e.getMessage());
-            }
-        }
-
         private void handleOffer(ChannelHandlerContext ctx, SignalingMessage message) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client == null) {
                 sendError(ctx, "Not authenticated");
-                return;
-            }
-            if ("websocket".equalsIgnoreCase(NetworkConfig.getWebRtcTransportMode())) {
-                sendError(ctx, "WebRTC transport disabled");
                 return;
             }
             if (peerManager == null) {
@@ -1375,20 +1342,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
 
             peerManager.startDataChannelTransport(client.getClientId());
-        }
-        
-        /**
-         * Decode audio data from the message format
-         * Audio can be sent as base64 string or raw bytes
-         */
-        private byte[] decodeAudioData(String audioDataStr) {
-            // Try to decode as base64 first
-            try {
-                return java.util.Base64.getDecoder().decode(audioDataStr);
-            } catch (IllegalArgumentException e) {
-                // Not base64, treat as raw string and convert to bytes
-                return audioDataStr.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            }
         }
         
         private void handleDisconnect(ChannelHandlerContext ctx) {
@@ -1658,7 +1611,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             UUID groupId = groupStateManager.getClientGroup(client.getClientId());
             if (groupId != null) {
                 JsonObject broadcastData = new JsonObject();
-                broadcastData.addProperty("userId", client.getClientId().toString());
+                broadcastData.addProperty("userId", clientIdMapper.getObfuscatedId(client.getClientId()));
                 broadcastData.addProperty("isSpeaking", isSpeaking);
                 broadcastData.addProperty("username", client.getUsername());
                 SignalingMessage broadcastMsg = new SignalingMessage("user_speaking_status", broadcastData);
@@ -1767,16 +1720,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         private final String username;
         private final String sessionId;
         private final String resumeToken;
-        private final boolean pendingGameSession;
         private final UUID lastGroupId;
         private final long expiresAt;
 
-        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, boolean pendingGameSession, UUID lastGroupId, long expiresAt) {
+        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, UUID lastGroupId, long expiresAt) {
             this.clientId = clientId;
             this.username = username;
             this.sessionId = sessionId;
             this.resumeToken = resumeToken;
-            this.pendingGameSession = pendingGameSession;
             this.lastGroupId = lastGroupId;
             this.expiresAt = expiresAt;
         }

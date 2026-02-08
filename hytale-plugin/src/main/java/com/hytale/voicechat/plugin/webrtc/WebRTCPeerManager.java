@@ -45,9 +45,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Manages WebRTC peer connections (Ice4j-based, DataChannel-first).
- *
- * NOTE: This is scaffolding for the Ice4j integration layer. The SDP/ICE
- * handling will be implemented in the next phase when we wire signaling.
  */
 public class WebRTCPeerManager {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
@@ -217,7 +214,7 @@ public class WebRTCPeerManager {
         }
         WebRTCPeerSession session = new WebRTCPeerSession(clientId, offerSdp);
         sessions.put(clientId, session);
-        logger.atWarning().log("Created WebRTC peer session with provisional SDP answer (Ice4j wiring pending): " + clientId);
+        logger.atInfo().log("Created WebRTC peer session: " + clientId);
         flushPendingIceCandidates(clientId, session);
         return session.getAnswerSdp();
     }
@@ -547,34 +544,25 @@ public class WebRTCPeerManager {
             // Components are created during candidate gathering (async process)
             // Increase timeout to 10 seconds for slow network environments
             Component dataComponent = waitForComponent(datachannelStream, 1, 10000);
-            
-            org.bouncycastle.tls.DatagramTransport transport = null;
-            
-            if (dataComponent != null) {
-                logger.atInfo().log("Using Ice4j component for datachannel transport with client " + clientId);
-                transport = new Ice4jDatagramTransport(dataComponent);
-            } else {
-                // Log all available components for debugging
+            if (dataComponent == null) {
                 int componentCount = 0;
                 for (int i = 1; i <= 5; i++) {
                     if (datachannelStream.getComponent(i) != null) {
                         componentCount++;
                     }
                 }
-                
-                logger.atWarning().log("DataChannel: Ice4j component unavailable after 10s (found " + componentCount + 
-                    " components); using fallback UDP transport for testing");
-                try {
-                    transport = new SimpleDatagramTransport();
-                } catch (Exception e) {
-                    logger.atSevere().log("Failed to create fallback transport: " + e.getMessage());
-                    return;
-                }
+                logger.atSevere().log(
+                    "DataChannel transport unavailable: Ice4j component not ready after 10s " +
+                    "(found " + componentCount + " components)"
+                );
+                return;
             }
 
-            if (transport != null) {
-                dtlsTransport = new DtlsTransport(clientId.toString(), dtlsCertificate, dtlsPrivateKey, true);
-                final org.bouncycastle.tls.DatagramTransport finalTransport = transport;
+            logger.atInfo().log("Using Ice4j component for datachannel transport with client " + clientId);
+            org.bouncycastle.tls.DatagramTransport transport = new Ice4jDatagramTransport(dataComponent);
+
+            dtlsTransport = new DtlsTransport(clientId.toString(), dtlsCertificate, dtlsPrivateKey, true);
+            final org.bouncycastle.tls.DatagramTransport finalTransport = transport;
 
             dtlsTransport.setHandshakeListener(new DtlsTransport.DtlsHandshakeListener() {
                 @Override
@@ -670,7 +658,6 @@ public class WebRTCPeerManager {
                     logger.atSevere().log("DTLS handshake error for client " + clientId + ": " + e.getMessage());
                 }
             }, "dtls-handshake-" + clientId).start();
-            }
         }
 
         private void startCandidateTrickle() {

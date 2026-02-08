@@ -41,13 +41,8 @@ GameQuitGraceSeconds = 10
 # Default: 60
 PendingGameJoinTimeoutSeconds = 60
 
-# WebRTC transport mode for audio
-# Options:
-#   auto      - Prefer WebRTC DataChannel, fallback to WebSocket (default)
-#   webrtc    - Require WebRTC DataChannel (no WebSocket audio)
-#   websocket - Disable WebRTC transport and use WebSocket audio only
-# Default: auto
-WebRtcTransportMode = "auto"
+# Audio transport mode is fixed to WebRTC DataChannel only.
+# The plugin no longer supports WebSocket audio transport.
 
 # Comma-separated STUN servers used for WebRTC ICE
 # Default: stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53

@@ -66,13 +66,11 @@ Comma-separated list of domains allowed to connect via WebSocket (CORS).
   ```
 - **System Property**: `-Dvoice.allowed.origins=https://example.com,https://voice.example.com`
 
-### `WebRtcTransportMode` (String)
-Controls the audio transport mode between client and SFU.
+### WebRTC Audio Transport
+Audio transport is fixed to WebRTC DataChannel only.
 
-- **Default**: `auto`
-- **Options**: `auto` (prefer WebRTC DataChannel, fallback to WebSocket), `webrtc` (require WebRTC DataChannel), `websocket` (disable WebRTC and use WebSocket audio only)
-- **Example**: `WebRtcTransportMode = "auto"`
-- **System Property**: `-Dvoice.webrtc.transport.mode=auto`
+- **Mode**: `webrtc` (always on)
+- **WebSocket audio transport**: Not supported
 
 ### `StunServers` (String)
 Comma-separated list of STUN server URLs for ICE candidate gathering.
@@ -157,8 +155,7 @@ SSLKeyPath = "/etc/letsencrypt/live/voice.example.com/privkey.pem"
 # Allowed origins for WebSocket connections
 AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173"
 
-# WebRTC transport mode and ICE servers
-WebRtcTransportMode = "auto"
+# ICE servers
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000

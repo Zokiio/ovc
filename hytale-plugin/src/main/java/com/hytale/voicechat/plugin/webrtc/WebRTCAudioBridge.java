@@ -62,7 +62,7 @@ public class WebRTCAudioBridge {
     private double fadeStartDistance = NetworkConfig.PROXIMITY_FADE_START;
     private double rolloffFactor = NetworkConfig.PROXIMITY_ROLLOFF_FACTOR;
     
-    public WebRTCAudioBridge(Object ignored, PlayerPositionTracker positionTracker, 
+    public WebRTCAudioBridge(PlayerPositionTracker positionTracker,
                             Map<UUID, WebRTCClient> clients) {
         this.positionTracker = positionTracker;
         this.clients = clients;
@@ -355,7 +355,7 @@ public class WebRTCAudioBridge {
             }
         }
         
-        // Send via data channel or WebSocket
+        // Send via DataChannel
         sendAudioToClient(senderId, recipientId, processedAudio, buildProximityMetadata(distance, maxRange));
     }
     
@@ -397,7 +397,7 @@ public class WebRTCAudioBridge {
             }
         }
         
-        // Send via data channel or WebSocket
+        // Send via DataChannel
         sendAudioToClient(senderId, recipientId, processedAudio, buildProximityMetadata(distance, maxRange));
     }
 
@@ -413,21 +413,9 @@ public class WebRTCAudioBridge {
 
     private void sendAudioToClient(UUID senderId, UUID recipientId, byte[] audioData, ProximityMetadata proximityMetadata) {
         String senderToken = clientIdMapper != null ? clientIdMapper.getObfuscatedId(senderId) : senderId.toString();
-        if (dataChannelAudioHandler != null) {
-            boolean sent = sendAudioOverDataChannel(recipientId, senderToken, audioData, proximityMetadata);
-            if (sent) {
-                return;
-            }
-        }
-
-        WebRTCClient client = clients.get(recipientId);
-        if (client != null) {
-            client.sendAudio(
-                senderToken,
-                audioData,
-                proximityMetadata != null ? proximityMetadata.distance : null,
-                proximityMetadata != null ? proximityMetadata.maxRange : null
-            );
+        boolean sent = sendAudioOverDataChannel(recipientId, senderToken, audioData, proximityMetadata);
+        if (!sent) {
+            logger.atFine().log("Dropping audio frame for client " + recipientId + " (DataChannel unavailable)");
         }
     }
 
@@ -454,12 +442,10 @@ public class WebRTCAudioBridge {
             return false;
         }
 
-        // If the frame is too large to fit in a single payload, do not send it over
-        // the DataChannel to avoid fragmenting over an unordered/unreliable channel.
-        // The caller will handle this case by falling back to an alternate transport
-        // such as WebSocket (legacy).
+        // If the frame is too large to fit in a single payload, drop it to avoid
+        // datachannel fragmentation and head-of-line blocking for real-time audio.
         if (audioData.length > maxChunkSize) {
-            logger.atWarning().log("Audio frame too large for DataChannel: %d bytes (max: %d) for client %s; using alternate transport", audioData.length, maxChunkSize, recipientId);
+            logger.atWarning().log("Audio frame too large for DataChannel: %d bytes (max: %d) for client %s", audioData.length, maxChunkSize, recipientId);
             return false;
         }
 

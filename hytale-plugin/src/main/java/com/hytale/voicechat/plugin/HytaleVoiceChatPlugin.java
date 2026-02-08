@@ -12,7 +12,6 @@ import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.event.VoiceChatHudTickingSystem;
-import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.AuthCodeStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hytale.voicechat.plugin.webrtc.DataChannelAudioHandler;
@@ -44,7 +43,6 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private WebRTCSignalingServer signalingServer;
     private WebRTCAudioBridge webRtcAudioBridge;
     private PlayerPositionTracker positionTracker;
-    private PlayerEventListener eventListener;
     private GroupManager groupManager;
     private AuthCodeStore authCodeStore;
     private double proximityDistance = NetworkConfig.getDefaultProximityDistance();
@@ -97,9 +95,6 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
                 return t;
             });
             
-            // Initialize event listener
-            eventListener = new PlayerEventListener(positionTracker);
-            
             // Register event systems for player tracking
             EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, this));
             EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
@@ -116,7 +111,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             signalingServer.setGroupStateManager(groupStateManager);
             signalingServer.setGroupManager(groupManager);
             
-            webRtcAudioBridge = new WebRTCAudioBridge(null, positionTracker, signalingServer.getClientMap());
+            webRtcAudioBridge = new WebRTCAudioBridge(positionTracker, signalingServer.getClientMap());
             webRtcAudioBridge.setProximityDistance(proximityDistance);
             webRtcAudioBridge.setGroupManager(groupManager);
             webRtcAudioBridge.setGroupStateManager(groupStateManager);
@@ -361,13 +356,4 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         return true;
     }
 
-    // TODO: Register Hytale event listeners when API becomes available
-    // private void registerEventListeners() {
-    //     eventBus.register(PlayerMoveEvent.class, event -> {
-    //         Player player = event.getPlayer();
-    //         onPlayerMove(player.getUuid(), player.getName(), 
-    //             player.getX(), player.getY(), player.getZ(), 
-    //             player.getWorld().getId());
-    //     });
-    // }
 }
