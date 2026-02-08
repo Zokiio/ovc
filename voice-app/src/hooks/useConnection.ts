@@ -98,6 +98,7 @@ export function useConnection() {
   const outboundOpusFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const manualDisconnectRef = useRef(false)
+  const hasEverReachedReadyRef = useRef(false)
   const opusEncoderRef = useRef(new OpusCodecManager())
   const opusEncoderGenerationRef = useRef(0)
   const opusDrainChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -984,6 +985,7 @@ export function useConnection() {
       const { status: currentStatus, reconnectAttempt } = useConnectionStore.getState()
 
       if (nextState.connectionState === 'connected' && nextState.dataChannelState === 'open') {
+        hasEverReachedReadyRef.current = true
         clearReconnectTimer()
         if (currentStatus !== 'connected') {
           setStatus('connected')
@@ -998,7 +1000,11 @@ export function useConnection() {
         nextState.connectionState === 'failed' ||
         nextState.connectionState === 'disconnected' ||
         (nextState.connectionState === 'closed' && currentStatus !== 'disconnected') ||
-        (nextState.connectionState === 'connected' && nextState.dataChannelState === 'closed')
+        (
+          nextState.connectionState === 'connected' &&
+          nextState.dataChannelState === 'closed' &&
+          hasEverReachedReadyRef.current
+        )
 
       if (!needsRecovery) {
         return
@@ -1073,6 +1079,7 @@ export function useConnection() {
 
     try {
       manualDisconnectRef.current = false
+      hasEverReachedReadyRef.current = false
       clearReconnectTimer()
       clearWarnings()
       resetReconnectAttempt()
@@ -1126,6 +1133,7 @@ export function useConnection() {
    */
   const disconnect = useCallback(() => {
     manualDisconnectRef.current = true
+    hasEverReachedReadyRef.current = false
     clearReconnectTimer()
     resetOutboundAudioQueues()
     resetOpusEncoder()
@@ -1193,6 +1201,7 @@ export function useConnection() {
   useEffect(() => {
     return () => {
       manualDisconnectRef.current = true
+      hasEverReachedReadyRef.current = false
       clearReconnectTimer()
       resetOutboundAudioQueues()
       resetOpusEncoder()
