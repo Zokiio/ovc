@@ -326,12 +326,27 @@ public class WebRTCAudioBridge {
             Set<UUID> excludedRecipientIds
     ) {
         Set<UUID> excluded = excludedRecipientIds != null ? excludedRecipientIds : Collections.emptySet();
+        UUID senderGroupId = null;
+        Boolean senderGroupIsolated = null;
+        if (groupStateManager != null && groupManager != null) {
+            senderGroupId = groupStateManager.getClientGroup(senderId);
+            if (senderGroupId != null) {
+                var senderGroup = groupManager.getGroup(senderGroupId);
+                if (senderGroup != null) {
+                    senderGroupIsolated = senderGroup.isIsolated();
+                }
+            }
+        }
+
         for (WebRTCClient client : clients.values()) {
             // Skip self
             if (client.getClientId().equals(senderId)) {
                 continue;
             }
             if (excluded.contains(client.getClientId())) {
+                continue;
+            }
+            if (!isRecipientEligibleForProximity(senderGroupId, senderGroupIsolated, client.getClientId())) {
                 continue;
             }
             
@@ -348,6 +363,35 @@ public class WebRTCAudioBridge {
                 routeAudioToWebRTC(senderId, client.getClientId(), audioData, codec, distance, proximityDistance);
             }
         }
+    }
+
+    private boolean isRecipientEligibleForProximity(
+            UUID senderGroupId,
+            Boolean senderGroupIsolated,
+            UUID recipientId
+    ) {
+        if (groupStateManager == null || groupManager == null) {
+            return true;
+        }
+
+        UUID recipientGroupId = groupStateManager.getClientGroup(recipientId);
+
+        // Isolated senders should only ever be heard by members of the same group.
+        if (Boolean.TRUE.equals(senderGroupIsolated)) {
+            return senderGroupId != null && senderGroupId.equals(recipientGroupId);
+        }
+
+        if (recipientGroupId == null) {
+            return true;
+        }
+
+        // Members of isolated groups should not hear non-group proximity chat.
+        var recipientGroup = groupManager.getGroup(recipientGroupId);
+        if (recipientGroup != null && recipientGroup.isIsolated()) {
+            return senderGroupId != null && senderGroupId.equals(recipientGroupId);
+        }
+
+        return true;
     }
     
     /**
