@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
 
+const TEST_SERVER_URL = 'wss://example.invalid';
+const TEST_USERNAME = 'TestUser123';
+const TEST_TOKEN = 'TEST_TOKEN_PLACEHOLDER';
+
 test.describe('Save Connection Feature', () => {
   test('should save and restore server credentials', async ({ page }) => {
     // Clear localStorage first
@@ -12,13 +16,13 @@ test.describe('Save Connection Feature', () => {
     
     // Fill in connection details
     const serverInput = page.getByPlaceholder('Server address...');
-    await serverInput.fill('wss://voice.techynoodle.com');
+    await serverInput.fill(TEST_SERVER_URL);
     
     const usernameInput = page.getByPlaceholder('Your username...');
-    await usernameInput.fill('TestUser123');
+    await usernameInput.fill(TEST_USERNAME);
     
     const tokenInput = page.getByPlaceholder('••••••••••••');
-    await tokenInput.fill('SECRET_TOKEN');
+    await tokenInput.fill(TEST_TOKEN);
 
     console.log('\n=== Step 2: Open save modal and save ===');
     
@@ -58,10 +62,10 @@ test.describe('Save Connection Feature', () => {
     console.log('Username:', server.username);
     console.log('AuthToken:', server.authToken ? '[PRESENT]' : '[MISSING]');
     
-    expect(server.url).toBe('wss://voice.techynoodle.com');
+    expect(server.url).toBe(TEST_SERVER_URL);
     expect(server.name).toBe('Test Server');
-    expect(server.username).toBe('TestUser123');
-    expect(server.authToken).toBe('SECRET_TOKEN');
+    expect(server.username).toBe(TEST_USERNAME);
+    expect(server.authToken).toBe(TEST_TOKEN);
 
     console.log('\n=== Step 3: Reload and verify restoration ===');
     
@@ -89,11 +93,8 @@ test.describe('Save Connection Feature', () => {
     console.log('Username:', usernameValue);
     console.log('Token:', tokenValue ? '[PRESENT]' : '[EMPTY]');
 
-    expect(serverValue).toBe('wss://voice.techynoodle.com');
-    expect(usernameValue).toBe('TestUser123');
-    expect(tokenValue).toBe('SECRET_TOKEN');
-
-    // Take screenshot
-    await page.screenshot({ path: 'test-results/save-connection.png' });
+    expect(serverValue).toBe(TEST_SERVER_URL);
+    expect(usernameValue).toBe(TEST_USERNAME);
+    expect(tokenValue).toBe(TEST_TOKEN);
   });
 });

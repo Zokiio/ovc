@@ -26,6 +26,19 @@ interface SettingsStore {
   setSidebarCollapsed: (collapsed: boolean) => void
 }
 
+const deriveServerName = (url: string, explicitName?: string): string => {
+  if (explicitName && explicitName.trim().length > 0) {
+    return explicitName.trim()
+  }
+
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname || url
+  } catch {
+    return url
+  }
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     immer((set) => ({
@@ -45,7 +58,7 @@ export const useSettingsStore = create<SettingsStore>()(
           } else {
             state.savedServers.push({
               url,
-              name: name || new URL(url).hostname,
+              name: deriveServerName(url, name),
               username,
               authToken,
               lastConnected: Date.now(),

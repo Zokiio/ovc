@@ -1,6 +1,12 @@
 import { test, expect } from '@playwright/test';
 
+const SERVER_URL = process.env.VOICE_SERVER_URL || '';
+const USERNAME = process.env.VOICE_USERNAME || '';
+const AUTH_TOKEN = process.env.VOICE_AUTH_TOKEN || '';
+
 test.describe('Navigation and Group Management', () => {
+  test.skip(!SERVER_URL || !USERNAME || !AUTH_TOKEN, 'Skipping: requires VOICE_SERVER_URL, VOICE_USERNAME, and VOICE_AUTH_TOKEN');
+
   test('should login, create group, and show in main view', async ({ page }) => {
     await page.setViewportSize({ width: 1400, height: 900 });
 
@@ -17,10 +23,10 @@ test.describe('Navigation and Group Management', () => {
 
     const serverInput = page.getByPlaceholder('Server address...');
     await serverInput.clear();
-    await serverInput.fill('wss://voice.techynoodle.com');
+    await serverInput.fill(SERVER_URL);
 
-    await page.getByPlaceholder('Your username...').fill('Zoki');
-    await page.getByPlaceholder('••••••••••••').fill('LBL6TD');
+    await page.getByPlaceholder('Your username...').fill(USERNAME);
+    await page.getByPlaceholder('••••••••••••').fill(AUTH_TOKEN);
     await page.locator('button:has-text("Connect to Server")').click();
 
     await expect(page.locator('text=Party Control')).toBeVisible({ timeout: 15000 });

@@ -6,7 +6,6 @@ import { createLogger } from '../lib/logger'
 import { getSignalingClient } from '../lib/signaling'
 import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
 import { useAudioStore } from '../stores/audioStore'
-import { useUserStore } from '../stores/userStore'
 
 const logger = createLogger('useAudioPlayback')
 
@@ -26,9 +25,8 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   const userVolumeEntries = useAudioStore(useShallow((s) => Array.from(s.userVolumes.entries())))
   const setAudioDiagnostics = useAudioStore((s) => s.setAudioDiagnostics)
   const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
-  
-  const setUserVolume = useUserStore((s) => s.setUserVolume)
-  const setUserMuted = useUserStore((s) => s.setUserMuted)
+  const setLocalMute = useAudioStore((s) => s.setLocalMute)
+  const setStoredUserVolume = useAudioStore((s) => s.setUserVolume)
 
   const managerRef = useRef(getAudioPlaybackManager())
   const opusDecoderRef = useRef(new OpusCodecManager())
@@ -169,17 +167,19 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
    */
   const setVolume = useCallback((userId: string, volume: number) => {
     managerRef.current.setUserVolume(userId, volume)
-    setUserVolume(userId, volume)
-  }, [setUserVolume])
+    setStoredUserVolume(userId, volume)
+  }, [setStoredUserVolume])
 
   /**
    * Toggle mute for a specific user
    */
   const toggleMute = useCallback((userId: string) => {
-    const isMuted = managerRef.current.toggleUserMute(userId)
-    setUserMuted(userId, isMuted)
-    return isMuted
-  }, [setUserMuted])
+    const currentMuted = useAudioStore.getState().localMutes.get(userId) ?? false
+    const nextMuted = !currentMuted
+    managerRef.current.setUserMuted(userId, nextMuted)
+    setLocalMute(userId, nextMuted)
+    return nextMuted
+  }, [setLocalMute])
 
   /**
    * Initialize playback (call after user interaction)

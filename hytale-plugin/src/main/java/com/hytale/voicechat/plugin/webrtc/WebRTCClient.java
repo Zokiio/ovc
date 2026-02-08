@@ -25,8 +25,8 @@ public class WebRTCClient {
     private volatile boolean muted = false;
     private volatile int volume = 100; // 0-200%
     private volatile boolean pendingGameSession = false;
-    private volatile String sessionId;
-    private volatile String resumeToken;
+    private volatile String sessionId = "";
+    private volatile String resumeToken = "";
     private volatile long lastHeartbeatAt;
     private volatile String negotiatedAudioCodec = AUDIO_CODEC_PCM;
     
@@ -104,7 +104,7 @@ public class WebRTCClient {
     }
 
     public void setSessionId(String sessionId) {
-        this.sessionId = sessionId;
+        this.sessionId = sessionId == null ? "" : sessionId;
     }
 
     public String getResumeToken() {
@@ -112,7 +112,7 @@ public class WebRTCClient {
     }
 
     public void setResumeToken(String resumeToken) {
-        this.resumeToken = resumeToken;
+        this.resumeToken = resumeToken == null ? "" : resumeToken;
     }
 
     public long getLastHeartbeatAt() {

@@ -254,7 +254,7 @@ export const SpatialRadar = () => {
          <div className="aspect-square relative border border-[var(--border-primary)] bg-[var(--bg-input)] rounded-[var(--radius-btn)] overflow-hidden shadow-inner">
             {/* World Map Layer */}
             {showMap && (
-               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/graphy.png')] opacity-20 mix-blend-overlay" />
+               <div className="absolute inset-0 opacity-20 mix-blend-overlay [background-image:repeating-linear-gradient(90deg,rgba(255,255,255,0.08)_0,rgba(255,255,255,0.08)_1px,transparent_1px,transparent_10px),repeating-linear-gradient(0deg,rgba(255,255,255,0.08)_0,rgba(255,255,255,0.08)_1px,transparent_1px,transparent_10px)]" />
             )}
 
             {/* Grid Lines */}
