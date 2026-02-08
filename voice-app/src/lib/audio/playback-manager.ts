@@ -641,9 +641,9 @@ export class AudioPlaybackManager {
     const pitchRad = (this.clamp(position.pitch, -89.9, 89.9) * Math.PI) / 180
     const cosPitch = Math.cos(pitchRad)
     return {
-      // Game yaw is clockwise from north in world space; convert to WebAudio space
-      // where Z is inverted (audioZ = -worldZ).
-      forwardX: Math.sin(yawRad) * cosPitch,
+      // Game forward in world space is x=-sin(yaw), z=-cos(yaw). Convert to WebAudio
+      // with audioZ=-worldZ, which keeps X and flips Z.
+      forwardX: -Math.sin(yawRad) * cosPitch,
       forwardY: -Math.sin(pitchRad),
       forwardZ: Math.cos(yawRad) * cosPitch,
     }
