@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { useAudioStore } from '../../stores/audioStore';
 import { AudioLevelMeter } from './AudioControls';
+import { cn } from '../../lib/utils';
 
 /**
  * Isolated mic level display component.
@@ -14,9 +15,12 @@ export const MicLevelDisplay = memo(function MicLevelDisplay() {
 
   return (
     <div className="w-full max-w-[100px] sm:max-w-[180px]">
-      <div className="flex justify-between text-[10px] font-bold text-[var(--text-secondary)] mb-1 uppercase tracking-wider">
+      <div className="flex justify-between text-[10px] font-extrabold text-[var(--text-secondary)] mb-1 uppercase tracking-wider">
         <span>Mic</span>
-        <span className={micLevel > 80 ? 'text-[var(--accent-danger)]' : isSpeaking ? 'text-[var(--accent-success)]' : 'text-[var(--text-primary)]'}>
+        <span className={cn(
+          "inline-block text-right w-[4ch]",
+          micLevel > 80 ? 'text-[var(--accent-danger)]' : isSpeaking ? 'text-[var(--accent-success)]' : 'text-[var(--text-primary)]'
+        )}>
           {Math.round(micLevel)}%
         </span>
       </div>
