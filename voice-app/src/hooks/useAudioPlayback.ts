@@ -35,7 +35,7 @@ export function useAudioPlayback() {
       sampleRate: 48000,
       channels: 1,
       frameDurationMs: 20,
-      targetBitrate: 24000,
+      targetBitrate: 32000,
     })
   }, [])
 

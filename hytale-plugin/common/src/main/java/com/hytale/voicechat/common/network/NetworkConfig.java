@@ -44,7 +44,7 @@ public class NetworkConfig {
     public static final int DEFAULT_OPUS_FRAME_DURATION_MS = 20;
     public static final int DEFAULT_OPUS_SAMPLE_RATE = 48000;
     public static final int DEFAULT_OPUS_CHANNELS = 1;
-    public static final int DEFAULT_OPUS_TARGET_BITRATE = 24000;
+    public static final int DEFAULT_OPUS_TARGET_BITRATE = 32000;
     
     // Group management limits
     public static final int MAX_GROUP_NAME_LENGTH = 32;

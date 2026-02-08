@@ -5,13 +5,13 @@
  * Sends audio continuously when active (like old client).
  * VAD UI is for visual feedback only - actual transmission is controlled by app.
  * 
- * Batches render quanta into 384-sample frames to reduce packet rate.
+ * Batches render quanta into 960-sample frames (20ms @ 48kHz mono) for Opus framing.
  */
 class AudioCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super()
     this.isActive = false
-    this.targetFrameSamples = 384
+    this.targetFrameSamples = 960
     this.maxPendingSamples = this.targetFrameSamples * 16
     this.maxPendingFramesBeforeFlush = 8
     this.pendingSamples = new Float32Array(this.maxPendingSamples)

@@ -18,13 +18,15 @@ const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
 const OUTBOUND_PCM_MAX_FLUSH_DELAY_MS = 20
 const OPUS_FRAME_SAMPLES = 960 // 20ms at 48kHz mono
 const OUTBOUND_OPUS_MAX_FLUSH_DELAY_MS = 20
+const MAX_OUTBOUND_OPUS_QUEUE_FRAMES = 12 // 240ms cap to keep real-time behavior under load
+const MAX_OUTBOUND_OPUS_QUEUE_SAMPLES = OPUS_FRAME_SAMPLES * MAX_OUTBOUND_OPUS_QUEUE_FRAMES
 const PENDING_CREATE_GROUP_WINDOW_MS = 5000
 const logger = createLogger('useConnection')
 const DEFAULT_OPUS_CODEC_CONFIG: AudioCodecConfig = {
   sampleRate: 48000,
   channels: 1,
   frameDurationMs: 20,
-  targetBitrate: 24000,
+  targetBitrate: 32000,
 }
 
 function concatInt16Arrays(left: Int16Array, right: Int16Array): Int16Array {
@@ -216,25 +218,16 @@ export function useConnection() {
     const codecConfig = signaling.getAudioCodecConfig() ?? DEFAULT_OPUS_CODEC_CONFIG
     await opusEncoderRef.current.initialize(codecConfig)
 
-    const pending = pendingOutboundOpusPcmRef.current
-    if (pending.length === 0) {
-      return true
-    }
-
-    let offset = 0
-    while (pending.length - offset >= OPUS_FRAME_SAMPLES) {
-      const end = offset + OPUS_FRAME_SAMPLES
-      const frame = cloneFloat32Array(pending.subarray(offset, end))
+    while (pendingOutboundOpusPcmRef.current.length >= OPUS_FRAME_SAMPLES) {
+      const queueBeforePop = pendingOutboundOpusPcmRef.current
+      const frame = cloneFloat32Array(queueBeforePop.subarray(0, OPUS_FRAME_SAMPLES))
+      pendingOutboundOpusPcmRef.current = cloneFloat32Array(queueBeforePop.subarray(OPUS_FRAME_SAMPLES))
       const opusPacket = await opusEncoderRef.current.encodeFrame(frame)
       if (!webrtc.sendAudio(uint8ToArrayBuffer(opusPacket))) {
-        pendingOutboundOpusPcmRef.current = cloneFloat32Array(pending.subarray(offset))
+        pendingOutboundOpusPcmRef.current = concatFloat32Arrays(frame, pendingOutboundOpusPcmRef.current)
         return false
       }
-      offset = end
     }
-
-    const remaining = pending.subarray(offset)
-    pendingOutboundOpusPcmRef.current = cloneFloat32Array(remaining)
 
     return true
   }, [])
@@ -303,7 +296,15 @@ export function useConnection() {
     if (selectedAudioCodec === 'opus') {
       const scaledFrame = cloneFloat32Array(float32Data)
       scaleFloat32InPlace(scaledFrame, inputVolume / 100)
-      pendingOutboundOpusPcmRef.current = concatFloat32Arrays(pendingOutboundOpusPcmRef.current, scaledFrame)
+      const merged = concatFloat32Arrays(pendingOutboundOpusPcmRef.current, scaledFrame)
+      if (merged.length > MAX_OUTBOUND_OPUS_QUEUE_SAMPLES) {
+        // Drop oldest samples to prioritize low-latency real-time audio under pressure.
+        pendingOutboundOpusPcmRef.current = cloneFloat32Array(
+          merged.subarray(merged.length - MAX_OUTBOUND_OPUS_QUEUE_SAMPLES)
+        )
+      } else {
+        pendingOutboundOpusPcmRef.current = merged
+      }
       enqueueOpusDrain()
       if (pendingOutboundOpusPcmRef.current.length > 0) {
         scheduleOutboundOpusFlush()
