@@ -65,3 +65,4 @@ voice-app/package-lock.json
 voice-app/dist/
 voice-app/.vite/
 voice-app/.env
+voice-app/test-results/*.png
