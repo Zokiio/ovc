@@ -99,6 +99,46 @@ function teardownCodecs(): void {
   decodeRequestQueue.length = 0
 }
 
+function copyDecodedAudioData(audioData: AudioData): Float32Array {
+  const frameCount = audioData.numberOfFrames
+  const channelCount = audioData.numberOfChannels
+  if (frameCount <= 0 || channelCount <= 0) {
+    return new Float32Array(0)
+  }
+
+  const format = audioData.format ?? ''
+  const isPlanar = format.includes('planar')
+
+  if (!isPlanar || channelCount === 1) {
+    const pcm = new Float32Array(frameCount * channelCount)
+    audioData.copyTo(pcm, { planeIndex: 0 })
+    return pcm
+  }
+
+  const interleaved = new Float32Array(frameCount * channelCount)
+  for (let channelIndex = 0; channelIndex < channelCount; channelIndex++) {
+    const plane = new Float32Array(frameCount)
+    audioData.copyTo(plane, { planeIndex: channelIndex })
+    for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+      interleaved[(frameIndex * channelCount) + channelIndex] = plane[frameIndex]
+    }
+  }
+  return interleaved
+}
+
+function toTransferableArrayBuffer(data: Float32Array): ArrayBuffer {
+  if (
+    data.buffer instanceof ArrayBuffer &&
+    data.byteOffset === 0 &&
+    data.byteLength === data.buffer.byteLength
+  ) {
+    return data.buffer
+  }
+  const copy = new Float32Array(data.length)
+  copy.set(data)
+  return copy.buffer
+}
+
 function ensureCodecsInitialized(): boolean {
   if (encoder && decoder) {
     return true
@@ -136,11 +176,11 @@ function ensureCodecsInitialized(): boolean {
           postError('decode-output', 'Received decoded frame with no pending decode request')
           return
         }
-        const sampleCount = audioData.numberOfFrames
-        const pcm = new Float32Array(sampleCount)
         try {
-          audioData.copyTo(pcm, { planeIndex: 0 })
-          postEvent({ type: 'decoded', requestId, pcm: pcm.buffer, sampleCount }, [pcm.buffer])
+          const pcm = copyDecodedAudioData(audioData)
+          const sampleCount = pcm.length
+          const pcmBuffer = toTransferableArrayBuffer(pcm)
+          postEvent({ type: 'decoded', requestId, pcm: pcmBuffer, sampleCount }, [pcmBuffer])
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Failed to copy decoded PCM data'
           postError('decode-copy', message, requestId)
@@ -186,14 +226,26 @@ function handleEncode(message: EncodeMessage): void {
 
   try {
     const pcmData = new Float32Array(message.pcm)
-    const audioData = new AudioData({
+    const frameCount = Math.floor(pcmData.length / Math.max(1, channels))
+    if (frameCount <= 0) {
+      postError('encode', 'Empty PCM frame', message.requestId)
+      return
+    }
+    const audioPayload = frameCount * Math.max(1, channels) === pcmData.length
+      ? pcmData
+      : pcmData.subarray(0, frameCount * Math.max(1, channels))
+    const audioDataInit: AudioDataInit = {
       format: 'f32',
       sampleRate,
-      numberOfFrames: pcmData.length,
+      numberOfFrames: frameCount,
       numberOfChannels: channels,
       timestamp: message.timestampUs,
-      data: pcmData,
-    })
+      data: audioPayload,
+    }
+    if (audioPayload.buffer instanceof ArrayBuffer) {
+      audioDataInit.transfer = [audioPayload.buffer]
+    }
+    const audioData = new AudioData(audioDataInit)
     encodeRequestQueue.push(message.requestId)
     encoder.encode(audioData)
     audioData.close()

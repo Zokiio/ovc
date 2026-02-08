@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { getAudioPlaybackManager } from '../lib/audio/playback-manager'
 import { OpusCodecManager } from '../lib/audio/opus-codec-manager'
 import { createLogger } from '../lib/logger'
@@ -21,6 +22,8 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   const outputVolume = useAudioStore((s) => s.settings.outputVolume)
   const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
   const isDeafened = useAudioStore((s) => s.isDeafened)
+  const localMuteEntries = useAudioStore(useShallow((s) => Array.from(s.localMutes.entries())))
+  const userVolumeEntries = useAudioStore(useShallow((s) => Array.from(s.userVolumes.entries())))
   const setAudioDiagnostics = useAudioStore((s) => s.setAudioDiagnostics)
   const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
   
@@ -68,6 +71,21 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   useEffect(() => {
     managerRef.current.setOutputDevice(outputDeviceId)
   }, [outputDeviceId])
+
+  // Keep per-user controls authoritative from store state to survive reconnect/HMR/re-init.
+  useEffect(() => {
+    const manager = managerRef.current
+    localMuteEntries.forEach(([userId, muted]) => {
+      manager.setUserMuted(userId, Boolean(muted))
+    })
+  }, [localMuteEntries])
+
+  useEffect(() => {
+    const manager = managerRef.current
+    userVolumeEntries.forEach(([userId, volume]) => {
+      manager.setUserVolume(userId, Number.isFinite(volume) ? volume : 100)
+    })
+  }, [userVolumeEntries])
 
   /**
    * Handle incoming audio data from DataChannel
