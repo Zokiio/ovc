@@ -6,6 +6,7 @@ import { createLogger } from '../lib/logger'
 import { getSignalingClient } from '../lib/signaling'
 import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
 import { useAudioStore } from '../stores/audioStore'
+import { useUserStore } from '../stores/userStore'
 
 const logger = createLogger('useAudioPlayback')
 
@@ -42,6 +43,20 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       channels: 1,
       frameDurationMs: 20,
       targetBitrate: 32000,
+    })
+  }, [])
+
+  const syncSpatialState = useCallback(() => {
+    const manager = managerRef.current
+    const { users, localUserId } = useUserStore.getState()
+    const localPosition = localUserId ? users.get(localUserId)?.position ?? null : null
+    manager.updateListenerPosition(localPosition)
+
+    users.forEach((user, userId) => {
+      if (userId === localUserId) {
+        return
+      }
+      manager.updateUserPosition(userId, user.position ?? null)
     })
   }, [])
 
@@ -85,6 +100,16 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     })
   }, [userVolumeEntries])
 
+  useEffect(() => {
+    syncSpatialState()
+    const unsubscribe = useUserStore.subscribe(() => {
+      syncSpatialState()
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [syncSpatialState])
+
   /**
    * Handle incoming audio data from DataChannel
    */
@@ -100,6 +125,12 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       ? payload.opusData?.byteLength ?? 0
       : payload.pcmData?.length ?? 0
     logger.debug('Playing audio from:', payload.senderId, 'samplesOrPacketBytes:', sampleOrPacketSize)
+    managerRef.current.updateUserSpatialMetadata(
+      payload.senderId,
+      payload.proximity?.maxRange,
+      typeof payload.gain === 'number' && Number.isFinite(payload.gain) ? payload.gain : undefined
+    )
+
     if (payload.proximity && Number.isFinite(payload.proximity.distance) && Number.isFinite(payload.proximity.maxRange)) {
       upsertProximityRadarContact(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
     }
@@ -157,6 +188,10 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     if (Number.isFinite(distance) && Number.isFinite(maxRange)) {
       upsertProximityRadarContact(senderId, distance as number, maxRange as number)
     }
+    managerRef.current.updateUserSpatialMetadata(
+      senderId,
+      typeof maxRange === 'number' && Number.isFinite(maxRange) ? maxRange : undefined
+    )
 
     const float32Data = int16ToFloat32(pcmData)
     await managerRef.current.playAudio(senderId, float32Data)
