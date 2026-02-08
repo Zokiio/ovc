@@ -13,7 +13,30 @@ import type { Group, GroupMember, User, PlayerPosition } from '../lib/types'
 
 // Keep outbound PCM chunks comfortably below the server's DataChannel payload cap (900 bytes).
 const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
+const OUTBOUND_PCM_MAX_FLUSH_DELAY_MS = 20
 const PENDING_CREATE_GROUP_WINDOW_MS = 5000
+
+function concatInt16Arrays(left: Int16Array, right: Int16Array): Int16Array {
+  if (left.length === 0) return right
+  if (right.length === 0) return left
+  const merged = new Int16Array(left.length + right.length)
+  merged.set(left, 0)
+  merged.set(right, left.length)
+  return merged
+}
+
+function cloneInt16Array(data: Int16Array): Int16Array {
+  if (data.length === 0) return data
+  const copy = new Int16Array(data.length)
+  copy.set(data)
+  return copy
+}
+
+function int16ToArrayBuffer(data: Int16Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(data.byteLength)
+  new Uint8Array(buffer).set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))
+  return buffer
+}
 
 /**
  * Main connection hook that orchestrates signaling, WebRTC, and audio.
@@ -22,6 +45,8 @@ export function useConnection() {
   const isConnectingRef = useRef(false)
   const lastSentSpeakingRef = useRef<boolean | null>(null)
   const pendingCreateGroupRef = useRef<number | null>(null)
+  const pendingOutboundPcmRef = useRef<Int16Array>(new Int16Array(0))
+  const outboundPcmFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
   // Connection store
   const status = useConnectionStore((s) => s.status)
@@ -65,6 +90,77 @@ export function useConnection() {
   // Audio playback
   const { handleAudioData, handleWebSocketAudio, initialize: initializePlayback } = useAudioPlayback()
 
+  const clearOutboundPcmFlushTimer = useCallback(() => {
+    if (outboundPcmFlushTimerRef.current !== null) {
+      clearTimeout(outboundPcmFlushTimerRef.current)
+      outboundPcmFlushTimerRef.current = null
+    }
+  }, [])
+
+  const resetOutboundPcmQueue = useCallback(() => {
+    clearOutboundPcmFlushTimer()
+    pendingOutboundPcmRef.current = new Int16Array(0)
+  }, [clearOutboundPcmFlushTimer])
+
+  const tryDrainOutboundPcmQueue = useCallback((forceFlushRemainder: boolean) => {
+    const webrtc = getWebRTCManager()
+    if (!webrtc.isReady()) {
+      return false
+    }
+
+    const pending = pendingOutboundPcmRef.current
+    if (pending.length === 0) {
+      return true
+    }
+
+    let offset = 0
+    while (pending.length - offset >= MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK) {
+      const end = offset + MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK
+      const chunk = pending.subarray(offset, end)
+      if (!webrtc.sendAudio(int16ToArrayBuffer(chunk))) {
+        const unsent = pending.subarray(offset)
+        pendingOutboundPcmRef.current = cloneInt16Array(unsent)
+        return false
+      }
+      offset = end
+    }
+
+    const remaining = pending.subarray(offset)
+    pendingOutboundPcmRef.current = cloneInt16Array(remaining)
+
+    if (forceFlushRemainder && pendingOutboundPcmRef.current.length > 0) {
+      if (!webrtc.sendAudio(int16ToArrayBuffer(pendingOutboundPcmRef.current))) {
+        return false
+      }
+      pendingOutboundPcmRef.current = new Int16Array(0)
+    }
+
+    return true
+  }, [])
+
+  const scheduleOutboundPcmFlush = useCallback(() => {
+    if (outboundPcmFlushTimerRef.current !== null) {
+      return
+    }
+
+    const runFlush = () => {
+      outboundPcmFlushTimerRef.current = null
+
+      const flushed = tryDrainOutboundPcmQueue(true)
+      if (!flushed) {
+        // Keep real-time behavior: do not retain stale backlog if transport is unavailable.
+        pendingOutboundPcmRef.current = new Int16Array(0)
+        return
+      }
+
+      if (pendingOutboundPcmRef.current.length > 0) {
+        outboundPcmFlushTimerRef.current = setTimeout(runFlush, OUTBOUND_PCM_MAX_FLUSH_DELAY_MS)
+      }
+    }
+
+    outboundPcmFlushTimerRef.current = setTimeout(runFlush, OUTBOUND_PCM_MAX_FLUSH_DELAY_MS)
+  }, [tryDrainOutboundPcmQueue])
+
   // Audio data handler for voice activity
   const handleVoiceData = useCallback((float32Data: Float32Array) => {
     if (useAudioStore.getState().isMicMuted) {
@@ -77,28 +173,42 @@ export function useConnection() {
 
     const webrtc = getWebRTCManager()
     if (webrtc.isReady()) {
-      let allChunksSent = true
-      for (let offset = 0; offset < int16Data.length; offset += MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK) {
-        const end = Math.min(offset + MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK, int16Data.length)
-        const chunk = int16Data.subarray(offset, end)
-        const pcmBuffer = new ArrayBuffer(chunk.byteLength)
-        new Uint8Array(pcmBuffer).set(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength))
-
-        if (!webrtc.sendAudio(pcmBuffer)) {
-          allChunksSent = false
-          break
+      pendingOutboundPcmRef.current = concatInt16Arrays(pendingOutboundPcmRef.current, int16Data)
+      const drained = tryDrainOutboundPcmQueue(false)
+      if (drained) {
+        if (pendingOutboundPcmRef.current.length > 0) {
+          scheduleOutboundPcmFlush()
+        } else {
+          clearOutboundPcmFlushTimer()
         }
-      }
-
-      if (allChunksSent) {
         return
       }
+
+      const unsentPcm = pendingOutboundPcmRef.current
+      if (transportMode !== 'webrtc' && signaling.isConnected() && unsentPcm.length > 0) {
+        signaling.sendAudioBase64(int16ToBase64(unsentPcm))
+        resetOutboundPcmQueue()
+        return
+      }
+
+      resetOutboundPcmQueue()
+      return
+    }
+
+    if (pendingOutboundPcmRef.current.length > 0) {
+      resetOutboundPcmQueue()
     }
 
     if (transportMode !== 'webrtc' && signaling.isConnected()) {
       signaling.sendAudioBase64(int16ToBase64(int16Data))
     }
-  }, [inputVolume])
+  }, [
+    inputVolume,
+    clearOutboundPcmFlushTimer,
+    resetOutboundPcmQueue,
+    scheduleOutboundPcmFlush,
+    tryDrainOutboundPcmQueue,
+  ])
 
   // Voice activity
   const voiceEnabled = status === 'connected' && !isMicMuted
@@ -663,6 +773,7 @@ export function useConnection() {
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
+      resetOutboundPcmQueue()
       setServerUrl('')
       setError(message)
       resetSignalingClient()
@@ -673,13 +784,14 @@ export function useConnection() {
   }, [
     setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
-    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed,
+    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed, resetOutboundPcmQueue,
   ])
 
   /**
    * Disconnect from server
    */
   const disconnect = useCallback(() => {
+    resetOutboundPcmQueue()
     stopListening()
     resetSignalingClient()
     resetWebRTCManager()
@@ -688,7 +800,7 @@ export function useConnection() {
     resetConnection()
     resetGroups()
     resetUsers()
-  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers])
+  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers, resetOutboundPcmQueue])
 
   /**
    * Create a new group
@@ -723,6 +835,18 @@ export function useConnection() {
       signaling.leaveGroup()
     }
   }, [])
+
+  useEffect(() => {
+    if (status !== 'connected') {
+      resetOutboundPcmQueue()
+    }
+  }, [status, resetOutboundPcmQueue])
+
+  useEffect(() => {
+    return () => {
+      resetOutboundPcmQueue()
+    }
+  }, [resetOutboundPcmQueue])
 
   // Sync mic mute status to server
   useEffect(() => {

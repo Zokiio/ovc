@@ -273,3 +273,48 @@ From `old-webclient/PRD.md` and source analysis:
 - Audio device selection and testing
 - Saved servers for quick connect
 - Error handling and reconnection logic
+
+---
+
+## Opus Migration Design Spike (Follow-up)
+
+Goal: move from raw PCM payloads to Opus packets for lower bandwidth and lower packet rate while preserving current WebRTC DataChannel transport and signaling flow.
+
+### Codec/library choice
+
+- **Client encoder/decoder**: `opus-recorder` backed by `opus-media-recorder`/WASM worker pipeline (browser-safe, maintained, avoids native dependencies).
+- **Server strategy**:
+  - **Phase A (bridge-only)**: SFU-style forward Opus packets without decode/re-encode where possible.
+  - **Phase B (optional processing path)**: add decode path only when server-side DSP/routing metadata requires PCM manipulation.
+
+### Packet format/version strategy
+
+- Keep current payload versioning model in DataChannel headers.
+- Introduce `AUDIO_PAYLOAD_VERSION_OPUS = 3`.
+- Proposed v3 payload:
+  - `[version:1][senderIdLen:1][senderId:UTF-8][flags:1][sequence:uint16][timestamp:uint32][opusFrameBytes...]`
+  - Optional proximity metadata follows header when enabled:
+    - `[distance:float32][maxRange:float32]`
+- Maintain existing v1/v2 decode support during rollout.
+
+### Backward compatibility and rollout
+
+1. **Dual-decode client support**
+   - Client accepts v1/v2 PCM and v3 Opus.
+2. **Server feature flag**
+   - Add config gate (for example `UseOpusDataChannel = false` default).
+3. **Canary rollout**
+   - Enable Opus for internal/staging users first.
+4. **Mixed-client safety**
+   - If peer does not advertise Opus capability, continue sending PCM.
+5. **Production cutover**
+   - Flip default to Opus after stable telemetry.
+6. **Retirement**
+   - Remove PCM path only after one full release cycle with no incompatible clients.
+
+### Acceptance criteria for Opus project PR
+
+- Packet rate reduced to approximately 50 packets/sec at 20ms framing.
+- Lower outbound bandwidth than PCM baseline for identical speech samples.
+- No regression in connect/auth/group behavior.
+- No audible artifacts beyond accepted quality threshold in A/B checks.

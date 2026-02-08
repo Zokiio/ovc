@@ -149,14 +149,6 @@ public class WebRTCPeerManager {
             System.setProperty("org.ice4j.ice.harvest.BLOCKED_ADDRESSES", "");
             System.setProperty("ice4j.harvest.blocked-addresses", "");
             
-            // ===== HARVEST: NAT MAPPING HARVESTERS (Static) =====
-            System.setProperty("org.ice4j.ice.harvest.NAT_HARVESTER_LOCAL_ADDRESS", "");
-            System.setProperty("org.ice4j.ice.harvest.NAT_HARVESTER_PUBLIC_ADDRESS", "");
-            
-            // ===== HARVEST: STUN MAPPING HARVESTERS (Dynamic) =====
-            System.setProperty("org.ice4j.ice.harvest.STUN_MAPPING_HARVESTER_ADDRESSES", "");
-            System.setProperty("ice4j.harvest.mapping.stun.addresses", "");
-            
             // ===== HARVEST: AWS HARVESTER =====
             System.setProperty("org.ice4j.ice.harvest.DISABLE_AWS_HARVESTER", "true");
             System.setProperty("ice4j.harvest.mapping.aws.enabled", "false");
@@ -168,7 +160,7 @@ public class WebRTCPeerManager {
             System.setProperty("ice4j.harvest.stun.enabled", "true");
             System.setProperty("ice4j.harvest.upnp.enabled", "false");
             
-            logger.atInfo().log("Ice4j system properties fully configured (all required keys set)");
+            logger.atInfo().log("Ice4j system properties configured");
         } catch (Exception e) {
             logger.atWarning().log("Failed to configure Ice4j properties: " + e.getMessage());
         }
@@ -307,6 +299,8 @@ public class WebRTCPeerManager {
         private final Agent iceAgent;
         private final IceMediaStream audioStream;
         private final IceMediaStream datachannelStream;
+        private final boolean hasAudioMLine;
+        private final boolean hasApplicationMLine;
         private final X509Certificate dtlsCertificate;
         private final String dtlsFingerprint;
         private PrivateKey dtlsPrivateKey;
@@ -322,6 +316,8 @@ public class WebRTCPeerManager {
         WebRTCPeerSession(UUID clientId, String offerSdp) {
             this.clientId = clientId;
             this.offerSdp = offerSdp;
+            this.hasAudioMLine = hasMediaLine(offerSdp, "m=audio");
+            this.hasApplicationMLine = hasMediaLine(offerSdp, "m=application");
             
             try {
                 // Set context classloader to ensure Ice4j finds our config files
@@ -343,6 +339,10 @@ public class WebRTCPeerManager {
                 currentThread.setContextClassLoader(originalClassLoader);
                 
                 logger.atInfo().log("Created Ice4j Agent with controlling role for client " + clientId);
+
+                if (!hasApplicationMLine) {
+                    throw new IllegalArgumentException("SDP offer is missing required application m-line");
+                }
                 
                 // Add STUN harvesters for both audio and datachannel components
                 for (String stunServerUrl : stunServers) {
@@ -364,23 +364,29 @@ public class WebRTCPeerManager {
                     }
                 }
                 
-                // Create media streams for audio and datachannel
-                this.audioStream = iceAgent.createMediaStream("audio");
+                // Create media streams conditionally based on offer m-lines.
+                this.audioStream = hasAudioMLine ? iceAgent.createMediaStream("audio") : null;
                 this.datachannelStream = iceAgent.createMediaStream("application");
                 
-                logger.atInfo().log("Created Ice4j media streams for audio and datachannel: " + clientId);
-                logger.atInfo().log("Audio stream components: " + audioStream.getComponentCount());
+                logger.atInfo().log("Created Ice4j media streams for client " + clientId +
+                    " (audio=" + hasAudioMLine + ", application=" + hasApplicationMLine + ")");
+                if (audioStream != null) {
+                    logger.atInfo().log("Audio stream components: " + audioStream.getComponentCount());
+                }
                 logger.atInfo().log("Application stream components: " + datachannelStream.getComponentCount());
                 
                 // Create ICE components so candidate harvesting can begin
-                Component audioComp = createComponentWithFallback(audioStream, "audio");
-                if (audioComp != null) {
-                    logger.atInfo().log("Audio RTP component created and available");
-                } else {
-                    logger.atWarning().log("Audio RTP component not available (candidate harvesting may fail)");
+                if (audioStream != null) {
+                    Component audioComp = createComponentWithFallback(audioStream, "audio", 0);
+                    if (audioComp != null) {
+                        logger.atInfo().log("Audio RTP component created and available");
+                    } else {
+                        logger.atWarning().log("Audio RTP component not available (candidate harvesting may fail)");
+                    }
                 }
 
-                Component datachannelComp = createComponentWithFallback(datachannelStream, "application");
+                int applicationPortOffset = audioStream != null ? 1 : 0;
+                Component datachannelComp = createComponentWithFallback(datachannelStream, "application", applicationPortOffset);
                 if (datachannelComp != null) {
                     logger.atInfo().log("Application RTP component created and available");
                 } else {
@@ -690,12 +696,29 @@ public class WebRTCPeerManager {
             }
         }
 
-        private Component createComponentWithFallback(IceMediaStream stream, String label) {
+        private boolean hasMediaLine(String sdp, String mediaPrefix) {
+            if (sdp == null || sdp.isEmpty()) {
+                return false;
+            }
+            String[] lines = sdp.split("\r\n");
+            for (String line : lines) {
+                if (line.startsWith(mediaPrefix)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private Component createComponentWithFallback(IceMediaStream stream, String label, int preferredPortOffset) {
+            if (stream == null) {
+                return null;
+            }
             try {
                 int minPort = NetworkConfig.getIcePortMin();
                 int maxPort = NetworkConfig.getIcePortMax();
                 if (minPort > 0 && maxPort > 0) {
-                    return iceAgent.createComponent(stream, minPort, minPort, maxPort);
+                    int preferredPort = Math.min(maxPort, minPort + Math.max(preferredPortOffset, 0));
+                    return iceAgent.createComponent(stream, preferredPort, minPort, maxPort);
                 }
             } catch (Exception e) {
                 logger.atWarning().log("Failed to create " + label + " component with configured ICE range: " + e.getMessage());
@@ -765,20 +788,12 @@ public class WebRTCPeerManager {
             StringBuilder bundleLineBuilder = new StringBuilder();
             bundleLineBuilder.append("a=group:BUNDLE");
 
-            boolean hasAudio = false;
-            boolean hasDataChannel = false;
+            boolean hasAudio = hasAudioMLine;
+            boolean hasDataChannel = hasApplicationMLine;
             String audioMid = null;
             String datachannelMid = null;
             String audioDirection = "sendrecv";
             String datachannelDirection = "sendrecv";
-
-            for (String line : lines) {
-                if (line.startsWith("m=audio")) {
-                    hasAudio = true;
-                } else if (line.startsWith("m=application")) {
-                    hasDataChannel = true;
-                }
-            }
 
             boolean inAudioSection = false;
             boolean inDataChannelSection = false;
@@ -821,6 +836,10 @@ public class WebRTCPeerManager {
 
             String answerAudioDirection = invertDirection(audioDirection);
             String answerDataChannelDirection = invertDirection(datachannelDirection);
+
+            if (!hasDataChannel) {
+                throw new IllegalStateException("Cannot create SDP answer without application m-line");
+            }
 
             if (hasAudio) {
                 bundleLineBuilder.append(" ").append(audioMid != null ? audioMid : "0");
@@ -959,27 +978,27 @@ public class WebRTCPeerManager {
                 dataPwd = sessionPwd;
             }
 
-            if (audioUfrag != null) {
+            if (audioStream != null && audioUfrag != null) {
                 audioStream.setRemoteUfrag(audioUfrag);
             }
-            if (audioPwd != null) {
+            if (audioStream != null && audioPwd != null) {
                 audioStream.setRemotePassword(audioPwd);
             }
 
-            if (dataUfrag != null) {
+            if (datachannelStream != null && dataUfrag != null) {
                 datachannelStream.setRemoteUfrag(dataUfrag);
             }
-            if (dataPwd != null) {
+            if (datachannelStream != null && dataPwd != null) {
                 datachannelStream.setRemotePassword(dataPwd);
             }
         }
 
         private IceMediaStream resolveStreamForCandidate(String sdpMid, int sdpMLineIndex) {
             if (sdpMid != null) {
-                if (sdpMid.equals(datachannelMid)) {
+                if (datachannelMid != null && sdpMid.equals(datachannelMid)) {
                     return datachannelStream;
                 }
-                if (sdpMid.equals(audioMid)) {
+                if (audioMid != null && sdpMid.equals(audioMid)) {
                     return audioStream;
                 }
             }
@@ -993,7 +1012,10 @@ public class WebRTCPeerManager {
                 }
             }
 
-            return datachannelStream != null ? datachannelStream : audioStream;
+            if (datachannelStream != null) {
+                return datachannelStream;
+            }
+            return audioStream;
         }
 
         private String resolveMidForStream(IceMediaStream stream) {
@@ -1003,7 +1025,7 @@ public class WebRTCPeerManager {
             if (stream.equals(datachannelStream)) {
                 return datachannelMid;
             }
-            if (stream.equals(audioStream)) {
+            if (audioStream != null && stream.equals(audioStream)) {
                 return audioMid;
             }
             return null;
@@ -1016,7 +1038,7 @@ public class WebRTCPeerManager {
             if (stream.equals(datachannelStream)) {
                 return dataMLineIndex;
             }
-            if (stream.equals(audioStream)) {
+            if (audioStream != null && stream.equals(audioStream)) {
                 return audioMLineIndex;
             }
             return -1;
