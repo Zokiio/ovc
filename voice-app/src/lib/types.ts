@@ -103,11 +103,21 @@ export interface AudioDiagnostics {
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
+export type ConnectionWarningSource = 'webrtc' | 'audio' | 'signaling'
+
+export interface ConnectionWarning {
+  id: string
+  source: ConnectionWarningSource
+  message: string
+  timestamp: number
+}
+
 export interface ConnectionState {
   status: ConnectionStatus
   serverUrl: string
   latency: number | null
   errorMessage: string | null
+  warnings: ConnectionWarning[]
   reconnectAttempt: number
   clientId: string | null
   username: string | null

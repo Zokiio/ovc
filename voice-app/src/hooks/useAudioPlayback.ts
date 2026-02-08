@@ -9,10 +9,15 @@ import { useUserStore } from '../stores/userStore'
 
 const logger = createLogger('useAudioPlayback')
 
+interface UseAudioPlaybackOptions {
+  onRuntimeWarning?: (message: string) => void
+}
+
 /**
  * Hook for managing audio playback from WebRTC DataChannel.
  */
-export function useAudioPlayback() {
+export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
+  const runtimeWarningHandler = options.onRuntimeWarning
   const outputVolume = useAudioStore((s) => s.settings.outputVolume)
   const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
   const isDeafened = useAudioStore((s) => s.isDeafened)
@@ -104,6 +109,7 @@ export function useAudioPlayback() {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown Opus decode failure'
         logger.warn('Failed to decode Opus payload:', message)
+        runtimeWarningHandler?.(`Opus decode failed: ${message}`)
       }
       return
     }
@@ -115,7 +121,7 @@ export function useAudioPlayback() {
 
     const float32Data = int16ToFloat32(payload.pcmData)
     await managerRef.current.playAudio(payload.senderId, float32Data)
-  }, [ensureOpusDecoderReady, upsertProximityRadarContact])
+  }, [ensureOpusDecoderReady, runtimeWarningHandler, upsertProximityRadarContact])
 
   /**
    * Handle fallback WebSocket audio message payloads.

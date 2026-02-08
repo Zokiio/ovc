@@ -21,6 +21,9 @@ const OUTBOUND_OPUS_MAX_FLUSH_DELAY_MS = 20
 const MAX_OUTBOUND_OPUS_QUEUE_FRAMES = 24 // 480ms cap to reduce drops on slower clients
 const MAX_OUTBOUND_OPUS_QUEUE_SAMPLES = OPUS_FRAME_SAMPLES * MAX_OUTBOUND_OPUS_QUEUE_FRAMES
 const PENDING_CREATE_GROUP_WINDOW_MS = 5000
+const WEBRTC_RECONNECT_BASE_DELAY_MS = 750
+const WEBRTC_RECONNECT_MAX_DELAY_MS = 5000
+const WEBRTC_RECONNECT_MAX_ATTEMPTS = 6
 const logger = createLogger('useConnection')
 const DEFAULT_OPUS_CODEC_CONFIG: AudioCodecConfig = {
   sampleRate: 48000,
@@ -93,6 +96,8 @@ export function useConnection() {
   const outboundPcmFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingOutboundOpusPcmRef = useRef<Float32Array>(new Float32Array(0))
   const outboundOpusFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const manualDisconnectRef = useRef(false)
   const opusEncoderRef = useRef(new OpusCodecManager())
   const opusEncoderGenerationRef = useRef(0)
   const opusDrainChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -105,6 +110,10 @@ export function useConnection() {
   const setLatency = useConnectionStore((s) => s.setLatency)
   const setError = useConnectionStore((s) => s.setError)
   const setServerUrl = useConnectionStore((s) => s.setServerUrl)
+  const addWarning = useConnectionStore((s) => s.addWarning)
+  const clearWarnings = useConnectionStore((s) => s.clearWarnings)
+  const incrementReconnectAttempt = useConnectionStore((s) => s.incrementReconnectAttempt)
+  const resetReconnectAttempt = useConnectionStore((s) => s.resetReconnectAttempt)
   const resetConnection = useConnectionStore((s) => s.reset)
 
   // Group store
@@ -137,7 +146,11 @@ export function useConnection() {
   const setProximityRadarEnabled = useAudioStore((s) => s.setProximityRadarEnabled)
 
   // Audio playback
-  const { handleAudioData, handleWebSocketAudio, initialize: initializePlayback } = useAudioPlayback()
+  const { handleAudioData, handleWebSocketAudio, initialize: initializePlayback } = useAudioPlayback({
+    onRuntimeWarning: (message) => {
+      addWarning('audio', message)
+    },
+  })
 
   const clearOutboundPcmFlushTimer = useCallback(() => {
     if (outboundPcmFlushTimerRef.current !== null) {
@@ -150,6 +163,13 @@ export function useConnection() {
     if (outboundOpusFlushTimerRef.current !== null) {
       clearTimeout(outboundOpusFlushTimerRef.current)
       outboundOpusFlushTimerRef.current = null
+    }
+  }, [])
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
     }
   }, [])
 
@@ -264,9 +284,10 @@ export function useConnection() {
           return
         }
         logger.warn('Failed to drain Opus outbound queue:', message)
+        addWarning('audio', `Opus outbound queue failure: ${message}`)
         pendingOutboundOpusPcmRef.current = new Float32Array(0)
       })
-  }, [tryDrainOutboundOpusQueue])
+  }, [addWarning, tryDrainOutboundOpusQueue])
 
   const scheduleOutboundPcmFlush = useCallback(() => {
     if (outboundPcmFlushTimerRef.current !== null) {
@@ -488,6 +509,7 @@ export function useConnection() {
       if (audioCodec === 'opus') {
         void opusEncoderRef.current.initialize(audioCodecConfig ?? DEFAULT_OPUS_CODEC_CONFIG).catch((error) => {
           const message = error instanceof Error ? error.message : 'Failed to initialize Opus encoder'
+          addWarning('audio', `Failed to initialize Opus encoder: ${message}`)
           setError(message)
         })
       }
@@ -517,6 +539,7 @@ export function useConnection() {
           : DEFAULT_OPUS_CODEC_CONFIG
         void opusEncoderRef.current.initialize(config).catch((error) => {
           const message = error instanceof Error ? error.message : 'Failed to initialize Opus encoder'
+          addWarning('audio', `Failed to initialize Opus encoder: ${message}`)
           setError(message)
         })
       }
@@ -524,19 +547,28 @@ export function useConnection() {
 
     signaling.on('game_session_ready', () => {
       setStatus('connected')
+      resetReconnectAttempt()
       signaling.listGroups()
       signaling.listPlayers()
       void connectWebRTCIfAllowed(signaling).catch((error) => {
         const message = error instanceof Error ? error.message : 'WebRTC connection failed'
+        addWarning('webrtc', `WebRTC connection failed: ${message}`)
         setError(message)
       })
     })
 
     signaling.on('disconnected', () => {
+      if (!manualDisconnectRef.current) {
+        const currentStatus = useConnectionStore.getState().status
+        if (currentStatus === 'connected' || currentStatus === 'reconnecting' || currentStatus === 'connecting') {
+          addWarning('signaling', 'Disconnected from signaling server')
+        }
+      }
       setStatus('disconnected')
     })
 
     signaling.on('connection_error', () => {
+      addWarning('signaling', 'Signaling connection failed')
       setError('Connection failed')
     })
 
@@ -546,6 +578,7 @@ export function useConnection() {
         return
       }
       if (message) {
+        addWarning('signaling', message)
         setError(message)
       }
     })
@@ -926,22 +959,110 @@ export function useConnection() {
       void handleWebSocketAudio(senderId, audioData, distance, maxRange)
     })
   }, [
+    addWarning,
     setAuthenticated, setLocalUserId, setStatus, setError, setLatency,
     setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
     updateMemberSpeaking, updateMemberMuted, setMicMuted, resolveUserIdFromEvent,
-    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled,
+    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, resetReconnectAttempt,
     toPlayerPosition,
   ])
 
   // Setup WebRTC event listeners
   const setupWebRTCListeners = useCallback(() => {
     const webrtc = getWebRTCManager()
-    
+
     webrtc.setOnAudioData((data) => {
-      handleAudioData(data)
+      void handleAudioData(data).catch((error) => {
+        const message = error instanceof Error ? error.message : 'Audio playback failed'
+        addWarning('audio', `Audio playback failure: ${message}`)
+      })
     })
-  }, [handleAudioData])
+
+    webrtc.setOnStateChange((nextState) => {
+      const signaling = getSignalingClient()
+      const { status: currentStatus, reconnectAttempt } = useConnectionStore.getState()
+
+      if (nextState.connectionState === 'connected' && nextState.dataChannelState === 'open') {
+        clearReconnectTimer()
+        if (currentStatus !== 'connected') {
+          setStatus('connected')
+        }
+        if (reconnectAttempt > 0) {
+          resetReconnectAttempt()
+        }
+        return
+      }
+
+      const needsRecovery =
+        nextState.connectionState === 'failed' ||
+        nextState.connectionState === 'disconnected' ||
+        (nextState.connectionState === 'closed' && currentStatus !== 'disconnected') ||
+        (nextState.connectionState === 'connected' && nextState.dataChannelState === 'closed')
+
+      if (!needsRecovery) {
+        return
+      }
+
+      if (manualDisconnectRef.current || !signaling.isConnected() || signaling.isPendingSession()) {
+        return
+      }
+
+      if (currentStatus === 'disconnected' || currentStatus === 'error') {
+        return
+      }
+
+      if (reconnectTimerRef.current !== null) {
+        return
+      }
+
+      if (reconnectAttempt >= WEBRTC_RECONNECT_MAX_ATTEMPTS) {
+        setError(`WebRTC reconnect failed after ${WEBRTC_RECONNECT_MAX_ATTEMPTS} attempts`)
+        return
+      }
+
+      const nextAttempt = reconnectAttempt + 1
+      const delayMs = Math.min(
+        WEBRTC_RECONNECT_BASE_DELAY_MS * Math.pow(2, Math.max(0, nextAttempt - 1)),
+        WEBRTC_RECONNECT_MAX_DELAY_MS
+      )
+      incrementReconnectAttempt()
+      addWarning(
+        'webrtc',
+        `WebRTC transport interrupted (${nextState.connectionState}/${nextState.dataChannelState}). Reconnecting (${nextAttempt}/${WEBRTC_RECONNECT_MAX_ATTEMPTS})`
+      )
+
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null
+        if (manualDisconnectRef.current) {
+          return
+        }
+
+        resetOutboundAudioQueues()
+        resetOpusEncoder()
+        resetWebRTCManager()
+        setupWebRTCListeners()
+        void connectWebRTCIfAllowed(signaling).catch((error) => {
+          const message = error instanceof Error ? error.message : 'WebRTC reconnect failed'
+          addWarning('webrtc', `Reconnect attempt failed: ${message}`)
+          if (useConnectionStore.getState().reconnectAttempt >= WEBRTC_RECONNECT_MAX_ATTEMPTS) {
+            setError(`WebRTC reconnect failed: ${message}`)
+          }
+        })
+      }, delayMs)
+    })
+  }, [
+    addWarning,
+    clearReconnectTimer,
+    connectWebRTCIfAllowed,
+    handleAudioData,
+    incrementReconnectAttempt,
+    resetOpusEncoder,
+    resetOutboundAudioQueues,
+    resetReconnectAttempt,
+    setError,
+    setStatus,
+  ])
 
   /**
    * Connect to server
@@ -951,6 +1072,10 @@ export function useConnection() {
     isConnectingRef.current = true
 
     try {
+      manualDisconnectRef.current = false
+      clearReconnectTimer()
+      clearWarnings()
+      resetReconnectAttempt()
       setStatus('connecting')
       setServerUrl(serverUrl)
 
@@ -979,6 +1104,7 @@ export function useConnection() {
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
+      clearReconnectTimer()
       resetOutboundAudioQueues()
       resetOpusEncoder()
       setServerUrl('')
@@ -991,15 +1117,19 @@ export function useConnection() {
   }, [
     setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
-    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed, resetOutboundAudioQueues, resetOpusEncoder,
+    addSavedServer, clearReconnectTimer, clearWarnings, setLastServerUrl,
+    connectWebRTCIfAllowed, resetOutboundAudioQueues, resetOpusEncoder, resetReconnectAttempt,
   ])
 
   /**
    * Disconnect from server
    */
   const disconnect = useCallback(() => {
+    manualDisconnectRef.current = true
+    clearReconnectTimer()
     resetOutboundAudioQueues()
     resetOpusEncoder()
+    resetReconnectAttempt()
     stopListening()
     resetSignalingClient()
     resetWebRTCManager()
@@ -1008,7 +1138,17 @@ export function useConnection() {
     resetConnection()
     resetGroups()
     resetUsers()
-  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers, resetOutboundAudioQueues, resetOpusEncoder])
+  }, [
+    clearReconnectTimer,
+    resetReconnectAttempt,
+    stopListening,
+    setProximityRadarEnabled,
+    resetConnection,
+    resetGroups,
+    resetUsers,
+    resetOutboundAudioQueues,
+    resetOpusEncoder,
+  ])
 
   /**
    * Create a new group
@@ -1052,10 +1192,12 @@ export function useConnection() {
 
   useEffect(() => {
     return () => {
+      manualDisconnectRef.current = true
+      clearReconnectTimer()
       resetOutboundAudioQueues()
       resetOpusEncoder()
     }
-  }, [resetOutboundAudioQueues, resetOpusEncoder])
+  }, [clearReconnectTimer, resetOutboundAudioQueues, resetOpusEncoder])
 
   // Sync mic mute status to server
   useEffect(() => {

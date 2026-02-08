@@ -84,6 +84,8 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
    const serverUrl = useConnectionStore((s) => s.serverUrl);
    
    const isConnected = status === 'connected';
+   const isWarningStatus = status === 'connecting' || status === 'reconnecting';
+   const statusBadgeVariant = isConnected ? 'success' : isWarningStatus ? 'warning' : status === 'disconnected' ? 'neutral' : 'danger';
    const pingDisplay = latency !== null ? `${latency}ms` : '--';
    const pingColor = latency !== null && latency < 50 ? 'var(--accent-success)' : latency !== null && latency < 100 ? 'var(--accent-warning)' : 'var(--accent-danger)';
    
@@ -102,7 +104,11 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
             <div className="flex items-center gap-1.5">
                <div className={cn(
                   "w-1.5 h-1.5 rounded-full",
-                  isConnected ? "bg-[var(--accent-success)] shadow-[0_0_4px_var(--accent-success)]" : "bg-[var(--accent-danger)]"
+                  isConnected
+                     ? "bg-[var(--accent-success)] shadow-[0_0_4px_var(--accent-success)]"
+                     : isWarningStatus
+                        ? "bg-[var(--accent-warning)] shadow-[0_0_4px_var(--accent-warning)]"
+                        : "bg-[var(--accent-danger)]"
                )} />
                <span className="text-[var(--text-primary)] font-bold tracking-wider">
                   {status.toUpperCase()}
@@ -132,7 +138,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
                   <div className="text-[10px] font-bold text-[var(--text-primary)] truncate uppercase tracking-wider">{hostname}</div>
                   <div className="text-[9px] text-[var(--text-secondary)] font-mono truncate">{serverUrl || 'Not connected'}</div>
                </div>
-               <Badge variant={isConnected ? 'success' : status === 'connecting' ? 'warning' : 'danger'}>
+               <Badge variant={statusBadgeVariant}>
                   {status}
                </Badge>
             </div>
@@ -370,6 +376,8 @@ export const SystemStatus = () => {
 
 export const TelemetryPanel = () => {
    const audioDiagnostics = useAudioStore((s) => s.audioDiagnostics)
+   const connectionWarnings = useConnectionStore((s) => s.warnings)
+   const clearConnectionWarnings = useConnectionStore((s) => s.clearWarnings)
    const totals = useMemo(() => {
       let underruns = 0
       let overruns = 0
@@ -408,6 +416,55 @@ export const TelemetryPanel = () => {
                   <p className="text-xs font-mono text-[var(--text-primary)]">{totals.bufferedSamples}</p>
                </div>
             </div>
+         </Panel>
+         <Panel
+            title="Connection Warnings"
+            rightElement={
+               <button
+                  type="button"
+                  onClick={clearConnectionWarnings}
+                  disabled={connectionWarnings.length === 0}
+                  className={cn(
+                     'text-[8px] font-mono uppercase tracking-wider px-2 py-1 rounded border transition-colors',
+                     connectionWarnings.length === 0
+                        ? 'text-[var(--text-secondary)] border-[var(--border-primary)] opacity-40 cursor-default'
+                        : 'text-[var(--accent-warning)] border-[var(--accent-warning)]/40 hover:bg-[var(--accent-warning)]/10'
+                  )}
+               >
+                  Clear
+               </button>
+            }
+         >
+            {connectionWarnings.length === 0 ? (
+               <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-3">
+                  <p className="text-[9px] font-mono text-[var(--text-secondary)] uppercase tracking-wider">
+                     No runtime warnings detected.
+                  </p>
+               </div>
+            ) : (
+               <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                  {connectionWarnings.map((entry) => {
+                     const sourceColor = entry.source === 'webrtc'
+                        ? 'text-[var(--accent-warning)] border-[var(--accent-warning)]/30 bg-[var(--accent-warning)]/10'
+                        : entry.source === 'audio'
+                           ? 'text-[var(--accent-danger)] border-[var(--accent-danger)]/30 bg-[var(--accent-danger)]/10'
+                           : 'text-[var(--accent-primary)] border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/10'
+                     return (
+                        <div key={entry.id} className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
+                           <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className={cn('text-[8px] font-bold uppercase px-1.5 py-0.5 rounded border', sourceColor)}>
+                                 {entry.source}
+                              </span>
+                              <span className="text-[8px] font-mono text-[var(--text-secondary)]">
+                                 {new Date(entry.timestamp).toLocaleTimeString()}
+                              </span>
+                           </div>
+                           <p className="text-[9px] text-[var(--text-primary)] leading-snug">{entry.message}</p>
+                        </div>
+                     )
+                  })}
+               </div>
+            )}
          </Panel>
          <div className="mt-auto opacity-50 p-2 border border-dashed border-[var(--border-primary)] rounded-[var(--radius-btn)] text-center">
             <p className="text-[8px] font-bold uppercase text-[var(--text-secondary)]">Telemetry Stream Active</p>
