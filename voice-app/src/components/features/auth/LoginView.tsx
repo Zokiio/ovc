@@ -250,15 +250,25 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
                   </div>
 
                   <div className="pt-2">
-                     <Button type="submit" fullWidth size="lg" className="h-12 lg:h-14 text-sm lg:text-base shadow-xl" disabled={isConnecting}>
+                     <Button 
+                        type="submit" 
+                        fullWidth 
+                        size="lg" 
+                        className="h-11 lg:h-14 text-sm lg:text-base shadow-xl relative group/btn overflow-hidden transition-[transform,background-color,border-color,color,shadow] duration-500 hover:scale-[1.01] active:scale-[0.99] [transform:translateZ(0)]" 
+                        disabled={isConnecting}
+                     >
+                        {/* Shimmer Effect - only on hover */}
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover/btn:animate-shimmer pointer-events-none" />
+                        
                         {isConnecting ? (
                           <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Connecting...
+                            <Loader2 className="w-5 h-5 mr-3 animate-spin" /> CONNECTING...
                           </>
                         ) : (
-                          <>
-                            <Play className="w-4 h-4 fill-current mr-2" /> Connect to Server
-                          </>
+                          <div className="flex items-center justify-center w-full relative z-10">
+                            <Play className="w-5 h-5 fill-white mr-3 transition-transform duration-500 group-hover/btn:scale-110" /> 
+                            <span className="tracking-[0.2em] uppercase">Connect</span>
+                          </div>
                         )}
                      </Button>
                      {connectionError && (

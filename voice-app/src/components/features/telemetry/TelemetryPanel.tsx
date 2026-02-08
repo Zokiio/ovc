@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Panel, Meter, Button, Slider, Select, Switch, Badge } from '../../ui/Primitives';
 import { cn } from '../../../lib/utils';
-import { Globe, MapPin, Cpu, Sun, Cloud, Wind } from 'lucide-react';
+import { Globe, MapPin, Cpu, Sun, Cloud, Wind, Activity } from 'lucide-react';
 import { useAudioStore } from '../../../stores/audioStore';
 import { useConnectionStore } from '../../../stores/connectionStore';
 import { useGroupStore } from '../../../stores/groupStore';
@@ -27,13 +27,13 @@ export const VADMonitor = () => {
          <div className="space-y-4">
             <div className="flex items-center justify-between gap-2">
                <div className="flex flex-wrap gap-1 flex-1">
-                  <Button size="sm" variant={mode === 'quiet' ? 'primary' : 'ghost'} onClick={() => setVADPreset('quiet')} className="text-[9px] px-2 h-6">
+                  <Button size="sm" variant={mode === 'quiet' ? 'primary' : 'secondary'} onClick={() => setVADPreset('quiet')} className="text-[9px] px-2 h-6">
                      <Sun className="w-3 h-3 mr-1" /> Quiet
                   </Button>
-                  <Button size="sm" variant={mode === 'normal' ? 'primary' : 'ghost'} onClick={() => setVADPreset('normal')} className="text-[9px] px-2 h-6">
+                  <Button size="sm" variant={mode === 'normal' ? 'primary' : 'secondary'} onClick={() => setVADPreset('normal')} className="text-[9px] px-2 h-6">
                      <Cloud className="w-3 h-3 mr-1" /> Normal
                   </Button>
-                  <Button size="sm" variant={mode === 'noisy' ? 'primary' : 'ghost'} onClick={() => setVADPreset('noisy')} className="text-[9px] px-2 h-6">
+                  <Button size="sm" variant={mode === 'noisy' ? 'primary' : 'secondary'} onClick={() => setVADPreset('noisy')} className="text-[9px] px-2 h-6">
                      <Wind className="w-3 h-3 mr-1" /> Noisy
                   </Button>
                </div>
@@ -43,7 +43,7 @@ export const VADMonitor = () => {
             </div>
 
             <div className="space-y-1 bg-[var(--bg-input)] p-2 rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
-               <div className="flex justify-between text-[10px] text-[var(--text-secondary)] font-bold mb-1">
+               <div className="flex justify-between text-[10px] text-[var(--text-secondary)] font-extrabold mb-1">
                   <span>INPUT GAIN</span>
                   <span className="font-mono">{Math.round(micLevel)}%</span>
                </div>
@@ -110,7 +110,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
                         ? "bg-[var(--accent-warning)] shadow-[0_0_4px_var(--accent-warning)]"
                         : "bg-[var(--accent-danger)]"
                )} />
-               <span className="text-[var(--text-primary)] font-bold tracking-wider">
+               <span className="text-[var(--text-primary)] font-extrabold tracking-wider">
                   {status.toUpperCase()}
                </span>
             </div>
@@ -135,7 +135,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
                   <Globe className="w-8 h-8 text-[var(--accent-primary)]" />
                </div>
                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-bold text-[var(--text-primary)] truncate uppercase tracking-wider">{hostname}</div>
+                  <div className="text-[10px] font-extrabold text-[var(--text-primary)] truncate uppercase tracking-wider">{hostname}</div>
                   <div className="text-[9px] text-[var(--text-secondary)] font-mono truncate">{serverUrl || 'Not connected'}</div>
                </div>
                <Badge variant={statusBadgeVariant}>
@@ -145,16 +145,16 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
 
             <div className="grid grid-cols-3 gap-2">
                <div className="text-center p-2 bg-[var(--bg-input)] rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
-                  <div className="text-[8px] text-[var(--text-secondary)] font-bold mb-1">PING</div>
-                  <div className="text-xs font-bold font-mono" style={{ color: pingColor }}>{pingDisplay}</div>
+                  <div className="text-[8px] text-[var(--text-secondary)] font-extrabold mb-1">PING</div>
+                  <div className="text-xs font-extrabold font-mono" style={{ color: pingColor }}>{pingDisplay}</div>
                </div>
                <div className="text-center p-2 bg-[var(--bg-input)] rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
-                  <div className="text-[8px] text-[var(--text-secondary)] font-bold mb-1">LOSS</div>
-                  <div className="text-xs font-bold text-[var(--text-primary)] font-mono">0%</div>
+                  <div className="text-[8px] text-[var(--text-secondary)] font-extrabold mb-1">LOSS</div>
+                  <div className="text-xs font-extrabold text-[var(--text-primary)] font-mono">0%</div>
                </div>
                <div className="text-center p-2 bg-[var(--bg-input)] rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
-                  <div className="text-[8px] text-[var(--text-secondary)] font-bold mb-1">JITTER</div>
-                  <div className="text-xs font-bold text-[var(--accent-warning)] font-mono">--</div>
+                  <div className="text-[8px] text-[var(--text-secondary)] font-extrabold mb-1">JITTER</div>
+                  <div className="text-xs font-extrabold text-[var(--accent-warning)] font-mono">--</div>
                </div>
             </div>
          </div>
@@ -288,7 +288,7 @@ export const SpatialRadar = () => {
                      style={{ left: `${target.x}%`, top: `${target.y}%` }}
                   >
                      <div className="w-2 h-2 bg-[var(--accent-success)] rounded-full shadow-[0_0_8px_var(--accent-success)]" />
-                     <span className="text-[7px] font-bold text-[var(--accent-success)] bg-[var(--bg-app)]/90 px-1 rounded border border-[var(--accent-success)]/30 backdrop-blur-sm">
+                     <span className="text-[7px] font-extrabold text-[var(--accent-success)] bg-[var(--bg-app)]/90 px-1 rounded border border-[var(--accent-success)]/30 backdrop-blur-sm">
                         {target.label}
                      </span>
                   </div>
@@ -352,17 +352,20 @@ export const SystemStatus = () => {
                ]}
             />
 
-            <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2">
-               <Switch label="Echo Cancel" checked={settings.echoCancellation} onChange={setEchoCancellation} />
-               <Switch label="Noise Suppr." checked={settings.noiseSuppression} onChange={setNoiseSuppression} />
-               <Switch label="Auto Gain" checked={settings.autoGainControl} onChange={setAutoGainControl} />
-               <Switch label="3D Spatial" checked={true} onChange={() => {}} />
+            <div className="flex flex-col gap-1 bg-[var(--bg-input)] p-2 rounded-[var(--radius-btn)] border border-[var(--border-primary)] mt-2">
+               <Switch label="Echo Cancellation" checked={settings.echoCancellation} onChange={setEchoCancellation} />
+               <div className="h-[1px] bg-[var(--border-primary)] opacity-50 mx-1" />
+               <Switch label="Noise Suppression" checked={settings.noiseSuppression} onChange={setNoiseSuppression} />
+               <div className="h-[1px] bg-[var(--border-primary)] opacity-50 mx-1" />
+               <Switch label="Auto Gain Control" checked={settings.autoGainControl} onChange={setAutoGainControl} />
+               <div className="h-[1px] bg-[var(--border-primary)] opacity-50 mx-1" />
+               <Switch label="3D Spatial Audio" checked={true} onChange={() => {}} />
             </div>
 
             <div className="bg-[var(--bg-input)] p-3 rounded-[var(--radius-btn)] border border-[var(--border-primary)] flex justify-between items-center mt-2 shadow-inner">
                <div className="flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-[var(--text-secondary)]" />
-                  <div className="text-[10px] font-bold text-[var(--text-secondary)] tracking-wider">Audio Engine</div>
+                  <div className="text-[10px] font-extrabold text-[var(--text-secondary)] tracking-wider">Audio Engine</div>
                </div>
                <div className={cn(
                   "text-[10px] font-mono px-2 py-0.5 rounded border",
@@ -402,23 +405,30 @@ export const TelemetryPanel = () => {
 
    return (
       <div className="flex flex-col gap-4 h-full">
+         <div className="flex items-center justify-between pb-2 border-b border-[var(--border-primary)]">
+            <h2 className="text-sm font-extrabold uppercase text-[var(--text-primary)] flex items-center gap-2 font-[family-name:var(--font-heading)]">
+               <Activity className="w-4 h-4 text-[var(--accent-primary)]" /> 
+               Telemetry
+            </h2>
+            <Badge variant="neutral">LIVE</Badge>
+         </div>
          <SpatialRadar />
          <Panel title="Audio Diagnostics">
             <div className="grid grid-cols-2 gap-2">
                <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
-                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Underruns</p>
+                  <p className="text-[8px] font-extrabold text-[var(--text-secondary)] uppercase">Underruns</p>
                   <p className="text-xs font-mono text-[var(--text-primary)]">{totals.underruns}</p>
                </div>
                <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
-                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Overruns</p>
+                  <p className="text-[8px] font-extrabold text-[var(--text-secondary)] uppercase">Overruns</p>
                   <p className="text-xs font-mono text-[var(--text-primary)]">{totals.overruns}</p>
                </div>
                <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
-                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Dropped</p>
+                  <p className="text-[8px] font-extrabold text-[var(--text-secondary)] uppercase">Dropped</p>
                   <p className="text-xs font-mono text-[var(--text-primary)]">{totals.droppedSamples}</p>
                </div>
                <div className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
-                  <p className="text-[8px] font-bold text-[var(--text-secondary)] uppercase">Buffered</p>
+                  <p className="text-[8px] font-extrabold text-[var(--text-secondary)] uppercase">Buffered</p>
                   <p className="text-xs font-mono text-[var(--text-primary)]">{totals.bufferedSamples}</p>
                </div>
             </div>
@@ -458,7 +468,7 @@ export const TelemetryPanel = () => {
                      return (
                         <div key={entry.id} className="bg-[var(--bg-input)] border border-[var(--border-primary)] rounded-[var(--radius-btn)] p-2">
                            <div className="flex items-center justify-between gap-2 mb-1">
-                              <span className={cn('text-[8px] font-bold uppercase px-1.5 py-0.5 rounded border', sourceColor)}>
+                              <span className={cn('text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded border', sourceColor)}>
                                  {entry.source}
                               </span>
                               <span className="text-[8px] font-mono text-[var(--text-secondary)]">
@@ -473,7 +483,7 @@ export const TelemetryPanel = () => {
             )}
          </Panel>
          <div className="mt-auto opacity-50 p-2 border border-dashed border-[var(--border-primary)] rounded-[var(--radius-btn)] text-center">
-            <p className="text-[8px] font-bold uppercase text-[var(--text-secondary)]">Telemetry Stream Active</p>
+            <p className="text-[8px] font-extrabold uppercase text-[var(--text-secondary)]">Telemetry Stream Active</p>
          </div>
       </div>
    );

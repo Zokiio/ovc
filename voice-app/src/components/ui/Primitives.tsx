@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../../lib/utils';
 
 type IconComponent = React.ComponentType<{ className?: string }>
@@ -22,7 +23,7 @@ export const Panel = ({ className, title, children, rightElement, ...props }: Re
 
       {title && (
         <div className="bg-[var(--bg-panel-header)] px-4 py-3 border-b border-[var(--border-primary)] flex justify-between items-center shrink-0">
-          <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--text-secondary)] font-[family-name:var(--font-heading)] group-[:not([data-theme='industrial'])_&]:text-[var(--text-accent)]">
+          <h3 className="text-xs font-extrabold uppercase tracking-widest text-[var(--text-secondary)] font-[family-name:var(--font-heading)] group-[:not([data-theme='industrial'])_&]:text-[var(--text-accent)]">
             {title}
           </h3>
           {rightElement}
@@ -50,7 +51,7 @@ export const Button = ({
   fullWidth?: boolean,
   isActive?: boolean
 }) => {
-  const baseClass = "font-[family-name:var(--font-heading)] font-bold uppercase tracking-wide transition-all active:scale-[0.98] rounded-[var(--radius-btn)] border flex items-center justify-center gap-2 relative overflow-hidden";
+  const baseClass = "font-[family-name:var(--font-heading)] font-extrabold uppercase tracking-wide transition-all active:scale-[0.98] rounded-[var(--radius-btn)] border flex items-center justify-center gap-2 relative overflow-hidden";
   
   const variants = {
     primary: 'bg-[var(--accent-primary)] hover:brightness-110 text-white border-[var(--accent-primary)]',
@@ -86,7 +87,7 @@ export const Input = ({ className, label, ...props }: React.InputHTMLAttributes<
   return (
     <div className="space-y-1.5 w-full">
       {label && (
-        <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase font-[family-name:var(--font-heading)] ml-1">
+        <label className="text-[10px] font-extrabold text-[var(--text-secondary)] uppercase font-[family-name:var(--font-heading)] ml-1">
           {label}
         </label>
       )}
@@ -108,7 +109,7 @@ export const Slider = ({ className, label, ...props }: React.InputHTMLAttributes
   return (
     <div className="space-y-1 w-full group">
       {label && (
-        <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase font-[family-name:var(--font-heading)] transition-colors">
+        <label className="text-[10px] font-extrabold text-[var(--text-secondary)] uppercase font-[family-name:var(--font-heading)] transition-colors">
           {label}
         </label>
       )}
@@ -127,7 +128,7 @@ export const Slider = ({ className, label, ...props }: React.InputHTMLAttributes
 export const Switch = ({ checked, onChange, label }: { checked: boolean, onChange: (checked: boolean) => void, label: string }) => {
    return (
       <div className="flex items-center justify-between py-1 group cursor-pointer select-none" onClick={() => onChange(!checked)}>
-         <span className="text-xs font-bold text-[var(--text-secondary)] font-[family-name:var(--font-heading)] uppercase transition-colors">{label}</span>
+         <span className="text-xs font-extrabold text-[var(--text-secondary)] font-[family-name:var(--font-heading)] uppercase transition-colors">{label}</span>
          <div className={cn(
              "w-9 h-5 rounded-full relative transition-all duration-300 border-2",
              checked 
@@ -135,8 +136,8 @@ export const Switch = ({ checked, onChange, label }: { checked: boolean, onChang
                : "bg-[var(--bg-input)] border-[var(--border-primary)]"
            )}>
             <div className={cn(
-               "absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all duration-300 shadow-md",
-               checked ? "left-[calc(100%-0.9rem)]" : "left-0.5"
+               "absolute top-0.5 w-3 h-3 rounded-full transition-all duration-300 shadow-md",
+               checked ? "left-[calc(100%-0.9rem)] bg-white" : "left-0.5 bg-white"
             )} />
          </div>
       </div>
@@ -167,7 +168,7 @@ export const Checkbox = ({ checked, onChange, label, className }: { checked: boo
           </svg>
         )}
       </div>
-      <span className="text-xs font-bold text-[var(--text-secondary)] font-[family-name:var(--font-heading)] uppercase transition-colors">
+      <span className="text-xs font-extrabold text-[var(--text-secondary)] font-[family-name:var(--font-heading)] uppercase transition-colors">
         {label}
       </span>
     </div>
@@ -213,7 +214,7 @@ export const Badge = ({ children, variant = 'neutral', className }: { children: 
   };
 
   return (
-    <span className={cn("inline-flex items-center justify-center min-w-[64px] px-2 py-0.5 text-[10px] font-bold uppercase border font-[family-name:var(--font-heading)] rounded-[var(--radius-btn)] tracking-wider shadow-sm", variants[variant], className)}>
+    <span className={cn("inline-flex items-center justify-center min-w-[64px] px-2 py-0.5 text-[10px] font-extrabold uppercase border font-[family-name:var(--font-heading)] rounded-[var(--radius-btn)] tracking-wider shadow-sm", variants[variant], className)}>
       {children}
     </span>
   );
@@ -293,10 +294,11 @@ export const BottomNavItem = ({ icon: Icon, label, active, onClick }: { icon: Ic
 
 export const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, onClose: () => void, title: string, children: React.ReactNode }) => {
   if (!isOpen) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose} />
-      <Panel className="w-full max-w-md relative animate-in zoom-in-95 duration-200 z-10 border-[var(--border-active)]" title={title}>
+  
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-md animate-in fade-in duration-300" onClick={onClose} />
+      <Panel className="w-full max-w-md relative animate-in zoom-in-95 duration-300 z-10 border-[var(--border-active)]" title={title}>
         <button 
           onClick={onClose} 
           className="absolute top-3 right-3 p-1 text-[var(--text-secondary)] hover:text-[var(--accent-danger)] transition-colors"
@@ -307,6 +309,7 @@ export const Modal = ({ isOpen, onClose, title, children }: { isOpen: boolean, o
            {children}
         </div>
       </Panel>
-    </div>
+    </div>,
+    document.body
   );
 };

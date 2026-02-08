@@ -31,7 +31,7 @@ export const KeyboardShortcutsInfo = ({ className }: { className?: string }) => 
 
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+      <div className="flex items-center gap-2 text-[10px] font-extrabold text-[var(--text-secondary)] uppercase">
         <Keyboard className="w-3.5 h-3.5" /> Keyboard Shortcuts
       </div>
       <div className="space-y-2">
@@ -40,14 +40,14 @@ export const KeyboardShortcutsInfo = ({ className }: { className?: string }) => 
             key={key}
             className="flex items-center justify-between p-2 bg-[var(--bg-input)] rounded-[var(--radius-btn)] border border-[var(--border-primary)]"
           >
-            <span className="text-xs text-[var(--text-primary)]">{action}</span>
-            <kbd className="px-2 py-1 bg-[var(--bg-panel)] border border-[var(--border-primary)] rounded text-[10px] font-mono font-bold text-[var(--accent-primary)]">
+            <span className="text-xs text-[var(--text-primary)] font-medium">{action}</span>
+            <kbd className="px-2 py-1 bg-[var(--bg-panel)] border border-[var(--border-primary)] rounded text-[10px] font-mono font-extrabold text-[var(--accent-primary)]">
               {key}
             </kbd>
           </div>
         ))}
       </div>
-      <p className="text-[9px] text-[var(--text-secondary)] italic">
+      <p className="text-[9px] text-[var(--text-secondary)] italic font-medium">
         Shortcuts are active when connected and not typing in an input field.
       </p>
     </div>
@@ -67,7 +67,7 @@ export const ThemeSelector = ({ className }: { className?: string }) => {
 
   return (
     <div className={cn("space-y-3", className)}>
-      <div className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+      <div className="flex items-center gap-2 text-[10px] font-extrabold text-[var(--text-secondary)] uppercase">
         <Palette className="w-3.5 h-3.5" /> Theme
       </div>
       <div className="grid grid-cols-2 gap-2">
@@ -78,12 +78,12 @@ export const ThemeSelector = ({ className }: { className?: string }) => {
             className={cn(
               "p-3 rounded-[var(--radius-btn)] border-2 transition-all text-left",
               theme === t.id
-                ? "border-[var(--accent-primary)] bg-[var(--accent-primary)]/10"
+                ? "border-[var(--accent-primary)] bg-[var(--accent-primary)] shadow-sm"
                 : "border-[var(--border-primary)]"
             )}
           >
-            <div className="text-sm font-bold text-[var(--text-primary)]">{t.name}</div>
-            <div className="text-[10px] text-[var(--text-secondary)]">{t.description}</div>
+            <div className={cn("text-sm font-extrabold", theme === t.id ? "text-white" : "text-[var(--text-primary)]")}>{t.name}</div>
+            <div className={cn("text-[10px] font-medium", theme === t.id ? "text-white/80" : "text-[var(--text-secondary)]")}>{t.description}</div>
           </button>
         ))}
       </div>
@@ -117,7 +117,7 @@ export const SavedServersManager = ({ className }: { className?: string }) => {
   return (
     <div className={cn("space-y-3", className)}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+        <div className="flex items-center gap-2 text-[10px] font-extrabold text-[var(--text-secondary)] uppercase">
           <Server className="w-3.5 h-3.5" /> Saved Servers
         </div>
         <Button size="sm" variant="ghost" onClick={() => setShowAddModal(true)}>
@@ -126,7 +126,7 @@ export const SavedServersManager = ({ className }: { className?: string }) => {
       </div>
 
       {savedServers.length === 0 ? (
-        <div className="text-center py-4 text-[var(--text-secondary)] text-xs">
+        <div className="text-center py-4 text-[var(--text-secondary)] text-xs font-medium">
           No saved servers
         </div>
       ) : (
@@ -138,10 +138,10 @@ export const SavedServersManager = ({ className }: { className?: string }) => {
             >
               <Server className="w-4 h-4 text-[var(--accent-primary)] shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-bold text-[var(--text-primary)] truncate">{server.name}</div>
-                <div className="text-[10px] text-[var(--text-secondary)] font-mono truncate">{server.url}</div>
+                <div className="text-sm font-extrabold text-[var(--text-primary)] truncate">{server.name}</div>
+                <div className="text-[10px] text-[var(--text-secondary)] font-mono truncate font-medium">{server.url}</div>
               </div>
-              <div className="flex items-center gap-1 text-[9px] text-[var(--text-secondary)] shrink-0">
+              <div className="flex items-center gap-1 text-[9px] text-[var(--text-secondary)] shrink-0 font-medium">
                 <Clock className="w-3 h-3" />
                 {formatDate(server.lastConnected)}
               </div>
@@ -202,7 +202,7 @@ export const VADSettingsPanel = ({ className }: { className?: string }) => {
   return (
     <div className={cn("space-y-4", className)}>
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+        <div className="flex items-center gap-2 text-[10px] font-extrabold text-[var(--text-secondary)] uppercase">
           <Activity className="w-3.5 h-3.5" /> Voice Activity Detection
         </div>
         <Badge variant={isSpeaking ? 'success' : 'neutral'}>
@@ -212,7 +212,7 @@ export const VADSettingsPanel = ({ className }: { className?: string }) => {
 
       {/* Live Level */}
       <div className="space-y-2">
-        <div className="flex justify-between text-[10px] font-bold text-[var(--text-secondary)]">
+        <div className="flex justify-between text-[10px] font-extrabold text-[var(--text-secondary)]">
           <span>Input Level</span>
           <span className={micLevel > vadSettings.threshold ? 'text-[var(--accent-success)]' : ''}>{Math.round(micLevel)}%</span>
         </div>
@@ -220,28 +220,28 @@ export const VADSettingsPanel = ({ className }: { className?: string }) => {
       </div>
 
       {/* Presets */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button 
           size="sm" 
-          variant={vadSettings.preset === 'quiet' ? 'primary' : 'ghost'} 
+          variant={vadSettings.preset === 'quiet' ? 'primary' : 'secondary'} 
           onClick={() => setVADPreset('quiet')}
-          className="flex-1"
+          className="px-4"
         >
           <Sun className="w-3.5 h-3.5 mr-1" /> Quiet
         </Button>
         <Button 
           size="sm" 
-          variant={vadSettings.preset === 'normal' ? 'primary' : 'ghost'} 
+          variant={vadSettings.preset === 'normal' ? 'primary' : 'secondary'} 
           onClick={() => setVADPreset('normal')}
-          className="flex-1"
+          className="px-4"
         >
           <Cloud className="w-3.5 h-3.5 mr-1" /> Normal
         </Button>
         <Button 
           size="sm" 
-          variant={vadSettings.preset === 'noisy' ? 'primary' : 'ghost'} 
+          variant={vadSettings.preset === 'noisy' ? 'primary' : 'secondary'} 
           onClick={() => setVADPreset('noisy')}
-          className="flex-1"
+          className="px-4"
         >
           <Wind className="w-3.5 h-3.5 mr-1" /> Noisy
         </Button>
@@ -289,23 +289,25 @@ export const AudioProcessingSettings = ({ className }: { className?: string }) =
 
   return (
     <div className={cn("space-y-4", className)}>
-      <div className="flex items-center gap-2 text-[10px] font-bold text-[var(--text-secondary)] uppercase">
+      <div className="flex items-center gap-2 text-[10px] font-extrabold text-[var(--text-secondary)] uppercase">
         <RefreshCw className="w-3.5 h-3.5" /> Audio Processing
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="flex flex-col gap-1 bg-[var(--bg-input)] p-2 rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
         <Switch 
-          label="Echo Cancel" 
+          label="Echo Cancellation" 
           checked={settings.echoCancellation} 
           onChange={setEchoCancellation} 
         />
+        <div className="h-[1px] bg-[var(--border-primary)] opacity-50 mx-1" />
         <Switch 
-          label="Noise Suppr." 
+          label="Noise Suppression" 
           checked={settings.noiseSuppression} 
           onChange={setNoiseSuppression} 
         />
+        <div className="h-[1px] bg-[var(--border-primary)] opacity-50 mx-1" />
         <Switch 
-          label="Auto Gain" 
+          label="Auto Gain Control" 
           checked={settings.autoGainControl} 
           onChange={setAutoGainControl} 
         />
@@ -346,11 +348,12 @@ export const SettingsPanel = ({ className }: { className?: string }) => {
   return (
     <div className={cn("flex flex-col h-full", className)}>
       {/* Header */}
-      <div className="flex items-center gap-2 pb-3 mb-4 border-b border-[var(--border-primary)]">
-        <Settings className="w-5 h-5 text-[var(--accent-primary)]" />
-        <h2 className="text-sm font-bold uppercase text-[var(--text-primary)] font-[family-name:var(--font-heading)]">
+      <div className="flex items-center justify-between pb-2 mb-4 border-b border-[var(--border-primary)]">
+        <h2 className="text-sm font-extrabold uppercase text-[var(--text-primary)] flex items-center gap-2 font-[family-name:var(--font-heading)]">
+          <Settings className="w-4 h-4 text-[var(--accent-primary)]" /> 
           Settings
         </h2>
+        <Badge variant="neutral">{activeTab.toUpperCase()}</Badge>
       </div>
 
       {/* Tabs */}
@@ -360,9 +363,9 @@ export const SettingsPanel = ({ className }: { className?: string }) => {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] font-bold uppercase rounded-[var(--radius-btn)] transition-all",
+              "flex-1 flex items-center justify-center gap-1.5 py-2 text-[10px] font-extrabold uppercase rounded-[var(--radius-btn)] transition-all",
               activeTab === tab.id
-                ? "bg-[var(--bg-panel)] text-[var(--accent-primary)] shadow-sm"
+                ? "bg-[var(--accent-primary)] text-white shadow-md"
                 : "text-[var(--text-secondary)]"
             )}
           >
@@ -380,13 +383,13 @@ export const SettingsPanel = ({ className }: { className?: string }) => {
               <div className="space-y-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Mic className="w-4 h-4 text-[var(--accent-primary)]" />
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase">Input</span>
+                  <span className="text-[10px] font-extrabold text-[var(--text-secondary)] uppercase">Input</span>
                 </div>
                 <DeviceSelector type="input" showLabel={false} />
                 
                 <div className="flex items-center gap-2 mb-2 pt-2 border-t border-[var(--border-primary)]">
                   <Volume2 className="w-4 h-4 text-[var(--accent-primary)]" />
-                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase">Output</span>
+                  <span className="text-[10px] font-extrabold text-[var(--text-secondary)] uppercase">Output</span>
                 </div>
                 <DeviceSelector type="output" showLabel={false} />
               </div>

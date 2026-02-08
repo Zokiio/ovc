@@ -11,18 +11,18 @@
   --border-primary: #5c4033; /* Dark bronze/wood */
   --border-active: #fbbf24; /* Vibrant Gold */
   
-  --text-primary: #f0e6d2; /* Parchment white */
+  --text-primary: #fafafa; /* Brighter white */
   --text-secondary: #a08c7d; /* Muted tan */
   --text-tertiary: #8a7768; /* Legacy tertiary text tone */
   --text-accent: #fbbf24; /* Gold */
   
-  --accent-primary: #00b4d8; /* Mana Blue */
+  --accent-primary: #0e7490; /* Muted Deep Teal */
   --accent-secondary: #4a3728;
   --accent-danger: #ef4444; /* Ruby Red */
   --accent-success: #4ade80; /* Emerald Green */
   --accent-warning: #fbbf24; /* Topaz Gold */
 
-  --font-heading: 'Cinzel', serif;
+  --font-heading: system-ui, -apple-system, sans-serif;
   --font-body: 'Lato', sans-serif;
   
   --radius-panel: 8px;
@@ -41,7 +41,7 @@
   --border-primary: #334155;
   --border-active: #f97316;
   
-  --text-primary: #e2e8f0;
+  --text-primary: #ffffff;
   --text-secondary: #94a3b8;
   --text-tertiary: #64748b;
   --text-accent: #f97316;
@@ -52,8 +52,8 @@
   --accent-success: #10b981;
   --accent-warning: #f59e0b;
 
-  --font-heading: 'JetBrains Mono', monospace;
-  --font-body: 'JetBrains Mono', monospace;
+  --font-heading: system-ui, -apple-system, sans-serif;
+  --font-body: system-ui, -apple-system, sans-serif;
   
   --radius-panel: 0px;
   --radius-btn: 0px;
@@ -65,6 +65,9 @@ body {
   background-color: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font-body);
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.3s ease, color 0.3s ease;
   background-image: radial-gradient(circle at center, rgba(109, 80, 59, 0.1) 0%, transparent 100%);
 }
@@ -96,4 +99,13 @@ body {
 [data-theme="hytale"] button:hover,
 :root:not([data-theme="industrial"]) button:hover {
   /* text-shadow: 0 0 8px rgba(255, 255, 255, 0.5); */
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-150%); }
+  100% { transform: translateX(150%); }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.5s ease-in-out infinite;
 }
