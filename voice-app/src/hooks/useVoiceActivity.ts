@@ -45,7 +45,9 @@ let lastSpeechTime = 0
 let speakingTimeout: ReturnType<typeof setTimeout> | null = null
 let silenceTimeout: ReturnType<typeof setTimeout> | null = null
 let lastLevel = 0
-const VAD_LEVEL_SCALE = 8
+const VAD_LEVEL_DB_FLOOR = -65
+const VAD_LEVEL_DB_CEILING = -18
+const VAD_RMS_EPSILON = 1e-7
 
 // Zustand store setters (set once, used in animation loop)
 let globalSetMicLevel: ((level: number) => void) | null = null
@@ -61,6 +63,13 @@ function setGlobalCaptureActive(active: boolean): void {
     globalIsSpeaking = false
     globalSetSpeaking?.(false)
   }
+}
+
+function rmsToNormalizedLevel(rms: number): number {
+  const safeRms = Math.max(VAD_RMS_EPSILON, rms)
+  const decibels = 20 * Math.log10(safeRms)
+  const normalized = (decibels - VAD_LEVEL_DB_FLOOR) / (VAD_LEVEL_DB_CEILING - VAD_LEVEL_DB_FLOOR)
+  return Math.max(0, Math.min(1, normalized))
 }
 
 function cleanupGlobal() {
@@ -210,9 +219,8 @@ async function initializeGlobal(settings: {
 
       globalWorkletNode.port.onmessage = (event) => {
         if (event.data.type === 'audioData') {
-          // Transmission is controlled by globalCaptureActive (connection + mute state).
-          // VAD drives indicators only; do not hard-gate outbound audio by VAD state.
-          if (!globalCaptureActive) return
+          // Transmission is controlled by connection/mute state AND VAD gate state.
+          if (!globalCaptureActive || !globalIsSpeaking) return
 
           const float32Data = new Float32Array(event.data.data)
           // Notify all registered callbacks
@@ -256,9 +264,7 @@ async function initializeGlobal(settings: {
       }
 
       const rms = Math.sqrt(sum / bufferLength)
-      // Lower scale gives the meter more headroom so normal speech does not
-      // pin at 100% too easily.
-      const normalizedLevel = Math.min(1, rms * VAD_LEVEL_SCALE)
+      const normalizedLevel = rmsToNormalizedLevel(rms)
 
       // Only update store every 3 frames (~20fps instead of 60fps) to reduce re-renders
       frameCount++

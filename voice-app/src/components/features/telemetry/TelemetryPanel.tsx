@@ -45,7 +45,7 @@ export const VADMonitor = () => {
             <div className="space-y-1 bg-[var(--bg-input)] p-2 rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
                <div className="flex justify-between text-[10px] text-[var(--text-secondary)] font-bold mb-1">
                   <span>INPUT GAIN</span>
-                  <span className="font-mono">{Math.round(micLevel)} dB</span>
+                  <span className="font-mono">{Math.round(micLevel)}%</span>
                </div>
                <Meter value={micLevel} threshold={threshold} className="h-3" />
             </div>
