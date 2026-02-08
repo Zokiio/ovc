@@ -40,6 +40,11 @@ public class NetworkConfig {
     public static final String DEFAULT_TURN_SERVERS = "";
     public static final int DEFAULT_ICE_PORT_MIN = 0; // 0 = ephemeral
     public static final int DEFAULT_ICE_PORT_MAX = 0; // 0 = ephemeral
+    public static final boolean DEFAULT_ENABLE_OPUS_DATA_CHANNEL = true;
+    public static final int DEFAULT_OPUS_FRAME_DURATION_MS = 20;
+    public static final int DEFAULT_OPUS_SAMPLE_RATE = 48000;
+    public static final int DEFAULT_OPUS_CHANNELS = 1;
+    public static final int DEFAULT_OPUS_TARGET_BITRATE = 24000;
     
     // Group management limits
     public static final int MAX_GROUP_NAME_LENGTH = 32;
@@ -87,6 +92,11 @@ public class NetworkConfig {
     private static String turnServers = DEFAULT_TURN_SERVERS;
     private static int icePortMin = DEFAULT_ICE_PORT_MIN;
     private static int icePortMax = DEFAULT_ICE_PORT_MAX;
+    private static boolean enableOpusDataChannel = DEFAULT_ENABLE_OPUS_DATA_CHANNEL;
+    private static int opusFrameDurationMs = DEFAULT_OPUS_FRAME_DURATION_MS;
+    private static int opusSampleRate = DEFAULT_OPUS_SAMPLE_RATE;
+    private static int opusChannels = DEFAULT_OPUS_CHANNELS;
+    private static int opusTargetBitrate = DEFAULT_OPUS_TARGET_BITRATE;
     private static List<String> stunServerList = Collections.emptyList();
     private static List<String> turnServerList = Collections.emptyList();
     
@@ -129,6 +139,11 @@ public class NetworkConfig {
             turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("TurnServers", turnServers);
             icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("IcePortMin", icePortMin);
             icePortMax = com.hytale.voicechat.common.config.VoiceConfig.getInt("IcePortMax", icePortMax);
+            enableOpusDataChannel = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("EnableOpusDataChannel", enableOpusDataChannel);
+            opusFrameDurationMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusFrameDurationMs", opusFrameDurationMs);
+            opusSampleRate = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusSampleRate", opusSampleRate);
+            opusChannels = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusChannels", opusChannels);
+            opusTargetBitrate = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusTargetBitrate", opusTargetBitrate);
             
             // Fallback to old property names for backward compatibility
             signalingPort = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.signaling.port", signalingPort);
@@ -155,6 +170,11 @@ public class NetworkConfig {
             turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.turn.servers", turnServers);
             icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.ice.port.min", icePortMin);
             icePortMax = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.ice.port.max", icePortMax);
+            enableOpusDataChannel = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.webrtc.opus.enabled", enableOpusDataChannel);
+            opusFrameDurationMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.frame.duration.ms", opusFrameDurationMs);
+            opusSampleRate = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.sample-rate", opusSampleRate);
+            opusChannels = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.channels", opusChannels);
+            opusTargetBitrate = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.target-bitrate", opusTargetBitrate);
         } catch (Exception e) {
             System.err.println("[NetworkConfig] Failed to load VoiceConfig: " + e.getMessage());
         }
@@ -166,6 +186,10 @@ public class NetworkConfig {
         positionBroadcastIntervalMs = clampInt(positionBroadcastIntervalMs, 20, 500);
         positionMinDistanceDelta = clampDouble(positionMinDistanceDelta, 0.05, 5.0);
         positionRotationThresholdDeg = clampDouble(positionRotationThresholdDeg, 0.1, 45.0);
+        opusFrameDurationMs = clampInt(opusFrameDurationMs, 10, 60);
+        opusSampleRate = isSupportedSampleRate(opusSampleRate) ? opusSampleRate : DEFAULT_OPUS_SAMPLE_RATE;
+        opusChannels = clampInt(opusChannels, 1, 2);
+        opusTargetBitrate = clampInt(opusTargetBitrate, 6000, 128000);
     }
 
     private NetworkConfig() {
@@ -304,6 +328,41 @@ public class NetworkConfig {
      */
     public static int getIcePortMax() {
         return isValidIcePortRange(icePortMin, icePortMax) ? icePortMax : 0;
+    }
+
+    /**
+     * Check if Opus-over-DataChannel mode is enabled.
+     */
+    public static boolean isOpusDataChannelEnabled() {
+        return enableOpusDataChannel;
+    }
+
+    /**
+     * Get Opus frame duration (milliseconds).
+     */
+    public static int getOpusFrameDurationMs() {
+        return opusFrameDurationMs;
+    }
+
+    /**
+     * Get Opus sample rate (Hz).
+     */
+    public static int getOpusSampleRate() {
+        return opusSampleRate;
+    }
+
+    /**
+     * Get Opus channel count.
+     */
+    public static int getOpusChannels() {
+        return opusChannels;
+    }
+
+    /**
+     * Get Opus target bitrate (bps).
+     */
+    public static int getOpusTargetBitrate() {
+        return opusTargetBitrate;
     }
     
     /**

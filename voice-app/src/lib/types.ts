@@ -123,6 +123,15 @@ export interface WebRTCState {
   iceConnectionState: RTCIceConnectionState
 }
 
+export type AudioCodec = 'opus' | 'pcm'
+
+export interface AudioCodecConfig {
+  sampleRate: number
+  channels: number
+  frameDurationMs: number
+  targetBitrate: number
+}
+
 // --- Transport Types ---
 
 export type TransportMode = 'auto' | 'webrtc' | 'websocket'
@@ -145,6 +154,9 @@ export interface SignalingEvents {
     username: string
     transportMode: TransportMode
     stunServers: string[]
+    audioCodec?: AudioCodec
+    audioCodecs?: AudioCodec[]
+    audioCodecConfig?: AudioCodecConfig
     useProximityRadar?: boolean
     pending: boolean
     pendingMessage?: string
@@ -157,7 +169,14 @@ export interface SignalingEvents {
   disconnected: { code: number; reason: string; wasClean: boolean }
   connection_error: Event
   error: { message?: string; code?: string }
-  hello: { heartbeatIntervalMs?: number; resumeWindowMs?: number; useProximityRadar?: boolean }
+  hello: {
+    heartbeatIntervalMs?: number
+    resumeWindowMs?: number
+    useProximityRadar?: boolean
+    audioCodec?: AudioCodec
+    audioCodecs?: AudioCodec[]
+    audioCodecConfig?: AudioCodecConfig
+  }
   pending_game_session: { message?: string; timeoutSeconds?: number }
   game_session_ready: { message?: string }
   latency: { latency: number }

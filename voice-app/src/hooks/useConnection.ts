@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { getSignalingClient, resetSignalingClient } from '../lib/signaling'
+import { OpusCodecManager } from '../lib/audio/opus-codec-manager'
 import { getWebRTCManager, resetWebRTCManager } from '../lib/webrtc/connection-manager'
 import { float32ToInt16, int16ToBase64 } from '../lib/webrtc/audio-channel'
 import { useConnectionStore } from '../stores/connectionStore'
@@ -10,13 +11,21 @@ import { useAudioStore } from '../stores/audioStore'
 import { useVoiceActivity } from './useVoiceActivity'
 import { useAudioPlayback } from './useAudioPlayback'
 import { createLogger } from '../lib/logger'
-import type { Group, GroupMember, User, PlayerPosition } from '../lib/types'
+import type { AudioCodecConfig, Group, GroupMember, User, PlayerPosition } from '../lib/types'
 
 // Keep outbound PCM chunks comfortably below the server's DataChannel payload cap (900 bytes).
 const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
 const OUTBOUND_PCM_MAX_FLUSH_DELAY_MS = 20
+const OPUS_FRAME_SAMPLES = 960 // 20ms at 48kHz mono
+const OUTBOUND_OPUS_MAX_FLUSH_DELAY_MS = 20
 const PENDING_CREATE_GROUP_WINDOW_MS = 5000
 const logger = createLogger('useConnection')
+const DEFAULT_OPUS_CODEC_CONFIG: AudioCodecConfig = {
+  sampleRate: 48000,
+  channels: 1,
+  frameDurationMs: 20,
+  targetBitrate: 24000,
+}
 
 function concatInt16Arrays(left: Int16Array, right: Int16Array): Int16Array {
   if (left.length === 0) return right
@@ -34,6 +43,37 @@ function cloneInt16Array(data: Int16Array): Int16Array {
   return copy
 }
 
+function concatFloat32Arrays(left: Float32Array, right: Float32Array): Float32Array {
+  if (left.length === 0) return right
+  if (right.length === 0) return left
+  const merged = new Float32Array(left.length + right.length)
+  merged.set(left, 0)
+  merged.set(right, left.length)
+  return merged
+}
+
+function cloneFloat32Array(data: Float32Array): Float32Array {
+  if (data.length === 0) return data
+  const copy = new Float32Array(data.length)
+  copy.set(data)
+  return copy
+}
+
+function scaleFloat32InPlace(data: Float32Array, multiplier: number): void {
+  if (multiplier === 1) {
+    return
+  }
+  for (let i = 0; i < data.length; i++) {
+    data[i] *= multiplier
+  }
+}
+
+function uint8ToArrayBuffer(data: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(data.byteLength)
+  new Uint8Array(buffer).set(data)
+  return buffer
+}
+
 function int16ToArrayBuffer(data: Int16Array): ArrayBuffer {
   const buffer = new ArrayBuffer(data.byteLength)
   new Uint8Array(buffer).set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))
@@ -49,6 +89,10 @@ export function useConnection() {
   const pendingCreateGroupRef = useRef<number | null>(null)
   const pendingOutboundPcmRef = useRef<Int16Array>(new Int16Array(0))
   const outboundPcmFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingOutboundOpusPcmRef = useRef<Float32Array>(new Float32Array(0))
+  const outboundOpusFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const opusEncoderRef = useRef(new OpusCodecManager())
+  const opusDrainChainRef = useRef<Promise<void>>(Promise.resolve())
   
   // Connection store
   const status = useConnectionStore((s) => s.status)
@@ -99,10 +143,28 @@ export function useConnection() {
     }
   }, [])
 
+  const clearOutboundOpusFlushTimer = useCallback(() => {
+    if (outboundOpusFlushTimerRef.current !== null) {
+      clearTimeout(outboundOpusFlushTimerRef.current)
+      outboundOpusFlushTimerRef.current = null
+    }
+  }, [])
+
   const resetOutboundPcmQueue = useCallback(() => {
     clearOutboundPcmFlushTimer()
     pendingOutboundPcmRef.current = new Int16Array(0)
   }, [clearOutboundPcmFlushTimer])
+
+  const resetOutboundOpusQueue = useCallback(() => {
+    clearOutboundOpusFlushTimer()
+    pendingOutboundOpusPcmRef.current = new Float32Array(0)
+    opusDrainChainRef.current = Promise.resolve()
+  }, [clearOutboundOpusFlushTimer])
+
+  const resetOutboundAudioQueues = useCallback(() => {
+    resetOutboundPcmQueue()
+    resetOutboundOpusQueue()
+  }, [resetOutboundPcmQueue, resetOutboundOpusQueue])
 
   const tryDrainOutboundPcmQueue = useCallback((forceFlushRemainder: boolean) => {
     const webrtc = getWebRTCManager()
@@ -140,6 +202,68 @@ export function useConnection() {
     return true
   }, [])
 
+  const tryDrainOutboundOpusQueue = useCallback(async (forceFlushRemainder: boolean) => {
+    const signaling = getSignalingClient()
+    if (signaling.getAudioCodec() !== 'opus') {
+      return true
+    }
+
+    const webrtc = getWebRTCManager()
+    if (!webrtc.isReady()) {
+      return false
+    }
+
+    const codecConfig = signaling.getAudioCodecConfig() ?? DEFAULT_OPUS_CODEC_CONFIG
+    await opusEncoderRef.current.initialize(codecConfig)
+
+    const pending = pendingOutboundOpusPcmRef.current
+    if (pending.length === 0) {
+      return true
+    }
+
+    let offset = 0
+    while (pending.length - offset >= OPUS_FRAME_SAMPLES) {
+      const end = offset + OPUS_FRAME_SAMPLES
+      const frame = cloneFloat32Array(pending.subarray(offset, end))
+      const opusPacket = await opusEncoderRef.current.encodeFrame(frame)
+      if (!webrtc.sendAudio(uint8ToArrayBuffer(opusPacket))) {
+        pendingOutboundOpusPcmRef.current = cloneFloat32Array(pending.subarray(offset))
+        return false
+      }
+      offset = end
+    }
+
+    const remaining = pending.subarray(offset)
+    pendingOutboundOpusPcmRef.current = cloneFloat32Array(remaining)
+
+    if (forceFlushRemainder && pendingOutboundOpusPcmRef.current.length > 0) {
+      const paddedFrame = new Float32Array(OPUS_FRAME_SAMPLES)
+      paddedFrame.set(pendingOutboundOpusPcmRef.current, 0)
+      const opusPacket = await opusEncoderRef.current.encodeFrame(paddedFrame)
+      if (!webrtc.sendAudio(uint8ToArrayBuffer(opusPacket))) {
+        return false
+      }
+      pendingOutboundOpusPcmRef.current = new Float32Array(0)
+    }
+
+    return true
+  }, [])
+
+  const enqueueOpusDrain = useCallback((forceFlushRemainder: boolean) => {
+    opusDrainChainRef.current = opusDrainChainRef.current
+      .then(async () => {
+        const drained = await tryDrainOutboundOpusQueue(forceFlushRemainder)
+        if (!drained) {
+          pendingOutboundOpusPcmRef.current = new Float32Array(0)
+        }
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : 'Unknown Opus drain failure'
+        logger.warn('Failed to drain Opus outbound queue:', message)
+        pendingOutboundOpusPcmRef.current = new Float32Array(0)
+      })
+  }, [tryDrainOutboundOpusQueue])
+
   const scheduleOutboundPcmFlush = useCallback(() => {
     if (outboundPcmFlushTimerRef.current !== null) {
       return
@@ -163,14 +287,43 @@ export function useConnection() {
     outboundPcmFlushTimerRef.current = setTimeout(runFlush, OUTBOUND_PCM_MAX_FLUSH_DELAY_MS)
   }, [tryDrainOutboundPcmQueue])
 
+  const scheduleOutboundOpusFlush = useCallback(() => {
+    if (outboundOpusFlushTimerRef.current !== null) {
+      return
+    }
+
+    const runFlush = () => {
+      outboundOpusFlushTimerRef.current = null
+      enqueueOpusDrain(true)
+      if (pendingOutboundOpusPcmRef.current.length > 0) {
+        outboundOpusFlushTimerRef.current = setTimeout(runFlush, OUTBOUND_OPUS_MAX_FLUSH_DELAY_MS)
+      }
+    }
+
+    outboundOpusFlushTimerRef.current = setTimeout(runFlush, OUTBOUND_OPUS_MAX_FLUSH_DELAY_MS)
+  }, [enqueueOpusDrain])
+
   // Audio data handler for voice activity
   const handleVoiceData = useCallback((float32Data: Float32Array) => {
     if (useAudioStore.getState().isMicMuted) {
       return
     }
+    const signaling = getSignalingClient()
+    const selectedAudioCodec = signaling.getAudioCodec()
+    if (selectedAudioCodec === 'opus') {
+      const scaledFrame = cloneFloat32Array(float32Data)
+      scaleFloat32InPlace(scaledFrame, inputVolume / 100)
+      pendingOutboundOpusPcmRef.current = concatFloat32Arrays(pendingOutboundOpusPcmRef.current, scaledFrame)
+      enqueueOpusDrain(false)
+      if (pendingOutboundOpusPcmRef.current.length > 0) {
+        scheduleOutboundOpusFlush()
+      } else {
+        clearOutboundOpusFlushTimer()
+      }
+      return
+    }
 
     const int16Data = float32ToInt16(float32Data, inputVolume / 100)
-    const signaling = getSignalingClient()
     const transportMode = signaling.getTransportMode()
 
     const webrtc = getWebRTCManager()
@@ -189,16 +342,16 @@ export function useConnection() {
       const unsentPcm = pendingOutboundPcmRef.current
       if (transportMode !== 'webrtc' && signaling.isConnected() && unsentPcm.length > 0) {
         signaling.sendAudioBase64(int16ToBase64(unsentPcm))
-        resetOutboundPcmQueue()
+        resetOutboundAudioQueues()
         return
       }
 
-      resetOutboundPcmQueue()
+      resetOutboundAudioQueues()
       return
     }
 
     if (pendingOutboundPcmRef.current.length > 0) {
-      resetOutboundPcmQueue()
+      resetOutboundAudioQueues()
     }
 
     if (transportMode !== 'webrtc' && signaling.isConnected()) {
@@ -206,8 +359,11 @@ export function useConnection() {
     }
   }, [
     inputVolume,
+    clearOutboundOpusFlushTimer,
     clearOutboundPcmFlushTimer,
-    resetOutboundPcmQueue,
+    enqueueOpusDrain,
+    resetOutboundAudioQueues,
+    scheduleOutboundOpusFlush,
     scheduleOutboundPcmFlush,
     tryDrainOutboundPcmQueue,
   ])
@@ -297,10 +453,32 @@ export function useConnection() {
         username,
         pending,
         useProximityRadar,
-      } = data as { clientId: string; username: string; pending?: boolean; useProximityRadar?: boolean }
+        audioCodec,
+        audioCodecConfig,
+      } = data as {
+        clientId: string
+        username: string
+        pending?: boolean
+        useProximityRadar?: boolean
+        audioCodec?: string
+        audioCodecConfig?: AudioCodecConfig
+      }
       setAuthenticated(clientId, username, !!pending)
       setLocalUserId(clientId)
       setProximityRadarEnabled(!!useProximityRadar)
+
+      if (audioCodec && audioCodec !== 'opus') {
+        setError('Server selected unsupported audio codec. This client requires Opus.')
+        signaling.disconnect()
+        return
+      }
+
+      if (audioCodec === 'opus') {
+        void opusEncoderRef.current.initialize(audioCodecConfig ?? DEFAULT_OPUS_CODEC_CONFIG).catch((error) => {
+          const message = error instanceof Error ? error.message : 'Failed to initialize Opus encoder'
+          setError(message)
+        })
+      }
 
       if (pending) {
         return
@@ -320,6 +498,15 @@ export function useConnection() {
         : {}
       if (typeof payload.useProximityRadar === 'boolean') {
         setProximityRadarEnabled(payload.useProximityRadar)
+      }
+      if (payload.audioCodec === 'opus') {
+        const config = payload.audioCodecConfig && typeof payload.audioCodecConfig === 'object'
+          ? (payload.audioCodecConfig as AudioCodecConfig)
+          : DEFAULT_OPUS_CODEC_CONFIG
+        void opusEncoderRef.current.initialize(config).catch((error) => {
+          const message = error instanceof Error ? error.message : 'Failed to initialize Opus encoder'
+          setError(message)
+        })
       }
     })
 
@@ -755,6 +942,11 @@ export function useConnection() {
       setStatus('connecting')
       setServerUrl(serverUrl)
 
+      const opusSupported = await OpusCodecManager.isSupported(DEFAULT_OPUS_CODEC_CONFIG)
+      if (!opusSupported) {
+        throw new Error('This browser does not support required Opus WebCodecs + Dedicated Worker audio.')
+      }
+
       // Initialize audio playback
       await initializePlayback()
 
@@ -775,7 +967,9 @@ export function useConnection() {
 
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
-      resetOutboundPcmQueue()
+      resetOutboundAudioQueues()
+      opusEncoderRef.current.dispose()
+      opusEncoderRef.current = new OpusCodecManager()
       setServerUrl('')
       setError(message)
       resetSignalingClient()
@@ -786,14 +980,16 @@ export function useConnection() {
   }, [
     setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
-    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed, resetOutboundPcmQueue,
+    addSavedServer, setLastServerUrl, connectWebRTCIfAllowed, resetOutboundAudioQueues,
   ])
 
   /**
    * Disconnect from server
    */
   const disconnect = useCallback(() => {
-    resetOutboundPcmQueue()
+    resetOutboundAudioQueues()
+    opusEncoderRef.current.dispose()
+    opusEncoderRef.current = new OpusCodecManager()
     stopListening()
     resetSignalingClient()
     resetWebRTCManager()
@@ -802,7 +998,7 @@ export function useConnection() {
     resetConnection()
     resetGroups()
     resetUsers()
-  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers, resetOutboundPcmQueue])
+  }, [stopListening, setProximityRadarEnabled, resetConnection, resetGroups, resetUsers, resetOutboundAudioQueues])
 
   /**
    * Create a new group
@@ -840,15 +1036,16 @@ export function useConnection() {
 
   useEffect(() => {
     if (status !== 'connected') {
-      resetOutboundPcmQueue()
+      resetOutboundAudioQueues()
     }
-  }, [status, resetOutboundPcmQueue])
+  }, [status, resetOutboundAudioQueues])
 
   useEffect(() => {
     return () => {
-      resetOutboundPcmQueue()
+      resetOutboundAudioQueues()
+      opusEncoderRef.current.dispose()
     }
-  }, [resetOutboundPcmQueue])
+  }, [resetOutboundAudioQueues])
 
   // Sync mic mute status to server
   useEffect(() => {

@@ -1,4 +1,4 @@
-import type { GroupSettings, SignalingEvents, TransportMode } from './types'
+import type { AudioCodec, AudioCodecConfig, GroupSettings, SignalingEvents, TransportMode } from './types'
 import { createLogger } from './logger'
 
 export interface SignalingMessage {
@@ -16,6 +16,8 @@ type EventCallback<T = unknown> = (data: T) => void
 
 const HEARTBEAT_FALLBACK_INTERVAL_MS = 5000
 const RESUME_STORAGE_PREFIX = 'voice_app_resume_v1'
+const SUPPORTED_AUDIO_CODECS: AudioCodec[] = ['opus']
+const PREFERRED_AUDIO_CODEC: AudioCodec = 'opus'
 const logger = createLogger('Signaling')
 
 /**
@@ -39,6 +41,9 @@ export class SignalingClient {
   private transportMode: TransportMode = 'auto'
   private pendingGameSession = false
   private stunServers: string[] = []
+  private audioCodec: AudioCodec = 'pcm'
+  private audioCodecs: AudioCodec[] = []
+  private audioCodecConfig: AudioCodecConfig | null = null
   private eventListeners: Map<string, EventCallback[]> = new Map()
   private connectResolve: (() => void) | null = null
   private connectReject: ((error: Error) => void) | null = null
@@ -67,6 +72,9 @@ export class SignalingClient {
         this.transportMode = 'auto'
         this.pendingGameSession = false
         this.stunServers = []
+        this.audioCodec = 'pcm'
+        this.audioCodecs = []
+        this.audioCodecConfig = null
         this.settleConnectHandlers(resolve, reject)
 
         this.connectTimeout = setTimeout(() => {
@@ -159,6 +167,8 @@ export class SignalingClient {
         data: {
           sessionId: resumeInfo.sessionId,
           resumeToken: resumeInfo.resumeToken,
+          audioCodecs: SUPPORTED_AUDIO_CODECS,
+          preferredAudioCodec: PREFERRED_AUDIO_CODEC,
         },
       })
       return
@@ -168,7 +178,15 @@ export class SignalingClient {
   }
 
   private authenticate(username: string, authCode: string): void {
-    this.send({ type: 'authenticate', data: { username, authCode } })
+    this.send({
+      type: 'authenticate',
+      data: {
+        username,
+        authCode,
+        audioCodecs: SUPPORTED_AUDIO_CODECS,
+        preferredAudioCodec: PREFERRED_AUDIO_CODEC,
+      },
+    })
   }
 
   private send(message: SignalingMessage): void {
@@ -269,6 +287,9 @@ export class SignalingClient {
     this.transportMode = this.parseTransportMode(data.transportMode)
     this.pendingGameSession = pending
     this.stunServers = this.parseStunServers(data.stunServers)
+    this.audioCodec = this.parseAudioCodec(data.audioCodec)
+    this.audioCodecs = this.parseAudioCodecs(data.audioCodecs)
+    this.audioCodecConfig = this.parseAudioCodecConfig(data.audioCodecConfig)
     this.sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
     this.resumeToken = typeof data.resumeToken === 'string' ? data.resumeToken : ''
 
@@ -291,6 +312,9 @@ export class SignalingClient {
       username: this.username,
       transportMode: this.transportMode,
       stunServers: this.stunServers,
+      audioCodec: this.audioCodec,
+      audioCodecs: this.audioCodecs,
+      audioCodecConfig: this.audioCodecConfig ?? undefined,
       useProximityRadar: this.readBoolean(data.useProximityRadar),
       pending,
       pendingMessage: typeof data.pendingMessage === 'string' ? data.pendingMessage : undefined,
@@ -306,6 +330,9 @@ export class SignalingClient {
   private handleHello(data: Record<string, unknown>): void {
     const heartbeatIntervalMs = this.readNumber(data.heartbeatIntervalMs)
     const resumeWindowMs = this.readNumber(data.resumeWindowMs)
+    const audioCodec = this.parseAudioCodec(data.audioCodec)
+    const audioCodecs = this.parseAudioCodecs(data.audioCodecs)
+    const audioCodecConfig = this.parseAudioCodecConfig(data.audioCodecConfig)
     if (heartbeatIntervalMs > 0) {
       this.heartbeatIntervalMs = heartbeatIntervalMs
       this.startHeartbeatInterval()
@@ -314,10 +341,20 @@ export class SignalingClient {
       this.resumeWindowMs = resumeWindowMs
       this.refreshResumeExpiry()
     }
+    this.audioCodec = audioCodec
+    if (audioCodecs.length > 0) {
+      this.audioCodecs = audioCodecs
+    }
+    if (audioCodecConfig) {
+      this.audioCodecConfig = audioCodecConfig
+    }
     this.emit('hello', {
       heartbeatIntervalMs: heartbeatIntervalMs || undefined,
       resumeWindowMs: resumeWindowMs || undefined,
       useProximityRadar: this.readBoolean(data.useProximityRadar),
+      audioCodec,
+      audioCodecs,
+      audioCodecConfig: audioCodecConfig ?? undefined,
     })
   }
 
@@ -391,6 +428,37 @@ export class SignalingClient {
     return value
       .map((entry) => String(entry))
       .filter((entry) => entry.trim().length > 0)
+  }
+
+  private parseAudioCodec(value: unknown): AudioCodec {
+    if (value === 'opus' || value === 'pcm') {
+      return value
+    }
+    return 'pcm'
+  }
+
+  private parseAudioCodecs(value: unknown): AudioCodec[] {
+    if (!Array.isArray(value)) {
+      return []
+    }
+    const codecs = value
+      .filter((entry): entry is AudioCodec => entry === 'opus' || entry === 'pcm')
+    return Array.from(new Set(codecs))
+  }
+
+  private parseAudioCodecConfig(value: unknown): AudioCodecConfig | null {
+    if (!value || typeof value !== 'object') {
+      return null
+    }
+    const raw = value as Record<string, unknown>
+    const sampleRate = this.readNumber(raw.sampleRate)
+    const channels = this.readNumber(raw.channels)
+    const frameDurationMs = this.readNumber(raw.frameDurationMs)
+    const targetBitrate = this.readNumber(raw.targetBitrate)
+    if (sampleRate <= 0 || channels <= 0 || frameDurationMs <= 0 || targetBitrate <= 0) {
+      return null
+    }
+    return { sampleRate, channels, frameDurationMs, targetBitrate }
   }
 
   private readNumber(value: unknown): number {
@@ -587,6 +655,9 @@ export class SignalingClient {
     this.connectReject = null
     this.settledConnect = true
     this.pendingGameSession = false
+    this.audioCodec = 'pcm'
+    this.audioCodecs = []
+    this.audioCodecConfig = null
     if (this.ws) {
       this.send({ type: 'disconnect', data: {} })
       this.ws.close()
@@ -649,6 +720,18 @@ export class SignalingClient {
 
   public getStunServers(): string[] {
     return [...this.stunServers]
+  }
+
+  public getAudioCodec(): AudioCodec {
+    return this.audioCodec
+  }
+
+  public getAudioCodecs(): AudioCodec[] {
+    return [...this.audioCodecs]
+  }
+
+  public getAudioCodecConfig(): AudioCodecConfig | null {
+    return this.audioCodecConfig ? { ...this.audioCodecConfig } : null
   }
 
   public isConnected(): boolean {

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { getAudioPlaybackManager } from '../lib/audio/playback-manager'
+import { OpusCodecManager } from '../lib/audio/opus-codec-manager'
 import { createLogger } from '../lib/logger'
+import { getSignalingClient } from '../lib/signaling'
 import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
 import { useAudioStore } from '../stores/audioStore'
 import { useUserStore } from '../stores/userStore'
@@ -21,6 +23,21 @@ export function useAudioPlayback() {
   const setUserMuted = useUserStore((s) => s.setUserMuted)
 
   const managerRef = useRef(getAudioPlaybackManager())
+  const opusDecoderRef = useRef(new OpusCodecManager())
+
+  const ensureOpusDecoderReady = useCallback(async () => {
+    if (opusDecoderRef.current.isReady()) {
+      return
+    }
+
+    const codecConfig = getSignalingClient().getAudioCodecConfig()
+    await opusDecoderRef.current.initialize(codecConfig ?? {
+      sampleRate: 48000,
+      channels: 1,
+      frameDurationMs: 20,
+      targetBitrate: 24000,
+    })
+  }, [])
 
   useEffect(() => {
     const manager = managerRef.current
@@ -58,13 +75,47 @@ export function useAudioPlayback() {
       return
     }
 
-    logger.debug('Playing audio from:', payload.senderId, 'samples:', payload.pcmData.length)
+    const sampleOrPacketSize = payload.codec === 'opus'
+      ? payload.opusData?.byteLength ?? 0
+      : payload.pcmData?.length ?? 0
+    logger.debug('Playing audio from:', payload.senderId, 'samplesOrPacketBytes:', sampleOrPacketSize)
     if (payload.proximity && Number.isFinite(payload.proximity.distance) && Number.isFinite(payload.proximity.maxRange)) {
       upsertProximityRadarContact(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
     }
+
+    if (payload.codec === 'opus') {
+      if (!payload.opusData) {
+        logger.warn('Opus payload missing packet bytes')
+        return
+      }
+
+      try {
+        await ensureOpusDecoderReady()
+        const codecConfig = getSignalingClient().getAudioCodecConfig()
+        const durationUs = Math.max(1, Math.round((codecConfig?.frameDurationMs ?? 20) * 1000))
+        const decoded = await opusDecoderRef.current.decodePacket(payload.opusData, durationUs)
+        if (typeof payload.gain === 'number' && Number.isFinite(payload.gain)) {
+          const gain = Math.max(0, Math.min(1, payload.gain))
+          for (let i = 0; i < decoded.length; i++) {
+            decoded[i] *= gain
+          }
+        }
+        await managerRef.current.playAudio(payload.senderId, decoded)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown Opus decode failure'
+        logger.warn('Failed to decode Opus payload:', message)
+      }
+      return
+    }
+
+    if (!payload.pcmData) {
+      logger.warn('PCM payload missing sample bytes')
+      return
+    }
+
     const float32Data = int16ToFloat32(payload.pcmData)
     await managerRef.current.playAudio(payload.senderId, float32Data)
-  }, [upsertProximityRadarContact])
+  }, [ensureOpusDecoderReady, upsertProximityRadarContact])
 
   /**
    * Handle fallback WebSocket audio message payloads.
@@ -118,6 +169,13 @@ export function useAudioPlayback() {
    */
   const disconnectUser = useCallback((userId: string) => {
     managerRef.current.disconnectUser(userId)
+  }, [])
+
+  useEffect(() => {
+    const opusDecoder = opusDecoderRef.current
+    return () => {
+      opusDecoder.dispose()
+    }
   }, [])
 
   return {

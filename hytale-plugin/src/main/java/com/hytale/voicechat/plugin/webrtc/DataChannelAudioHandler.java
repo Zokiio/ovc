@@ -62,15 +62,16 @@ public class DataChannelAudioHandler {
     }
 
     /**
-     * Receive PCM audio from a client and forward to the audio bridge.
+     * Receive client audio bytes and forward to the audio bridge.
+     * Payload codec is resolved from the negotiated client session state.
      */
-    public void receiveFromClient(UUID clientId, byte[] pcmFrame) {
+    public void receiveFromClient(UUID clientId, byte[] audioFrame) {
         if (audioBridge == null) {
             logger.atWarning().log("Audio bridge not set; dropping audio from client: " + clientId);
             return;
         }
-        recordFlow(inboundFlow, clientId, pcmFrame.length, "inbound");
-        audioBridge.receiveAudioFromWebRTC(clientId, pcmFrame);
+        recordFlow(inboundFlow, clientId, audioFrame.length, "inbound");
+        audioBridge.receiveAudioFromWebRTC(clientId, audioFrame);
     }
 
     /**

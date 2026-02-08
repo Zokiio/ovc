@@ -282,39 +282,38 @@ Goal: move from raw PCM payloads to Opus packets for lower bandwidth and lower p
 
 ### Codec/library choice
 
-- **Client encoder/decoder**: `opus-recorder` backed by `opus-media-recorder`/WASM worker pipeline (browser-safe, maintained, avoids native dependencies).
-- **Server strategy**:
-  - **Phase A (bridge-only)**: SFU-style forward Opus packets without decode/re-encode where possible.
-  - **Phase B (optional processing path)**: add decode path only when server-side DSP/routing metadata requires PCM manipulation.
+- **Client encoder/decoder runtime**: browser **WebCodecs** (`AudioEncoder` + `AudioDecoder`, codec `"opus"`).
+- **Execution model**: all encode/decode runs inside a **Dedicated Worker** to keep heavy codec work off the main thread.
+- **Server strategy**: SFU-style forwarding of Opus packets without decode/re-encode; server attaches routing metadata only.
 
 ### Packet format/version strategy
 
 - Keep current payload versioning model in DataChannel headers.
-- Introduce `AUDIO_PAYLOAD_VERSION_OPUS = 3`.
-- Proposed v3 payload:
-  - `[version:1][senderIdLen:1][senderId:UTF-8][flags:1][sequence:uint16][timestamp:uint32][opusFrameBytes...]`
-  - Optional proximity metadata follows header when enabled:
-    - `[distance:float32][maxRange:float32]`
-- Maintain existing v1/v2 decode support during rollout.
+- Use `AUDIO_PAYLOAD_VERSION_OPUS = 3` as the wire-format version (not Opus library version).
+- v3 payload:
+  - `[version:1][senderIdLen:1][flags:1][senderId UTF-8][optional proximity][optional gain][opusFrameBytes...]`
+  - `flags`:
+    - bit0: proximity metadata present (`distance:float32`, `maxRange:float32`)
+    - bit1: gain metadata present (`gain:float32`)
+- v1/v2 decode paths remain for compatibility while migration settles.
 
 ### Backward compatibility and rollout
 
-1. **Dual-decode client support**
-   - Client accepts v1/v2 PCM and v3 Opus.
-2. **Server feature flag**
-   - Add config gate (for example `UseOpusDataChannel = false` default).
-3. **Canary rollout**
-   - Enable Opus for internal/staging users first.
-4. **Mixed-client safety**
-   - If peer does not advertise Opus capability, continue sending PCM.
-5. **Production cutover**
-   - Flip default to Opus after stable telemetry.
-6. **Retirement**
-   - Remove PCM path only after one full release cycle with no incompatible clients.
+1. **Negotiation contract**
+   - Client advertises `audioCodecs` + `preferredAudioCodec`.
+   - Server returns selected `audioCodec`, supported `audioCodecs`, and `audioCodecConfig`.
+2. **Required codec policy**
+   - Current target policy is Opus-required. Clients without Opus support are rejected with `codec_unsupported`.
+3. **Staging-first rollout**
+   - Validate browser support rates and runtime stability in staging before production promotion.
+4. **Runtime failure policy**
+   - If worker/WebCodecs fails after connect, fail the audio session cleanly with actionable error.
+5. **Legacy removal timing**
+   - Keep legacy PCM decode handling during transition; remove only after explicit compatibility sign-off.
 
 ### Acceptance criteria for Opus project PR
 
-- Packet rate reduced to approximately 50 packets/sec at 20ms framing.
-- Lower outbound bandwidth than PCM baseline for identical speech samples.
-- No regression in connect/auth/group behavior.
-- No audible artifacts beyond accepted quality threshold in A/B checks.
+- Packet cadence around ~250 packets/5s per speaking stream at 20ms framing.
+- Lower bandwidth than PCM baseline in equivalent speaking scenarios.
+- No regression in auth/resume/group/proximity behaviors.
+- Stable long-running sessions with no sustained codec/backpressure failures.

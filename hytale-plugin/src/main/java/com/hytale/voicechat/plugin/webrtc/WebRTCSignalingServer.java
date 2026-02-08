@@ -1,6 +1,7 @@
 package com.hytale.voicechat.plugin.webrtc;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.hytale.voicechat.common.model.Group;
 import com.hytale.voicechat.common.model.GroupSettings;
@@ -656,6 +657,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 client.getSessionId(),
                 client.getResumeToken(),
                 lastGroupId,
+                client.getNegotiatedAudioCodec(),
                 System.currentTimeMillis() + RESUME_WINDOW_MS
             ));
         } else {
@@ -1024,6 +1026,64 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
         }
 
+        private JsonArray buildSupportedAudioCodecs() {
+            JsonArray codecs = new JsonArray();
+            if (NetworkConfig.isOpusDataChannelEnabled()) {
+                codecs.add(WebRTCClient.AUDIO_CODEC_OPUS);
+            } else {
+                codecs.add(WebRTCClient.AUDIO_CODEC_PCM);
+            }
+            return codecs;
+        }
+
+        private JsonObject buildAudioCodecConfig() {
+            JsonObject config = new JsonObject();
+            config.addProperty("sampleRate", NetworkConfig.getOpusSampleRate());
+            config.addProperty("channels", NetworkConfig.getOpusChannels());
+            config.addProperty("frameDurationMs", NetworkConfig.getOpusFrameDurationMs());
+            config.addProperty("targetBitrate", NetworkConfig.getOpusTargetBitrate());
+            return config;
+        }
+
+        private boolean clientSupportsCodec(JsonObject data, String codec) {
+            if (codec == null || codec.isEmpty()) {
+                return false;
+            }
+
+            String normalizedCodec = codec.toLowerCase();
+            String preferredCodec = data.has("preferredAudioCodec") ? data.get("preferredAudioCodec").getAsString() : "";
+            if (normalizedCodec.equals(preferredCodec == null ? "" : preferredCodec.trim().toLowerCase())) {
+                return true;
+            }
+
+            if (!data.has("audioCodecs") || !data.get("audioCodecs").isJsonArray()) {
+                return false;
+            }
+
+            for (JsonElement codecElement : data.getAsJsonArray("audioCodecs")) {
+                if (codecElement == null || !codecElement.isJsonPrimitive()) {
+                    continue;
+                }
+                String candidate = codecElement.getAsString();
+                if (candidate != null && normalizedCodec.equals(candidate.trim().toLowerCase())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private String negotiateAudioCodec(JsonObject data) {
+            if (!NetworkConfig.isOpusDataChannelEnabled()) {
+                return WebRTCClient.AUDIO_CODEC_PCM;
+            }
+
+            if (!clientSupportsCodec(data, WebRTCClient.AUDIO_CODEC_OPUS)) {
+                return null;
+            }
+
+            return WebRTCClient.AUDIO_CODEC_OPUS;
+        }
+
         private JsonObject buildSessionResponseData(WebRTCClient client, boolean playerOnline) {
             String obfuscatedId = clientIdMapper.getObfuscatedId(client.getClientId());
             JsonObject responseData = new JsonObject();
@@ -1042,6 +1102,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             responseData.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
             responseData.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
+            responseData.addProperty("audioCodec", client.getNegotiatedAudioCodec());
+            responseData.add("audioCodecs", buildSupportedAudioCodecs());
+            responseData.add("audioCodecConfig", buildAudioCodecConfig());
 
             if (!playerOnline) {
                 int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
@@ -1060,6 +1123,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             data.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             data.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
             data.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
+            data.addProperty("audioCodec", NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM);
+            data.add("audioCodecs", buildSupportedAudioCodecs());
+            data.add("audioCodecConfig", buildAudioCodecConfig());
             SignalingMessage hello = new SignalingMessage(SignalingMessage.TYPE_HELLO, data);
             sendMessage(ctx, hello);
         }
@@ -1103,12 +1169,19 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 return;
             }
 
+            String negotiatedCodec = negotiateAudioCodec(data);
+            if (negotiatedCodec == null) {
+                sendError(ctx, "Client does not support required audio codec: opus", "codec_unsupported");
+                return;
+            }
+
             logger.atInfo().log("WebRTC auth validated for " + username + " (UUID: " + clientId + ")");
             
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
             client.setSessionId(generateSessionId());
             client.setResumeToken(generateResumeToken());
             client.setLastHeartbeatAt(System.currentTimeMillis());
+            client.setNegotiatedAudioCodec(negotiatedCodec);
             boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
             client.setPendingGameSession(!playerOnline);
             clients.put(clientId, client);
@@ -1182,11 +1255,19 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
             UUID clientId = session.clientId;
             String username = session.username;
+            String negotiatedCodec = (session.negotiatedAudioCodec == null || session.negotiatedAudioCodec.isEmpty())
+                ? (NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM)
+                : session.negotiatedAudioCodec;
+            if (!clientSupportsCodec(data, negotiatedCodec)) {
+                sendError(ctx, "Client does not support required audio codec: " + negotiatedCodec, "codec_unsupported");
+                return;
+            }
 
             WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
             client.setSessionId(session.sessionId);
             client.setResumeToken(generateResumeToken());
             client.setLastHeartbeatAt(System.currentTimeMillis());
+            client.setNegotiatedAudioCodec(negotiatedCodec);
 
             boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
             client.setPendingGameSession(!playerOnline);
@@ -1670,8 +1751,15 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         }
         
         private void sendError(ChannelHandlerContext ctx, String error) {
+            sendError(ctx, error, null);
+        }
+
+        private void sendError(ChannelHandlerContext ctx, String error, String code) {
             JsonObject errorData = new JsonObject();
             errorData.addProperty("message", error);
+            if (code != null && !code.isEmpty()) {
+                errorData.addProperty("code", code);
+            }
             SignalingMessage errorMessage = new SignalingMessage(
                     SignalingMessage.TYPE_ERROR, errorData);
             sendMessage(ctx, errorMessage);
@@ -1721,14 +1809,16 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         private final String sessionId;
         private final String resumeToken;
         private final UUID lastGroupId;
+        private final String negotiatedAudioCodec;
         private final long expiresAt;
 
-        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, UUID lastGroupId, long expiresAt) {
+        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, UUID lastGroupId, String negotiatedAudioCodec, long expiresAt) {
             this.clientId = clientId;
             this.username = username;
             this.sessionId = sessionId;
             this.resumeToken = resumeToken;
             this.lastGroupId = lastGroupId;
+            this.negotiatedAudioCodec = negotiatedAudioCodec;
             this.expiresAt = expiresAt;
         }
     }

@@ -16,9 +16,14 @@ import { createLogger } from '../logger'
 
 const PAYLOAD_VERSION_BASIC = 1
 const PAYLOAD_VERSION_WITH_PROXIMITY = 2
+const PAYLOAD_VERSION_OPUS = 3
 const MAX_PAYLOAD_SIZE = 900
 const HEADER_SIZE = 2 // version + senderIdLen
+const OPUS_HEADER_SIZE = 3 // version + senderIdLen + flags
 const PROXIMITY_METADATA_SIZE = 8 // distance(float32) + maxRange(float32)
+const GAIN_METADATA_SIZE = 4 // gain(float32)
+const OPUS_FLAG_PROXIMITY = 0x01
+const OPUS_FLAG_GAIN = 0x02
 const logger = createLogger('AudioChannel')
 
 export interface AudioProximityMetadata {
@@ -29,8 +34,11 @@ export interface AudioProximityMetadata {
 export interface DecodedAudioPayload {
   version: number
   senderId: string
-  pcmData: Int16Array
+  codec: 'pcm' | 'opus'
+  pcmData?: Int16Array
+  opusData?: Uint8Array
   proximity?: AudioProximityMetadata
+  gain?: number
 }
 
 /**
@@ -79,19 +87,58 @@ export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | n
   const version = view.getUint8(0)
   const senderIdLen = view.getUint8(1)
   
-  if (version !== PAYLOAD_VERSION_BASIC && version !== PAYLOAD_VERSION_WITH_PROXIMITY) {
+  if (version !== PAYLOAD_VERSION_BASIC && version !== PAYLOAD_VERSION_WITH_PROXIMITY && version !== PAYLOAD_VERSION_OPUS) {
     logger.debug('Unknown payload version:', version)
     return null
   }
   
-  if (buffer.byteLength < HEADER_SIZE + senderIdLen) {
+  const headerSize = version === PAYLOAD_VERSION_OPUS ? OPUS_HEADER_SIZE : HEADER_SIZE
+  if (buffer.byteLength < headerSize + senderIdLen) {
     logger.debug('Payload truncated')
     return null
   }
   
   // Read sender ID
-  const senderIdBytes = uint8View.slice(HEADER_SIZE, HEADER_SIZE + senderIdLen)
+  const senderIdBytes = uint8View.slice(headerSize, headerSize + senderIdLen)
   const senderId = new TextDecoder().decode(senderIdBytes)
+
+  if (version === PAYLOAD_VERSION_OPUS) {
+    const flags = view.getUint8(2)
+    let offset = OPUS_HEADER_SIZE + senderIdLen
+    let proximity: AudioProximityMetadata | undefined
+    let gain: number | undefined
+
+    if ((flags & OPUS_FLAG_PROXIMITY) !== 0) {
+      if (buffer.byteLength < offset + PROXIMITY_METADATA_SIZE) {
+        logger.debug('Opus proximity metadata truncated')
+        return null
+      }
+      proximity = {
+        distance: view.getFloat32(offset, false),
+        maxRange: view.getFloat32(offset + 4, false),
+      }
+      offset += PROXIMITY_METADATA_SIZE
+    }
+
+    if ((flags & OPUS_FLAG_GAIN) !== 0) {
+      if (buffer.byteLength < offset + GAIN_METADATA_SIZE) {
+        logger.debug('Opus gain metadata truncated')
+        return null
+      }
+      gain = view.getFloat32(offset, false)
+      offset += GAIN_METADATA_SIZE
+    }
+
+    const opusBytes = buffer.byteLength - offset
+    if (opusBytes <= 0) {
+      logger.debug('Opus payload is empty')
+      return null
+    }
+    const opusData = new Uint8Array(opusBytes)
+    opusData.set(new Uint8Array(buffer, offset, opusBytes))
+
+    return { version, senderId, codec: 'opus', opusData, proximity, gain }
+  }
 
   let pcmOffset = HEADER_SIZE + senderIdLen
   let proximity: AudioProximityMetadata | undefined
@@ -122,7 +169,7 @@ export function decodeAudioPayload(buffer: ArrayBuffer): DecodedAudioPayload | n
     pcmData[i] = pcmView.getInt16(i * 2, true) // little-endian
   }
   
-  return { version, senderId, pcmData, proximity }
+  return { version, senderId, codec: 'pcm', pcmData, proximity }
 }
 
 /**

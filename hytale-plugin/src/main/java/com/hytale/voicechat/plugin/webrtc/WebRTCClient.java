@@ -9,6 +9,9 @@ import java.util.UUID;
  * Represents a connected WebRTC client
  */
 public class WebRTCClient {
+    public static final String AUDIO_CODEC_PCM = "pcm";
+    public static final String AUDIO_CODEC_OPUS = "opus";
+
     private final UUID clientId;
     private final String username;
     private final Channel channel;
@@ -25,6 +28,7 @@ public class WebRTCClient {
     private volatile String sessionId;
     private volatile String resumeToken;
     private volatile long lastHeartbeatAt;
+    private volatile String negotiatedAudioCodec = AUDIO_CODEC_PCM;
     
     public WebRTCClient(UUID clientId, String username, Channel channel) {
         this.clientId = clientId;
@@ -117,6 +121,18 @@ public class WebRTCClient {
 
     public void setLastHeartbeatAt(long lastHeartbeatAt) {
         this.lastHeartbeatAt = lastHeartbeatAt;
+    }
+
+    public String getNegotiatedAudioCodec() {
+        return negotiatedAudioCodec;
+    }
+
+    public void setNegotiatedAudioCodec(String negotiatedAudioCodec) {
+        if (AUDIO_CODEC_OPUS.equalsIgnoreCase(negotiatedAudioCodec)) {
+            this.negotiatedAudioCodec = AUDIO_CODEC_OPUS;
+            return;
+        }
+        this.negotiatedAudioCodec = AUDIO_CODEC_PCM;
     }
     
     public void sendMessage(String message) {
