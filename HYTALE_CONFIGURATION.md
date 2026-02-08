@@ -66,13 +66,11 @@ Comma-separated list of domains allowed to connect via WebSocket (CORS).
   ```
 - **System Property**: `-Dvoice.allowed.origins=https://example.com,https://voice.example.com`
 
-### `WebRtcTransportMode` (String)
-Controls the audio transport mode between client and SFU.
+### WebRTC Audio Transport
+Audio transport is fixed to WebRTC DataChannel only.
 
-- **Default**: `auto`
-- **Options**: `auto` (prefer WebRTC DataChannel, fallback to WebSocket), `webrtc` (require WebRTC DataChannel), `websocket` (disable WebRTC and use WebSocket audio only)
-- **Example**: `WebRtcTransportMode = "auto"`
-- **System Property**: `-Dvoice.webrtc.transport.mode=auto`
+- **Mode**: `webrtc` (always on)
+- **WebSocket audio transport**: Not supported
 
 ### `StunServers` (String)
 Comma-separated list of STUN server URLs for ICE candidate gathering.
@@ -117,6 +115,14 @@ Interval in milliseconds for broadcasting positions to web clients.
 - **Example**: `PositionBroadcastIntervalMs = 50`
 - **System Property**: `-Dvoice.position.broadcast.interval.ms=50`
 
+### `USE_PROXIMITY_RADAR` (Boolean)
+Enables live proximity radar metadata for web clients.
+
+- **Default**: `false`
+- **Behavior**: When enabled, routed audio frames include per-recipient `distance` and `maxRange`, and signaling exposes `useProximityRadar` so the UI can activate radar mode.
+- **Example**: `USE_PROXIMITY_RADAR = true`
+- **System Property**: `-DUSE_PROXIMITY_RADAR=true`
+
 ### `PositionMinDistanceDelta` (Double)
 Minimum movement distance (blocks/meters) required to send a position update.
 
@@ -149,8 +155,7 @@ SSLKeyPath = "/etc/letsencrypt/live/voice.example.com/privkey.pem"
 # Allowed origins for WebSocket connections
 AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173"
 
-# WebRTC transport mode and ICE servers
-WebRtcTransportMode = "auto"
+# ICE servers
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000
@@ -159,6 +164,7 @@ IcePortMax = 51000
 # Position tracking intervals and thresholds
 PositionSampleIntervalMs = 50
 PositionBroadcastIntervalMs = 50
+USE_PROXIMITY_RADAR = true
 PositionMinDistanceDelta = 0.25
 PositionRotationThresholdDeg = 2.0
 ```

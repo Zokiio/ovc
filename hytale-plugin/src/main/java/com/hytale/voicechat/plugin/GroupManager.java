@@ -57,7 +57,7 @@ public class GroupManager {
      * @return The created Group, or null if validation fails
      */
     public synchronized Group createGroup(String groupName, boolean isPermanent, UUID creatorUuid) {
-        return createGroup(groupName, isPermanent, creatorUuid, new GroupSettings());
+        return createGroup(groupName, isPermanent, creatorUuid, new GroupSettings(), null);
     }
 
     /**
@@ -70,6 +70,26 @@ public class GroupManager {
      * @return The created Group, or null if validation fails
      */
     public synchronized Group createGroup(String groupName, boolean isPermanent, UUID creatorUuid, GroupSettings settings) {
+        return createGroup(groupName, isPermanent, creatorUuid, settings, null);
+    }
+
+    /**
+     * Create a new voice group with custom settings and optional isolation mode.
+     *
+     * @param groupName The name of the group
+     * @param isPermanent Whether the group persists when empty
+     * @param creatorUuid The UUID of the player creating the group
+     * @param settings Custom group settings
+     * @param isIsolated Optional isolation mode override
+     * @return The created Group, or null if validation fails
+     */
+    public synchronized Group createGroup(
+            String groupName,
+            boolean isPermanent,
+            UUID creatorUuid,
+            GroupSettings settings,
+            Boolean isIsolated
+    ) {
         // Validate group name
         if (!isValidGroupName(groupName)) {
             logger.atWarning().log("Invalid group name: " + groupName);
@@ -84,9 +104,12 @@ public class GroupManager {
 
         UUID groupId = UUID.randomUUID();
         Group group = new Group(groupId, groupName, isPermanent, creatorUuid, settings);
+        if (isIsolated != null) {
+            group.setIsolated(isIsolated);
+        }
         groups.put(groupId, group);
         
-        logger.atInfo().log("Created group: " + groupName + " (permanent=" + isPermanent + ", creator=" + creatorUuid + ", settings=" + settings + ")");
+        logger.atInfo().log("Created group: " + groupName + " (permanent=" + isPermanent + ", creator=" + creatorUuid + ", settings=" + settings + ", isolated=" + group.isIsolated() + ")");
         
         // Notify listeners
         eventListeners.forEach(listener -> listener.onGroupCreated(group, creatorUuid));

@@ -6,6 +6,7 @@ import com.hytale.voicechat.plugin.GroupManager;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hypixel.hytale.logger.HytaleLogger;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
@@ -43,8 +44,11 @@ public class WebRTCAudioBridge {
      * logic that does not alter the serialized bytes) do not require changing
      * this version.
      */
-    private static final byte AUDIO_PAYLOAD_VERSION = 1;
+    private static final byte AUDIO_PAYLOAD_VERSION_BASIC = 1;
+    private static final byte AUDIO_PAYLOAD_VERSION_WITH_PROXIMITY = 2;
     private static final int DATA_CHANNEL_MAX_PAYLOAD = 900;
+    private static final int DATA_CHANNEL_HEADER_BASE_SIZE = 2; // version + senderIdLength
+    private static final int PROXIMITY_METADATA_SIZE = 8; // distance(float32) + maxRange(float32)
     
     // Audio buffering and routing
     private final BlockingQueue<AudioFrame> audioQueue;
@@ -58,7 +62,7 @@ public class WebRTCAudioBridge {
     private double fadeStartDistance = NetworkConfig.PROXIMITY_FADE_START;
     private double rolloffFactor = NetworkConfig.PROXIMITY_ROLLOFF_FACTOR;
     
-    public WebRTCAudioBridge(Object ignored, PlayerPositionTracker positionTracker, 
+    public WebRTCAudioBridge(PlayerPositionTracker positionTracker,
                             Map<UUID, WebRTCClient> clients) {
         this.positionTracker = positionTracker;
         this.clients = clients;
@@ -197,11 +201,27 @@ public class WebRTCAudioBridge {
         UUID senderId = senderPosition.getPlayerId();
         
         // Check if sender is in a group
-        if (groupStateManager != null) {
+        if (groupStateManager != null && groupManager != null) {
             UUID groupId = groupStateManager.getClientGroup(senderId);
-            if (groupId != null && groupManager != null) {
-                // Route within group with proximity filtering
+            if (groupId != null) {
+                var group = groupManager.getGroup(groupId);
+                if (group == null) {
+                    routeAudioByProximity(senderId, senderPosition, audioData);
+                    return;
+                }
+
+                // Always route within the sender's group.
                 routeAudioToGroup(groupId, senderId, senderPosition, audioData);
+
+                // Hybrid mode: also route to nearby non-group clients.
+                if (!group.isIsolated()) {
+                    Set<UUID> excludedRecipients = new HashSet<>();
+                    excludedRecipients.add(senderId);
+                    for (WebRTCClient groupMember : groupStateManager.getGroupClients(groupId)) {
+                        excludedRecipients.add(groupMember.getClientId());
+                    }
+                    routeAudioByProximity(senderId, senderPosition, audioData, excludedRecipients);
+                }
                 return;
             }
         }
@@ -257,12 +277,12 @@ public class WebRTCAudioBridge {
                     } else {
                         // Outside proximity: full volume for global group voice
                         logger.atFine().log("Sending audio to group member (global): " + client.getUsername() + " (distance: " + distance + ")");
-                        routeAudioToWebRTCFullVolume(senderId, client.getClientId(), audioData);
+                        routeAudioToWebRTCFullVolume(senderId, client.getClientId(), audioData, distance, proximityRange);
                     }
                 } else {
                     // Full volume, no spatial audio
                     logger.atFine().log("Sending audio to group member (global): " + client.getUsername() + " (distance: " + distance + ")");
-                    routeAudioToWebRTCFullVolume(senderId, client.getClientId(), audioData);
+                    routeAudioToWebRTCFullVolume(senderId, client.getClientId(), audioData, distance, proximityRange);
                 }
             } else {
                 // Legacy behavior: proximity-based filtering for groups
@@ -278,9 +298,25 @@ public class WebRTCAudioBridge {
      * Route audio by proximity (for non-group players)
      */
     private void routeAudioByProximity(UUID senderId, PlayerPosition senderPosition, byte[] audioData) {
+        routeAudioByProximity(senderId, senderPosition, audioData, Collections.emptySet());
+    }
+
+    /**
+     * Route audio by proximity while excluding specific recipients.
+     */
+    private void routeAudioByProximity(
+            UUID senderId,
+            PlayerPosition senderPosition,
+            byte[] audioData,
+            Set<UUID> excludedRecipientIds
+    ) {
+        Set<UUID> excluded = excludedRecipientIds != null ? excludedRecipientIds : Collections.emptySet();
         for (WebRTCClient client : clients.values()) {
             // Skip self
             if (client.getClientId().equals(senderId)) {
+                continue;
+            }
+            if (excluded.contains(client.getClientId())) {
                 continue;
             }
             
@@ -319,8 +355,8 @@ public class WebRTCAudioBridge {
             }
         }
         
-        // Send via data channel or WebSocket
-        sendAudioToClient(senderId, recipientId, processedAudio);
+        // Send via DataChannel
+        sendAudioToClient(senderId, recipientId, processedAudio, buildProximityMetadata(distance, maxRange));
     }
     
     /**
@@ -331,9 +367,9 @@ public class WebRTCAudioBridge {
      * @param recipientId The recipient's client ID
      * @param audioData The audio data
      */
-    private void routeAudioToWebRTCFullVolume(UUID senderId, UUID recipientId, byte[] audioData) {
+    private void routeAudioToWebRTCFullVolume(UUID senderId, UUID recipientId, byte[] audioData, double distance, double maxRange) {
         // Send at full volume without any processing
-        sendAudioToClient(senderId, recipientId, audioData);
+        sendAudioToClient(senderId, recipientId, audioData, buildProximityMetadata(distance, maxRange));
     }
     
     /**
@@ -361,26 +397,29 @@ public class WebRTCAudioBridge {
             }
         }
         
-        // Send via data channel or WebSocket
-        sendAudioToClient(senderId, recipientId, processedAudio);
+        // Send via DataChannel
+        sendAudioToClient(senderId, recipientId, processedAudio, buildProximityMetadata(distance, maxRange));
     }
 
-    private void sendAudioToClient(UUID senderId, UUID recipientId, byte[] audioData) {
+    private ProximityMetadata buildProximityMetadata(double distance, double maxRange) {
+        if (!NetworkConfig.isProximityRadarEnabled()) {
+            return null;
+        }
+        if (!Double.isFinite(distance) || !Double.isFinite(maxRange) || maxRange <= 0.0) {
+            return null;
+        }
+        return new ProximityMetadata(distance, maxRange);
+    }
+
+    private void sendAudioToClient(UUID senderId, UUID recipientId, byte[] audioData, ProximityMetadata proximityMetadata) {
         String senderToken = clientIdMapper != null ? clientIdMapper.getObfuscatedId(senderId) : senderId.toString();
-        if (dataChannelAudioHandler != null) {
-            boolean sent = sendAudioOverDataChannel(recipientId, senderToken, audioData);
-            if (sent) {
-                return;
-            }
-        }
-
-        WebRTCClient client = clients.get(recipientId);
-        if (client != null) {
-            client.sendAudio(senderToken, audioData);
+        boolean sent = sendAudioOverDataChannel(recipientId, senderToken, audioData, proximityMetadata);
+        if (!sent) {
+            logger.atFine().log("Dropping audio frame for client " + recipientId + " (DataChannel unavailable)");
         }
     }
 
-    private boolean sendAudioOverDataChannel(UUID recipientId, String senderToken, byte[] audioData) {
+    private boolean sendAudioOverDataChannel(UUID recipientId, String senderToken, byte[] audioData, ProximityMetadata proximityMetadata) {
         if (senderToken == null || senderToken.isEmpty() || audioData == null || audioData.length == 0) {
             return false;
         }
@@ -393,26 +432,36 @@ public class WebRTCAudioBridge {
             return false;
         }
 
-        int headerSize = 2 + senderBytes.length;
+        boolean includeProximityMetadata = proximityMetadata != null;
+        int headerSize = DATA_CHANNEL_HEADER_BASE_SIZE + senderBytes.length;
+        if (includeProximityMetadata) {
+            headerSize += PROXIMITY_METADATA_SIZE;
+        }
         int maxChunkSize = DATA_CHANNEL_MAX_PAYLOAD - headerSize;
         if (maxChunkSize <= 0) {
             return false;
         }
 
-        // If the frame is too large to fit in a single payload, do not send it over
-        // the DataChannel to avoid fragmenting over an unordered/unreliable channel.
-        // The caller will handle this case by falling back to an alternate transport
-        // such as WebSocket (legacy).
+        // If the frame is too large to fit in a single payload, drop it to avoid
+        // datachannel fragmentation and head-of-line blocking for real-time audio.
         if (audioData.length > maxChunkSize) {
-            logger.atWarning().log("Audio frame too large for DataChannel: %d bytes (max: %d) for client %s; using alternate transport", audioData.length, maxChunkSize, recipientId);
+            logger.atWarning().log("Audio frame too large for DataChannel: %d bytes (max: %d) for client %s", audioData.length, maxChunkSize, recipientId);
             return false;
         }
 
         byte[] payload = new byte[headerSize + audioData.length];
-        payload[0] = AUDIO_PAYLOAD_VERSION;
+        payload[0] = includeProximityMetadata ? AUDIO_PAYLOAD_VERSION_WITH_PROXIMITY : AUDIO_PAYLOAD_VERSION_BASIC;
         payload[1] = (byte) senderBytes.length;
-        System.arraycopy(senderBytes, 0, payload, 2, senderBytes.length);
-        System.arraycopy(audioData, 0, payload, headerSize, audioData.length);
+        int offset = DATA_CHANNEL_HEADER_BASE_SIZE;
+        System.arraycopy(senderBytes, 0, payload, offset, senderBytes.length);
+        offset += senderBytes.length;
+        if (includeProximityMetadata) {
+            ByteBuffer.wrap(payload, offset, PROXIMITY_METADATA_SIZE)
+                .putFloat((float) proximityMetadata.distance)
+                .putFloat((float) proximityMetadata.maxRange);
+            offset += PROXIMITY_METADATA_SIZE;
+        }
+        System.arraycopy(audioData, 0, payload, offset, audioData.length);
 
         return dataChannelAudioHandler.sendToClient(recipientId, payload);
     }
@@ -517,6 +566,16 @@ public class WebRTCAudioBridge {
         }
         
         return scaledData;
+    }
+
+    private static final class ProximityMetadata {
+        private final double distance;
+        private final double maxRange;
+
+        private ProximityMetadata(double distance, double maxRange) {
+            this.distance = distance;
+            this.maxRange = maxRange;
+        }
     }
     
     /**

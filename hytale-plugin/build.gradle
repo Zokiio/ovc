@@ -19,7 +19,7 @@ if (localPropertiesFile.exists()) {
 }
 
 group = 'com.hytale.voicechat'
-version = '1.0.0-SNAPSHOT'
+version = '2.0.0-webrtc-alpha'
 
 allprojects {
     // Load local properties for all projects

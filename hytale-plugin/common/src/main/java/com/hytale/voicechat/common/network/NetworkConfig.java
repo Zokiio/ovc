@@ -34,8 +34,8 @@ public class NetworkConfig {
     public static final double DEFAULT_POSITION_MIN_DISTANCE_DELTA = 0.25;
     public static final double DEFAULT_POSITION_ROTATION_THRESHOLD_DEG = 2.0;
 
-    // WebRTC transport defaults
-    public static final String DEFAULT_WEBRTC_TRANSPORT_MODE = "auto"; // auto | webrtc | websocket
+    // WebRTC transport mode is fixed to strict WebRTC-only.
+    public static final String WEBRTC_TRANSPORT_MODE = "webrtc";
     public static final String DEFAULT_STUN_SERVERS = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53";
     public static final String DEFAULT_TURN_SERVERS = "";
     public static final int DEFAULT_ICE_PORT_MIN = 0; // 0 = ephemeral
@@ -49,6 +49,7 @@ public class NetworkConfig {
     // Group behavior defaults
     public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
     public static final double DEFAULT_GROUP_MIN_VOLUME = 0.3;  // 30% minimum volume within proximity
+    public static final boolean DEFAULT_USE_PROXIMITY_RADAR = false;
     
     // ============================================================================
     // CONFIGURABLE RUNTIME VALUES (initialized from constants above)
@@ -82,7 +83,6 @@ public class NetworkConfig {
     private static String volumeProcessingMode = "server";
 
     // WebRTC transport configuration
-    private static String webRtcTransportMode = DEFAULT_WEBRTC_TRANSPORT_MODE;
     private static String stunServers = DEFAULT_STUN_SERVERS;
     private static String turnServers = DEFAULT_TURN_SERVERS;
     private static int icePortMin = DEFAULT_ICE_PORT_MIN;
@@ -94,6 +94,7 @@ public class NetworkConfig {
     private static boolean groupGlobalVoice = true;
     private static boolean groupSpatialAudio = true;
     private static double groupMinVolume = DEFAULT_GROUP_MIN_VOLUME;
+    private static boolean useProximityRadar = DEFAULT_USE_PROXIMITY_RADAR;
 
     // Grace period before disconnecting web client after game quit
     private static int gameQuitGraceSeconds = 10;
@@ -121,9 +122,9 @@ public class NetworkConfig {
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupGlobalVoice", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupSpatialAudio", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("GroupMinVolume", groupMinVolume);
+            useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("USE_PROXIMITY_RADAR", useProximityRadar);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("GameQuitGraceSeconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("PendingGameJoinTimeoutSeconds", pendingGameJoinTimeoutSeconds);
-            webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("WebRtcTransportMode", webRtcTransportMode);
             stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("StunServers", stunServers);
             turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("TurnServers", turnServers);
             icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("IcePortMin", icePortMin);
@@ -147,9 +148,9 @@ public class NetworkConfig {
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.global", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.spatial", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.group.minvolume", groupMinVolume);
+            useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.ui.proximity.radar.enabled", useProximityRadar);
             gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.quit.grace.seconds", gameQuitGraceSeconds);
             pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.join.pending.timeout.seconds", pendingGameJoinTimeoutSeconds);
-            webRtcTransportMode = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.transport.mode", webRtcTransportMode);
             stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.stun.servers", stunServers);
             turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.turn.servers", turnServers);
             icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.ice.port.min", icePortMin);
@@ -268,10 +269,11 @@ public class NetworkConfig {
     }
 
     /**
-     * Get WebRTC transport mode: auto | webrtc | websocket
+     * Get WebRTC transport mode.
+     * The server is strict WebRTC-only, so this always returns "webrtc".
      */
     public static String getWebRtcTransportMode() {
-        return webRtcTransportMode;
+        return WEBRTC_TRANSPORT_MODE;
     }
 
     /**
@@ -337,6 +339,13 @@ public class NetworkConfig {
      */
     public static double getGroupMinVolume() {
         return groupMinVolume;
+    }
+
+    /**
+     * Check if live proximity radar metadata should be sent to web clients.
+     */
+    public static boolean isProximityRadarEnabled() {
+        return useProximityRadar;
     }
 
     /**

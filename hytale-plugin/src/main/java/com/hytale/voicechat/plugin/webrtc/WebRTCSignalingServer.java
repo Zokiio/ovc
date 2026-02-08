@@ -450,16 +450,15 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         JsonObject broadcastData = new JsonObject();
         broadcastData.addProperty("groupId", group.getGroupId().toString());
         broadcastData.addProperty("groupName", group.getName());
-        broadcastData.addProperty("membersCount", 1); // Creator is automatically added
+        broadcastData.addProperty("memberCount", group.getMemberCount());
+        broadcastData.addProperty("membersCount", group.getMemberCount()); // Backward compatibility
         broadcastData.addProperty("maxMembers", group.getSettings().getMaxMembers());
         broadcastData.addProperty("proximityRange", group.getSettings().getProximityRange());
+        broadcastData.addProperty("isIsolated", group.isIsolated());
         broadcastData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(creatorId));
         
         SignalingMessage broadcastMsg = new SignalingMessage("group_created", broadcastData);
         broadcastToAll(broadcastMsg);
-        
-        // Refresh group list for all clients
-        broadcastGroupList();
     }
     
     /**
@@ -468,7 +467,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     @Override
     public void onPlayerJoinedGroup(UUID playerId, Group group) {
         logger.atFine().log("Broadcasting player joined group: " + playerId + " joined " + group.getName());
+
+        WebRTCClient joiningClient = clients.get(playerId);
+        if (joiningClient != null && joiningClient.isConnected()) {
+            groupStateManager.addClientToGroup(playerId, joiningClient, group.getGroupId());
+        }
+
         broadcastGroupList();
+        broadcastPlayerList();
     }
     
     /**
@@ -477,7 +483,39 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     @Override
     public void onPlayerLeftGroup(UUID playerId, Group group, boolean groupDeleted) {
         logger.atFine().log("Broadcasting player left group: " + playerId + " left " + group.getName());
-        broadcastGroupList(); // Always refresh full list
+        
+        UUID groupId = group.getGroupId();
+        groupStateManager.removeClientFromAllGroups(playerId);
+        
+        // Send group_left to the leaving player's web client if connected
+        WebRTCClient leavingClient = clients.get(playerId);
+        if (leavingClient != null && leavingClient.isConnected()) {
+            // Send group_left message
+            JsonObject leftData = new JsonObject();
+            leftData.addProperty("groupId", groupId.toString());
+            leftData.addProperty("memberCount", group.getMemberCount());
+            SignalingMessage leftMsg = new SignalingMessage("group_left", leftData);
+            leavingClient.sendMessage(leftMsg.toJson());
+            
+            logger.atFine().log("Sent group_left to web client: " + leavingClient.getUsername());
+        }
+        
+        // Broadcast updated member list to remaining group members
+        if (!groupDeleted) {
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
+            JsonObject broadcastData = new JsonObject();
+            broadcastData.addProperty("groupId", groupId.toString());
+            broadcastData.addProperty("groupName", group.getName());
+            broadcastData.addProperty("memberCount", membersArray.size());
+            broadcastData.add("members", membersArray);
+            
+            SignalingMessage membersMsg = new SignalingMessage("group_members_updated", broadcastData);
+            groupStateManager.broadcastToGroupAll(groupId, membersMsg);
+        }
+        
+        // Also refresh full group list for all clients
+        broadcastGroupList();
+        broadcastPlayerList();
     }
     
     /**
@@ -507,7 +545,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         if (groupManager == null) {
             return;
         }
-        
+
         com.google.gson.JsonArray groupsArray = new com.google.gson.JsonArray();
         for (Group group : groupManager.listGroups()) {
             JsonObject groupObj = new JsonObject();
@@ -516,12 +554,18 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             groupObj.addProperty("memberCount", group.getMemberCount());
             groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
             groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+            groupObj.addProperty("isIsolated", group.isIsolated());
+            
+            // Include members list so clients can verify membership
+            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
+            groupObj.add("members", membersArray);
+            
             groupsArray.add(groupObj);
         }
-        
+
         JsonObject data = new JsonObject();
         data.add("groups", groupsArray);
-        
+
         SignalingMessage message = new SignalingMessage("group_list", data);
         broadcastToAll(message);
     }
@@ -538,6 +582,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
                 playerObj.addProperty("username", client.getUsername());
                 playerObj.addProperty("isSpeaking", client.isSpeaking());
+                playerObj.addProperty("isMuted", client.isMuted());
                 
                 // Include group info if player is in a group
                 java.util.UUID groupId = groupStateManager.getClientGroup(client.getClientId());
@@ -610,7 +655,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 client.getUsername(),
                 client.getSessionId(),
                 client.getResumeToken(),
-                client.isPendingGameSession(),
                 lastGroupId,
                 System.currentTimeMillis() + RESUME_WINDOW_MS
             ));
@@ -957,7 +1001,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         handleHeartbeat(ctx, message);
                         break;
                     case "audio":
-                        handleAudioData(ctx, message);
+                        sendError(ctx, "WebSocket audio transport is no longer supported; use WebRTC DataChannel");
                         break;
                     case "start_datachannel":
                         handleStartDataChannel(ctx);
@@ -997,6 +1041,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("resumeToken", client.getResumeToken());
             responseData.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             responseData.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
+            responseData.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
 
             if (!playerOnline) {
                 int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
@@ -1014,6 +1059,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             JsonObject data = new JsonObject();
             data.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             data.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
+            data.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
             SignalingMessage hello = new SignalingMessage(SignalingMessage.TYPE_HELLO, data);
             sendMessage(ctx, hello);
         }
@@ -1227,43 +1273,10 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             sendMessage(ctx, errorMessage);
         }
         
-        private void handleAudioData(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            
-            try {
-                // Extract audio data from message
-                JsonObject data = message.getData();
-                if (data.has("audioData")) {
-                    // Audio data is sent as base64 or direct bytes
-                    String audioDataStr = data.get("audioData").getAsString();
-                    byte[] audioData = decodeAudioData(audioDataStr);
-                    // logger.atInfo().log("Received audio data from WebRTC client " + client.getClientId() + " (" + audioData.length + " bytes)");
-                    
-                    // Send to audio bridge for SFU routing
-                    if (audioBridge != null) {
-                        // logger.atInfo().log("Forwarding audio to WebRTC audio bridge (running=" + audioBridge.isRunning() + ")");
-                        audioBridge.receiveAudioFromWebRTC(client.getClientId(), audioData);
-                    } else {
-                        logger.atWarning().log("Audio bridge not set; dropping WebRTC audio from " + client.getClientId());
-                    }
-                }
-            } catch (Exception e) {
-                logger.atWarning().log("Error handling audio data from client " + client.getClientId() + ": " + e.getMessage());
-            }
-        }
-
         private void handleOffer(ChannelHandlerContext ctx, SignalingMessage message) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client == null) {
                 sendError(ctx, "Not authenticated");
-                return;
-            }
-            if ("websocket".equalsIgnoreCase(NetworkConfig.getWebRtcTransportMode())) {
-                sendError(ctx, "WebRTC transport disabled");
                 return;
             }
             if (peerManager == null) {
@@ -1331,20 +1344,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             peerManager.startDataChannelTransport(client.getClientId());
         }
         
-        /**
-         * Decode audio data from the message format
-         * Audio can be sent as base64 string or raw bytes
-         */
-        private byte[] decodeAudioData(String audioDataStr) {
-            // Try to decode as base64 first
-            try {
-                return java.util.Base64.getDecoder().decode(audioDataStr);
-            } catch (IllegalArgumentException e) {
-                // Not base64, treat as raw string and convert to bytes
-                return audioDataStr.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            }
-        }
-        
         private void handleDisconnect(ChannelHandlerContext ctx) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client != null) {
@@ -1375,16 +1374,20 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
             // Extract settings from message if provided
             GroupSettings settings = new GroupSettings();
+            boolean isIsolated = NetworkConfig.DEFAULT_GROUP_IS_ISOLATED;
             if (data.has("settings")) {
                 JsonObject settingsObj = data.getAsJsonObject("settings");
                 int defaultVolume = settingsObj.has("defaultVolume") ? settingsObj.get("defaultVolume").getAsInt() : GroupSettings.DEFAULT_VOLUME;
                 double proximityRange = settingsObj.has("proximityRange") ? settingsObj.get("proximityRange").getAsDouble() : GroupSettings.DEFAULT_PROXIMITY_RANGE;
                 boolean allowInvites = settingsObj.has("allowInvites") ? settingsObj.get("allowInvites").getAsBoolean() : GroupSettings.DEFAULT_ALLOW_INVITES;
                 int maxMembers = settingsObj.has("maxMembers") ? settingsObj.get("maxMembers").getAsInt() : GroupSettings.DEFAULT_MAX_MEMBERS;
+                isIsolated = settingsObj.has("isIsolated")
+                        ? settingsObj.get("isIsolated").getAsBoolean()
+                        : NetworkConfig.DEFAULT_GROUP_IS_ISOLATED;
                 settings = new GroupSettings(defaultVolume, proximityRange, allowInvites, maxMembers);
             }
 
-            var group = groupManager.createGroup(groupName, false, client.getClientId(), settings);
+            var group = groupManager.createGroup(groupName, false, client.getClientId(), settings, isIsolated);
             if (group == null) {
                 sendError(ctx, "Failed to create group (name may already exist)");
                 return;
@@ -1398,7 +1401,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             JsonObject responseData = new JsonObject();
             responseData.addProperty("groupId", group.getGroupId().toString());
             responseData.addProperty("groupName", group.getName());
+            responseData.addProperty("memberCount", group.getMemberCount());
             responseData.addProperty("membersCount", group.getMemberCount());
+            responseData.addProperty("isIsolated", group.isIsolated());
             responseData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(client.getClientId()));
             
             SignalingMessage response = new SignalingMessage("group_created", responseData);
@@ -1520,6 +1525,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 groupObj.addProperty("memberCount", group.getMemberCount());
                 groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
                 groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+                groupObj.addProperty("isIsolated", group.isIsolated());
                 
                 // Include members list
                 com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
@@ -1605,7 +1611,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             UUID groupId = groupStateManager.getClientGroup(client.getClientId());
             if (groupId != null) {
                 JsonObject broadcastData = new JsonObject();
-                broadcastData.addProperty("userId", client.getClientId().toString());
+                broadcastData.addProperty("userId", clientIdMapper.getObfuscatedId(client.getClientId()));
                 broadcastData.addProperty("isSpeaking", isSpeaking);
                 broadcastData.addProperty("username", client.getUsername());
                 SignalingMessage broadcastMsg = new SignalingMessage("user_speaking_status", broadcastData);
@@ -1714,16 +1720,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         private final String username;
         private final String sessionId;
         private final String resumeToken;
-        private final boolean pendingGameSession;
         private final UUID lastGroupId;
         private final long expiresAt;
 
-        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, boolean pendingGameSession, UUID lastGroupId, long expiresAt) {
+        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, UUID lastGroupId, long expiresAt) {
             this.clientId = clientId;
             this.username = username;
             this.sessionId = sessionId;
             this.resumeToken = resumeToken;
-            this.pendingGameSession = pendingGameSession;
             this.lastGroupId = lastGroupId;
             this.expiresAt = expiresAt;
         }

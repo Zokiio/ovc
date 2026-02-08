@@ -41,13 +41,8 @@ GameQuitGraceSeconds = 10
 # Default: 60
 PendingGameJoinTimeoutSeconds = 60
 
-# WebRTC transport mode for audio
-# Options:
-#   auto      - Prefer WebRTC DataChannel, fallback to WebSocket (default)
-#   webrtc    - Require WebRTC DataChannel (no WebSocket audio)
-#   websocket - Disable WebRTC transport and use WebSocket audio only
-# Default: auto
-WebRtcTransportMode = "auto"
+# Audio transport mode is fixed to WebRTC DataChannel only.
+# The plugin no longer supports WebSocket audio transport.
 
 # Comma-separated STUN servers used for WebRTC ICE
 # Default: stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53
@@ -106,6 +101,12 @@ PositionSampleIntervalMs = 50
 # Range: 20 - 500
 # Default: 50
 PositionBroadcastIntervalMs = 50
+
+# Enable live proximity radar metadata for the web client
+# When true, routed audio includes per-recipient distance/maxRange metadata
+# and auth/session signaling exposes the feature flag to clients.
+# Default: false
+USE_PROXIMITY_RADAR = false
 
 # Minimum distance delta to trigger a position update (blocks/meters)
 # Smaller values = more frequent updates
