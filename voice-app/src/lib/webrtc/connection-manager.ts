@@ -111,8 +111,10 @@ export class WebRTCConnectionManager {
 
       // Create data channel for audio (before creating offer)
       this.dataChannel = this.peerConnection.createDataChannel('audio', {
-        // Opus frames are decoded in sequence; preserve ordering to avoid audible artifacts.
+        // Preserve ordering, but cap lifetime so stale packets are dropped instead of
+        // causing long retransmission stalls and audible jitter.
         ordered: true,
+        maxPacketLifeTime: 120,
       })
       logger.debug('DataChannel created')
 

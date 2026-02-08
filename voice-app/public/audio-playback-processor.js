@@ -8,7 +8,10 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     this.playbackBuffer = new Float32Array(this.playbackBufferSize)
     this.playbackWritePos = 0
     this.playbackReadPos = 0
-    this.prebufferSamples = Math.max(128, Math.round(sampleRate * 0.06)) // 60ms minimum
+    this.prebufferSamples = Math.max(256, Math.round(sampleRate * 0.1)) // 100ms minimum
+    this.underrunReprimeThreshold = 4
+    this.consecutiveUnderrunCallbacks = 0
+    this.lastOutputSample = 0
     this.isPrimed = false
 
     this.underruns = 0
@@ -41,6 +44,8 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
     this.overruns = 0
     this.droppedSamples = 0
     this.lastFrameSize = 0
+    this.consecutiveUnderrunCallbacks = 0
+    this.lastOutputSample = 0
   }
 
   writeSamples(float32Data) {
@@ -97,16 +102,24 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
         if (this.playbackReadPos < this.playbackWritePos) {
           const sample = this.playbackBuffer[this.playbackReadPos % this.playbackBufferSize]
           channel[i] = sample
+          this.lastOutputSample = sample
           this.playbackReadPos++
         } else {
-          channel[i] = 0
+          channel[i] = this.lastOutputSample * 0.98
+          this.lastOutputSample = channel[i]
           hadUnderrun = true
         }
       }
 
       if (hadUnderrun) {
         this.underruns++
-        this.isPrimed = false
+        this.consecutiveUnderrunCallbacks++
+        if (this.consecutiveUnderrunCallbacks >= this.underrunReprimeThreshold) {
+          this.isPrimed = false
+          this.consecutiveUnderrunCallbacks = 0
+        }
+      } else {
+        this.consecutiveUnderrunCallbacks = 0
       }
     }
 
