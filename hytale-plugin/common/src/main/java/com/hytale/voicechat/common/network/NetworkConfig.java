@@ -1,5 +1,9 @@
 package com.hytale.voicechat.common.network;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Configuration for voice chat networking (WebRTC SFU)
  * Values can be set via Hytale config system or legacy VoiceConfig fallback
@@ -24,6 +28,24 @@ public class NetworkConfig {
     public static final double PROXIMITY_FADE_START_RATIO = 0.7;   // Fade starts at 70% of max range
     public static final double MAX_VOICE_DISTANCE = 100.0;
     
+    // Position tracking defaults
+    public static final int DEFAULT_POSITION_SAMPLE_INTERVAL_MS = 50;     // 20 Hz
+    public static final int DEFAULT_POSITION_BROADCAST_INTERVAL_MS = 50;  // 20 Hz
+    public static final double DEFAULT_POSITION_MIN_DISTANCE_DELTA = 0.25;
+    public static final double DEFAULT_POSITION_ROTATION_THRESHOLD_DEG = 2.0;
+
+    // WebRTC transport mode is fixed to strict WebRTC-only.
+    public static final String WEBRTC_TRANSPORT_MODE = "webrtc";
+    public static final String DEFAULT_STUN_SERVERS = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53";
+    public static final String DEFAULT_TURN_SERVERS = "";
+    public static final int DEFAULT_ICE_PORT_MIN = 0; // 0 = ephemeral
+    public static final int DEFAULT_ICE_PORT_MAX = 0; // 0 = ephemeral
+    public static final boolean DEFAULT_ENABLE_OPUS_DATA_CHANNEL = true;
+    public static final int DEFAULT_OPUS_FRAME_DURATION_MS = 20;
+    public static final int DEFAULT_OPUS_SAMPLE_RATE = 48000;
+    public static final int DEFAULT_OPUS_CHANNELS = 1;
+    public static final int DEFAULT_OPUS_TARGET_BITRATE = 32000;
+    
     // Group management limits
     public static final int MAX_GROUP_NAME_LENGTH = 32;
     public static final int MAX_GROUP_MEMBER_COUNT = 200;
@@ -32,6 +54,7 @@ public class NetworkConfig {
     // Group behavior defaults
     public static final boolean DEFAULT_GROUP_IS_ISOLATED = true;
     public static final double DEFAULT_GROUP_MIN_VOLUME = 0.3;  // 30% minimum volume within proximity
+    public static final boolean DEFAULT_USE_PROXIMITY_RADAR = false;
     
     // ============================================================================
     // CONFIGURABLE RUNTIME VALUES (initialized from constants above)
@@ -55,13 +78,38 @@ public class NetworkConfig {
     private static double proximityRolloffFactor = PROXIMITY_ROLLOFF_FACTOR;
     private static double maxVoiceDistance = MAX_VOICE_DISTANCE;
     
+    // Position tracking settings - initialized from constants
+    private static int positionSampleIntervalMs = DEFAULT_POSITION_SAMPLE_INTERVAL_MS;
+    private static int positionBroadcastIntervalMs = DEFAULT_POSITION_BROADCAST_INTERVAL_MS;
+    private static double positionMinDistanceDelta = DEFAULT_POSITION_MIN_DISTANCE_DELTA;
+    private static double positionRotationThresholdDeg = DEFAULT_POSITION_ROTATION_THRESHOLD_DEG;
+    
     // Volume processing mode: "server", "client", or "both"
     private static String volumeProcessingMode = "server";
+
+    // WebRTC transport configuration
+    private static String stunServers = DEFAULT_STUN_SERVERS;
+    private static String turnServers = DEFAULT_TURN_SERVERS;
+    private static int icePortMin = DEFAULT_ICE_PORT_MIN;
+    private static int icePortMax = DEFAULT_ICE_PORT_MAX;
+    private static boolean enableOpusDataChannel = DEFAULT_ENABLE_OPUS_DATA_CHANNEL;
+    private static int opusFrameDurationMs = DEFAULT_OPUS_FRAME_DURATION_MS;
+    private static int opusSampleRate = DEFAULT_OPUS_SAMPLE_RATE;
+    private static int opusChannels = DEFAULT_OPUS_CHANNELS;
+    private static int opusTargetBitrate = DEFAULT_OPUS_TARGET_BITRATE;
+    private static List<String> stunServerList = Collections.emptyList();
+    private static List<String> turnServerList = Collections.emptyList();
     
     // Group voice settings - initialized from constants
     private static boolean groupGlobalVoice = true;
     private static boolean groupSpatialAudio = true;
     private static double groupMinVolume = DEFAULT_GROUP_MIN_VOLUME;
+    private static boolean useProximityRadar = DEFAULT_USE_PROXIMITY_RADAR;
+
+    // Grace period before disconnecting web client after game quit
+    private static int gameQuitGraceSeconds = 10;
+    // Timeout for pending web client waiting for game session
+    private static int pendingGameJoinTimeoutSeconds = 60;
     
     // Legacy fallback to custom VoiceConfig for backward compatibility
     static {
@@ -76,10 +124,26 @@ public class NetworkConfig {
             proximityFadeStart = com.hytale.voicechat.common.config.VoiceConfig.getDouble("ProximityFadeStart", proximityFadeStart);
             proximityRolloffFactor = com.hytale.voicechat.common.config.VoiceConfig.getDouble("ProximityRolloffFactor", proximityRolloffFactor);
             maxVoiceDistance = com.hytale.voicechat.common.config.VoiceConfig.getDouble("MaxVoiceDistance", maxVoiceDistance);
+            positionSampleIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("PositionSampleIntervalMs", positionSampleIntervalMs);
+            positionBroadcastIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("PositionBroadcastIntervalMs", positionBroadcastIntervalMs);
+            positionMinDistanceDelta = com.hytale.voicechat.common.config.VoiceConfig.getDouble("PositionMinDistanceDelta", positionMinDistanceDelta);
+            positionRotationThresholdDeg = com.hytale.voicechat.common.config.VoiceConfig.getDouble("PositionRotationThresholdDeg", positionRotationThresholdDeg);
             volumeProcessingMode = com.hytale.voicechat.common.config.VoiceConfig.getString("VolumeProcessingMode", volumeProcessingMode);
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupGlobalVoice", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("GroupSpatialAudio", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("GroupMinVolume", groupMinVolume);
+            useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("USE_PROXIMITY_RADAR", useProximityRadar);
+            gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("GameQuitGraceSeconds", gameQuitGraceSeconds);
+            pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("PendingGameJoinTimeoutSeconds", pendingGameJoinTimeoutSeconds);
+            stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("StunServers", stunServers);
+            turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("TurnServers", turnServers);
+            icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("IcePortMin", icePortMin);
+            icePortMax = com.hytale.voicechat.common.config.VoiceConfig.getInt("IcePortMax", icePortMax);
+            enableOpusDataChannel = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("EnableOpusDataChannel", enableOpusDataChannel);
+            opusFrameDurationMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusFrameDurationMs", opusFrameDurationMs);
+            opusSampleRate = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusSampleRate", opusSampleRate);
+            opusChannels = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusChannels", opusChannels);
+            opusTargetBitrate = com.hytale.voicechat.common.config.VoiceConfig.getInt("OpusTargetBitrate", opusTargetBitrate);
             
             // Fallback to old property names for backward compatibility
             signalingPort = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.signaling.port", signalingPort);
@@ -91,13 +155,41 @@ public class NetworkConfig {
             proximityFadeStart = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.proximity.fade.start", proximityFadeStart);
             proximityRolloffFactor = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.proximity.rolloff", proximityRolloffFactor);
             maxVoiceDistance = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.proximity.max", maxVoiceDistance);
+            positionSampleIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.position.sample.interval.ms", positionSampleIntervalMs);
+            positionBroadcastIntervalMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.position.broadcast.interval.ms", positionBroadcastIntervalMs);
+            positionMinDistanceDelta = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.position.min.distance.delta", positionMinDistanceDelta);
+            positionRotationThresholdDeg = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.position.rotation.threshold.deg", positionRotationThresholdDeg);
             volumeProcessingMode = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.volume.processing", volumeProcessingMode);
             groupGlobalVoice = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.global", groupGlobalVoice);
             groupSpatialAudio = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.group.spatial", groupSpatialAudio);
             groupMinVolume = com.hytale.voicechat.common.config.VoiceConfig.getDouble("voice.group.minvolume", groupMinVolume);
+            useProximityRadar = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.ui.proximity.radar.enabled", useProximityRadar);
+            gameQuitGraceSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.quit.grace.seconds", gameQuitGraceSeconds);
+            pendingGameJoinTimeoutSeconds = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.game.join.pending.timeout.seconds", pendingGameJoinTimeoutSeconds);
+            stunServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.stun.servers", stunServers);
+            turnServers = com.hytale.voicechat.common.config.VoiceConfig.getString("voice.webrtc.turn.servers", turnServers);
+            icePortMin = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.ice.port.min", icePortMin);
+            icePortMax = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.ice.port.max", icePortMax);
+            enableOpusDataChannel = com.hytale.voicechat.common.config.VoiceConfig.getBoolean("voice.webrtc.opus.enabled", enableOpusDataChannel);
+            opusFrameDurationMs = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.frame.duration.ms", opusFrameDurationMs);
+            opusSampleRate = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.sample-rate", opusSampleRate);
+            opusChannels = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.channels", opusChannels);
+            opusTargetBitrate = com.hytale.voicechat.common.config.VoiceConfig.getInt("voice.webrtc.opus.target-bitrate", opusTargetBitrate);
         } catch (Exception e) {
             System.err.println("[NetworkConfig] Failed to load VoiceConfig: " + e.getMessage());
         }
+
+        stunServerList = parseServerList(stunServers);
+        turnServerList = parseServerList(turnServers);
+
+        positionSampleIntervalMs = clampInt(positionSampleIntervalMs, 20, 500);
+        positionBroadcastIntervalMs = clampInt(positionBroadcastIntervalMs, 20, 500);
+        positionMinDistanceDelta = clampDouble(positionMinDistanceDelta, 0.05, 5.0);
+        positionRotationThresholdDeg = clampDouble(positionRotationThresholdDeg, 0.1, 45.0);
+        opusFrameDurationMs = clampInt(opusFrameDurationMs, 10, 60);
+        opusSampleRate = isSupportedSampleRate(opusSampleRate) ? opusSampleRate : DEFAULT_OPUS_SAMPLE_RATE;
+        opusChannels = clampInt(opusChannels, 1, 2);
+        opusTargetBitrate = clampInt(opusTargetBitrate, 6000, 128000);
     }
 
     private NetworkConfig() {
@@ -164,12 +256,113 @@ public class NetworkConfig {
     public static double getMaxVoiceDistance() {
         return maxVoiceDistance;
     }
+
+    /**
+     * Get position sampling interval (ms).
+     */
+    public static int getPositionSampleIntervalMs() {
+        return positionSampleIntervalMs;
+    }
+
+    /**
+     * Get position broadcast interval (ms).
+     */
+    public static int getPositionBroadcastIntervalMs() {
+        return positionBroadcastIntervalMs;
+    }
+
+    /**
+     * Get minimum distance delta for position updates.
+     */
+    public static double getPositionMinDistanceDelta() {
+        return positionMinDistanceDelta;
+    }
+
+    /**
+     * Get rotation threshold (degrees) for position updates.
+     */
+    public static double getPositionRotationThresholdDeg() {
+        return positionRotationThresholdDeg;
+    }
     
     /**
      * Get the volume processing mode ("server", "client", or "both")
      */
     public static String getVolumeProcessingMode() {
         return volumeProcessingMode;
+    }
+
+    /**
+     * Get WebRTC transport mode.
+     * The server is strict WebRTC-only, so this always returns "webrtc".
+     */
+    public static String getWebRtcTransportMode() {
+        return WEBRTC_TRANSPORT_MODE;
+    }
+
+    /**
+     * Get configured STUN servers.
+     */
+    public static List<String> getStunServers() {
+        return stunServerList;
+    }
+
+    /**
+     * Get configured TURN servers (unused for now).
+     */
+    public static List<String> getTurnServers() {
+        return turnServerList;
+    }
+
+    /**
+     * Get minimum UDP port for ICE host candidates.
+     * 0 means ephemeral ports.
+     */
+    public static int getIcePortMin() {
+        return isValidIcePortRange(icePortMin, icePortMax) ? icePortMin : 0;
+    }
+
+    /**
+     * Get maximum UDP port for ICE host candidates.
+     * 0 means ephemeral ports.
+     */
+    public static int getIcePortMax() {
+        return isValidIcePortRange(icePortMin, icePortMax) ? icePortMax : 0;
+    }
+
+    /**
+     * Check if Opus-over-DataChannel mode is enabled.
+     */
+    public static boolean isOpusDataChannelEnabled() {
+        return enableOpusDataChannel;
+    }
+
+    /**
+     * Get Opus frame duration (milliseconds).
+     */
+    public static int getOpusFrameDurationMs() {
+        return opusFrameDurationMs;
+    }
+
+    /**
+     * Get Opus sample rate (Hz).
+     */
+    public static int getOpusSampleRate() {
+        return opusSampleRate;
+    }
+
+    /**
+     * Get Opus channel count.
+     */
+    public static int getOpusChannels() {
+        return opusChannels;
+    }
+
+    /**
+     * Get Opus target bitrate (bps).
+     */
+    public static int getOpusTargetBitrate() {
+        return opusTargetBitrate;
     }
     
     /**
@@ -208,6 +401,27 @@ public class NetworkConfig {
     }
 
     /**
+     * Check if live proximity radar metadata should be sent to web clients.
+     */
+    public static boolean isProximityRadarEnabled() {
+        return useProximityRadar;
+    }
+
+    /**
+     * Grace period before disconnecting web client after game quit (seconds).
+     */
+    public static int getGameQuitGraceSeconds() {
+        return gameQuitGraceSeconds;
+    }
+
+    /**
+     * Timeout for pending web clients waiting for game session (seconds).
+     */
+    public static int getPendingGameJoinTimeoutSeconds() {
+        return pendingGameJoinTimeoutSeconds;
+    }
+
+    /**
      * Checks if the given sample rate is supported by the voice chat system.
      * 
      * @param sampleRate the sample rate to check in Hz
@@ -231,5 +445,50 @@ public class NetworkConfig {
      */
     public static int frameSizeForSampleRate(int sampleRate) {
         return (sampleRate * FRAME_DURATION_MS) / 1000;
+    }
+
+    private static boolean isValidIcePortRange(int min, int max) {
+        if (min <= 0 || max <= 0) {
+            return false;
+        }
+        return max >= min;
+    }
+
+    private static int clampInt(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static double clampDouble(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static List<String> parseServerList(String raw) {
+        if (raw == null) {
+            return List.of();
+        }
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+
+        String[] parts = trimmed.split(",");
+        List<String> servers = new ArrayList<>();
+        for (String part : parts) {
+            String server = part.trim();
+            if (server.isEmpty()) {
+                continue;
+            }
+            if (server.startsWith("\"") && server.endsWith("\"") && server.length() >= 2) {
+                server = server.substring(1, server.length() - 1);
+            }
+            if (!server.isEmpty()) {
+                servers.add(server);
+            }
+        }
+
+        return servers.isEmpty() ? List.of() : Collections.unmodifiableList(servers);
     }
 }

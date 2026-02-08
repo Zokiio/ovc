@@ -1,7 +1,5 @@
 package com.hytale.voicechat.plugin.webrtc;
 
-import com.google.gson.JsonObject;
-import com.hytale.voicechat.common.signaling.SignalingMessage;
 import io.netty.channel.Channel;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 
@@ -11,6 +9,9 @@ import java.util.UUID;
  * Represents a connected WebRTC client
  */
 public class WebRTCClient {
+    public static final String AUDIO_CODEC_PCM = "pcm";
+    public static final String AUDIO_CODEC_OPUS = "opus";
+
     private final UUID clientId;
     private final String username;
     private final Channel channel;
@@ -23,6 +24,11 @@ public class WebRTCClient {
      */
     private volatile boolean muted = false;
     private volatile int volume = 100; // 0-200%
+    private volatile boolean pendingGameSession = false;
+    private volatile String sessionId = "";
+    private volatile String resumeToken = "";
+    private volatile long lastHeartbeatAt;
+    private volatile String negotiatedAudioCodec = AUDIO_CODEC_PCM;
     
     public WebRTCClient(UUID clientId, String username, Channel channel) {
         this.clientId = clientId;
@@ -81,6 +87,53 @@ public class WebRTCClient {
         // Clamp volume between 0 and 200%
         this.volume = Math.max(0, Math.min(200, volume));
     }
+
+    /**
+     * Whether this client is waiting for a matching in-game session.
+     */
+    public boolean isPendingGameSession() {
+        return pendingGameSession;
+    }
+
+    public void setPendingGameSession(boolean pendingGameSession) {
+        this.pendingGameSession = pendingGameSession;
+    }
+
+    public String getSessionId() {
+        return sessionId;
+    }
+
+    public void setSessionId(String sessionId) {
+        this.sessionId = sessionId == null ? "" : sessionId;
+    }
+
+    public String getResumeToken() {
+        return resumeToken;
+    }
+
+    public void setResumeToken(String resumeToken) {
+        this.resumeToken = resumeToken == null ? "" : resumeToken;
+    }
+
+    public long getLastHeartbeatAt() {
+        return lastHeartbeatAt;
+    }
+
+    public void setLastHeartbeatAt(long lastHeartbeatAt) {
+        this.lastHeartbeatAt = lastHeartbeatAt;
+    }
+
+    public String getNegotiatedAudioCodec() {
+        return negotiatedAudioCodec;
+    }
+
+    public void setNegotiatedAudioCodec(String negotiatedAudioCodec) {
+        if (AUDIO_CODEC_OPUS.equalsIgnoreCase(negotiatedAudioCodec)) {
+            this.negotiatedAudioCodec = AUDIO_CODEC_OPUS;
+            return;
+        }
+        this.negotiatedAudioCodec = AUDIO_CODEC_PCM;
+    }
     
     public void sendMessage(String message) {
         if (!isConnected()) {
@@ -91,33 +144,6 @@ public class WebRTCClient {
             channel.writeAndFlush(new TextWebSocketFrame(message));
         } catch (Exception e) {
             // Silently fail
-        }
-    }
-    
-    /**
-     * Send audio data to this WebRTC client via WebSocket
-     * 
-     * @param senderId The UUID of the sender (for client to know who's speaking)
-     * @param audioData The audio data to send
-     */
-    public void sendAudio(UUID senderId, byte[] audioData) {
-        if (!isConnected()) {
-            return;
-        }
-        
-        try {
-            // Wrap binary audio data in a signaling message
-            JsonObject data = new JsonObject();
-            // Encode audio data as base64 for JSON transmission
-            String encodedAudio = java.util.Base64.getEncoder().encodeToString(audioData);
-            data.addProperty("audioData", encodedAudio);
-            data.addProperty("senderId", senderId.toString());
-            
-            SignalingMessage message = new SignalingMessage("audio", data);
-            channel.writeAndFlush(new TextWebSocketFrame(message.toJson()));
-            // Note: Silent success - audio sent successfully
-        } catch (Exception e) {
-            // Silently fail to avoid spamming logs
         }
     }
     

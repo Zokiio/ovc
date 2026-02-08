@@ -1,13 +1,14 @@
 package com.hytale.voicechat.plugin.webrtc;
 
 import com.hypixel.hytale.logger.HytaleLogger;
+import org.jitsi.dcsctp4j.SendOptions;
 import org.jitsi.dcsctp4j.SendStatus;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * DataChannel Establishment Protocol (DCEP) handler for WebRTC.
@@ -27,10 +28,11 @@ public class DataChannelManager {
 
     private static final byte DCEP_OPEN = 0x03;
     private static final byte DCEP_ACK = 0x02;
+    private static final int CHANNEL_TYPE_UNORDERED_FLAG = 0x80;
 
     private final String clientId;
     private final SctpTransport sctpTransport;
-    private final Map<Short, DataChannel> channels = new HashMap<>();
+    private final Map<Short, DataChannel> channels = new ConcurrentHashMap<>();
     private DataChannelListener listener;
 
     public DataChannelManager(String clientId, SctpTransport sctpTransport) {
@@ -71,7 +73,12 @@ public class DataChannelManager {
     public SendStatus sendBinary(short streamId, byte[] payload) {
         int ppid = (payload == null || payload.length == 0) ? PPID_BINARY_EMPTY : PPID_BINARY;
         byte[] data = payload == null ? new byte[0] : payload;
-        return sctpTransport.send(streamId, ppid, data);
+        SendOptions options = new SendOptions();
+        DataChannel channel = channels.get(streamId);
+        if (channel != null && channel.isUnordered()) {
+            options.isUnordered = true;
+        }
+        return sctpTransport.send(streamId, ppid, data, options);
     }
 
     private void handleControlMessage(short streamId, byte[] payload) {
@@ -162,6 +169,10 @@ public class DataChannelManager {
             this.reliabilityParameter = reliabilityParameter;
             this.label = label;
             this.protocol = protocol;
+        }
+
+        public boolean isUnordered() {
+            return (Byte.toUnsignedInt(channelType) & CHANNEL_TYPE_UNORDERED_FLAG) != 0;
         }
     }
 

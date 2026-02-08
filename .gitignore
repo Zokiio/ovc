@@ -58,3 +58,11 @@ webrt/node_modules/
 webrt/package-lock.json
 webrt/dist/
 webrt/.vite/
+
+# Voice client v04
+voice-app/node_modules/
+voice-app/package-lock.json
+voice-app/dist/
+voice-app/.vite/
+voice-app/.env
+voice-app/test-results/*.png

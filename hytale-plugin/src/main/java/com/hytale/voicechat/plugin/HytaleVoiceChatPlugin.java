@@ -12,7 +12,6 @@ import com.hytale.voicechat.plugin.event.PlayerJoinEventSystem;
 import com.hytale.voicechat.plugin.event.PlayerMoveEventSystem;
 import com.hytale.voicechat.plugin.event.UIRefreshTickingSystem;
 import com.hytale.voicechat.plugin.event.VoiceChatHudTickingSystem;
-import com.hytale.voicechat.plugin.listener.PlayerEventListener;
 import com.hytale.voicechat.plugin.tracker.AuthCodeStore;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 import com.hytale.voicechat.plugin.webrtc.DataChannelAudioHandler;
@@ -22,10 +21,13 @@ import com.hytale.voicechat.plugin.webrtc.WebRTCSignalingServer;
 
 import javax.annotation.Nonnull;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.UUID;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Hytale Plugin for Voice Chat (WebRTC SFU)
@@ -41,11 +43,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
     private WebRTCSignalingServer signalingServer;
     private WebRTCAudioBridge webRtcAudioBridge;
     private PlayerPositionTracker positionTracker;
-    private PlayerEventListener eventListener;
     private GroupManager groupManager;
     private AuthCodeStore authCodeStore;
     private double proximityDistance = NetworkConfig.getDefaultProximityDistance();
     private final Set<UUID> hudHidden = ConcurrentHashMap.newKeySet();
+    private final Set<UUID> onlinePlayers = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<UUID, ScheduledFuture<?>> pendingDisconnects = new ConcurrentHashMap<>();
+    private ScheduledExecutorService disconnectScheduler;
 
     public HytaleVoiceChatPlugin(@Nonnull JavaPluginInit init) {
         super(init);
@@ -84,12 +88,15 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             
             // Initialize position tracker
             positionTracker = new PlayerPositionTracker();
-            
-            // Initialize event listener
-            eventListener = new PlayerEventListener(positionTracker);
+
+            disconnectScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "VoiceChat-DisconnectGrace");
+                t.setDaemon(true);
+                return t;
+            });
             
             // Register event systems for player tracking
-            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, null));
+            EntityStore.REGISTRY.registerSystem(new PlayerJoinEventSystem(positionTracker, this));
             EntityStore.REGISTRY.registerSystem(new PlayerMoveEventSystem(positionTracker));
             EntityStore.REGISTRY.registerSystem(new UIRefreshTickingSystem());
             EntityStore.REGISTRY.registerSystem(new VoiceChatHudTickingSystem(this));
@@ -104,12 +111,14 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
             signalingServer.setGroupStateManager(groupStateManager);
             signalingServer.setGroupManager(groupManager);
             
-            webRtcAudioBridge = new WebRTCAudioBridge(null, positionTracker, signalingServer.getClientMap());
+            webRtcAudioBridge = new WebRTCAudioBridge(positionTracker, signalingServer.getClientMap());
             webRtcAudioBridge.setProximityDistance(proximityDistance);
             webRtcAudioBridge.setGroupManager(groupManager);
             webRtcAudioBridge.setGroupStateManager(groupStateManager);
             signalingServer.setAudioBridge(webRtcAudioBridge);
             DataChannelAudioHandler dataChannelAudioHandler = new DataChannelAudioHandler(webRtcAudioBridge);
+            webRtcAudioBridge.setDataChannelAudioHandler(dataChannelAudioHandler);
+            webRtcAudioBridge.setClientIdMapper(signalingServer.getClientIdMapper());
             IceServerConfig iceServerConfig = IceServerConfig.defaults();
             WebRTCPeerManager peerManager = new WebRTCPeerManager(
                 iceServerConfig.getStunServers(),
@@ -121,8 +130,10 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
                 @Override
                 public void onClientConnected(java.util.UUID clientId, String username) {
                     logger.atInfo().log("WebRTC client connected: " + username + " (" + clientId + ")");
-                    if (positionTracker != null) {
+                    if (positionTracker != null && isPlayerOnline(clientId)) {
                         logger.atInfo().log("Web client added to position tracker for GUI updates");
+                    } else {
+                        logger.atFine().log("Web client pending game session; not added to position tracker yet");
                     }
                 }
                 
@@ -171,6 +182,13 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         if (signalingServer != null) {
             signalingServer.shutdown();
         }
+
+        if (disconnectScheduler != null) {
+            disconnectScheduler.shutdownNow();
+            disconnectScheduler = null;
+        }
+        pendingDisconnects.clear();
+        onlinePlayers.clear();
         
         logger.atInfo().log("Hytale Voice Chat Plugin shutdown complete");
     }
@@ -189,6 +207,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      * Handle player join
      */
     public void onPlayerJoin(UUID playerId, String playerName, double x, double y, double z, double yaw, double pitch, String worldId) {
+        markPlayerOnline(playerId);
         if (positionTracker != null) {
             PlayerPosition position = new PlayerPosition(playerId, playerName, x, y, z, yaw, pitch, worldId);
             positionTracker.addPlayer(position);
@@ -200,6 +219,7 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
      * Handle player quit - clean up group membership
      */
     public void onPlayerQuit(UUID playerId) {
+        markPlayerOffline(playerId);
         if (positionTracker != null) {
             positionTracker.removePlayer(playerId);
         }
@@ -209,6 +229,61 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         }
         
         logger.atInfo().log("Player left voice chat: " + playerId);
+    }
+
+    /**
+     * Mark a player as online (in-game) and cancel any pending web client disconnect.
+     */
+    public void markPlayerOnline(UUID playerId) {
+        onlinePlayers.add(playerId);
+        ScheduledFuture<?> pending = pendingDisconnects.remove(playerId);
+        if (pending != null) {
+            pending.cancel(false);
+        }
+        if (signalingServer != null) {
+            signalingServer.activatePendingClient(playerId);
+        }
+    }
+
+    /**
+     * Mark a player as offline (left the game) and schedule web client disconnect.
+     */
+    public void markPlayerOffline(UUID playerId) {
+        onlinePlayers.remove(playerId);
+        scheduleDisconnectAfterGrace(playerId);
+    }
+
+    /**
+     * Check if a player is currently online in-game.
+     */
+    public boolean isPlayerOnline(UUID playerId) {
+        return onlinePlayers.contains(playerId);
+    }
+
+    private void scheduleDisconnectAfterGrace(UUID playerId) {
+        if (signalingServer == null || disconnectScheduler == null) {
+            return;
+        }
+        ScheduledFuture<?> existing = pendingDisconnects.remove(playerId);
+        if (existing != null) {
+            existing.cancel(false);
+        }
+
+        int graceSeconds = NetworkConfig.getGameQuitGraceSeconds();
+        Runnable task = () -> {
+            pendingDisconnects.remove(playerId);
+            if (!isPlayerOnline(playerId) && signalingServer != null) {
+                signalingServer.disconnectClient(playerId, "Game session ended", 4001);
+            }
+        };
+
+        if (graceSeconds <= 0) {
+            task.run();
+            return;
+        }
+
+        ScheduledFuture<?> future = disconnectScheduler.schedule(task, graceSeconds, TimeUnit.SECONDS);
+        pendingDisconnects.put(playerId, future);
     }
 
     /**
@@ -281,13 +356,4 @@ public class HytaleVoiceChatPlugin extends JavaPlugin {
         return true;
     }
 
-    // TODO: Register Hytale event listeners when API becomes available
-    // private void registerEventListeners() {
-    //     eventBus.register(PlayerMoveEvent.class, event -> {
-    //         Player player = event.getPlayer();
-    //         onPlayerMove(player.getUuid(), player.getName(), 
-    //             player.getX(), player.getY(), player.getZ(), 
-    //             player.getWorld().getId());
-    //     });
-    // }
 }

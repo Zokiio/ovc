@@ -29,6 +29,37 @@ SSLKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem"
 # Default: https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173
 AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"
 
+# Grace period (seconds) before disconnecting web client after player quits the game
+# Helps avoid false disconnects during brief network hiccups
+# Recommended: 5-30 seconds
+# Default: 10
+GameQuitGraceSeconds = 10
+
+# Timeout (seconds) for web clients waiting for a game session after auth
+# If the player doesn't join the game within this window, the web client is disconnected
+# Recommended: 30-120 seconds
+# Default: 60
+PendingGameJoinTimeoutSeconds = 60
+
+# Audio transport mode is fixed to WebRTC DataChannel only.
+# The plugin no longer supports WebSocket audio transport.
+
+# Comma-separated STUN servers used for WebRTC ICE
+# Default: stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53
+StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
+
+# Comma-separated TURN servers (unused for now)
+# Default: (empty)
+TurnServers = ""
+
+# ICE UDP port range for WebRTC host candidates
+# Set a fixed range and forward these UDP ports to your server for reliable WebRTC.
+# 0 = ephemeral ports (not recommended behind NAT)
+# Example: 50000-51000
+# Default: 0 (ephemeral)
+IcePortMin = 50000
+IcePortMax = 51000
+
 # Default proximity range for voice chat (in blocks/meters)
 # This is the maximum hearing distance when a player is NOT in a group
 # Groups can have their own proximity range configured separately
@@ -58,6 +89,36 @@ ProximityRolloffFactor = 1.5
 # Prevents abuse with extremely high proximity range values
 # Default: 100.0
 MaxVoiceDistance = 100.0
+
+# Position sampling interval for player tracking (milliseconds)
+# Controls how often the server samples player movement
+# Range: 20 - 500
+# Default: 50
+PositionSampleIntervalMs = 50
+
+# Position broadcast interval to web clients (milliseconds)
+# Controls how often spatial positions are sent to clients
+# Range: 20 - 500
+# Default: 50
+PositionBroadcastIntervalMs = 50
+
+# Enable live proximity radar metadata for the web client
+# When true, routed audio includes per-recipient distance/maxRange metadata
+# and auth/session signaling exposes the feature flag to clients.
+# Default: false
+USE_PROXIMITY_RADAR = false
+
+# Minimum distance delta to trigger a position update (blocks/meters)
+# Smaller values = more frequent updates
+# Range: 0.05 - 5.0
+# Default: 0.25
+PositionMinDistanceDelta = 0.25
+
+# Minimum rotation change to trigger a position update (degrees)
+# Smaller values = more responsive head turn tracking
+# Range: 0.1 - 45.0
+# Default: 2.0
+PositionRotationThresholdDeg = 2.0
 
 # Volume processing mode: where distance-based volume adjustment happens
 # Options:

@@ -23,6 +23,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * SCTP transport layer backed by jitsi-dcsctp.
@@ -30,11 +31,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class SctpTransport {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+    private static final long RESOURCE_EXHAUSTION_LOG_INTERVAL_MS = 5000L;
 
     private final String clientId;
     private final DtlsTransport dtlsTransport;
     private final ScheduledExecutorService executor;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicLong lastResourceExhaustionLogAt = new AtomicLong(0);
+    private final AtomicLong suppressedResourceExhaustionLogs = new AtomicLong(0);
 
     private DcSctpSocketInterface socket;
     private Thread receiveThread;
@@ -68,7 +72,9 @@ public class SctpTransport {
         options.setMaxMessageSize(1_073_741_823L); // 1GB
         options.setAnnouncedMaximumIncomingStreams(1024);
         options.setAnnouncedMaximumOutgoingStreams(1024);
-        options.setMtu(1200);
+        // Keep SCTP packets safely under the DTLS/UDP 1200-byte send limit
+        // to avoid drops on common WAN/relay paths.
+        options.setMtu(1000);
 
         DcSctpSocketCallbacks callbacks = new DcsctpCallbacks();
         PacketObserver packetObserver = null;
@@ -113,12 +119,18 @@ public class SctpTransport {
     }
 
     public SendStatus send(short streamId, int ppid, byte[] payload) {
+        return send(streamId, ppid, payload, new SendOptions());
+    }
+
+    public SendStatus send(short streamId, int ppid, byte[] payload, SendOptions options) {
         if (socket == null || socket.state() != SocketState.kConnected) {
             return SendStatus.kErrorShuttingDown;
         }
 
-        DcSctpMessage message = new DcSctpMessage(streamId, ppid, payload);
-        return socket.send(message, new SendOptions());
+        byte[] data = payload == null ? new byte[0] : payload;
+        DcSctpMessage message = new DcSctpMessage(streamId, ppid, data);
+        SendOptions sendOptions = options != null ? options : new SendOptions();
+        return socket.send(message, sendOptions);
     }
 
     public void close() {
@@ -187,6 +199,24 @@ public class SctpTransport {
 
         @Override
         public void OnError(ErrorKind error, String message) {
+            if (error == ErrorKind.kResourceExhaustion) {
+                long now = System.currentTimeMillis();
+                long last = lastResourceExhaustionLogAt.get();
+                if (now - last >= RESOURCE_EXHAUSTION_LOG_INTERVAL_MS
+                        && lastResourceExhaustionLogAt.compareAndSet(last, now)) {
+                    long suppressed = suppressedResourceExhaustionLogs.getAndSet(0);
+                    logger.atWarning().log(
+                        "SCTP backpressure for client %s: %s (suppressed=%d in last %ds)",
+                        clientId,
+                        message,
+                        suppressed,
+                        RESOURCE_EXHAUSTION_LOG_INTERVAL_MS / 1000
+                    );
+                } else {
+                    suppressedResourceExhaustionLogs.incrementAndGet();
+                }
+                return;
+            }
             logger.atWarning().log("SCTP error for client " + clientId + ": " + error + " - " + message);
         }
 

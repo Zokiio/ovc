@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+:root {
+  /* Default (Hytale) */
+  --bg-app: #1c140d; /* Deep earthy charcoal-brown */
+  --bg-primary: #1c140d; /* Legacy alias for bg-app */
+  --bg-panel: #2d1f16; /* Warm wood/leather */
+  --bg-panel-header: #3d2b1f; /* Lighter wood grain */
+  --bg-input: #140d09;
+  
+  --border-primary: #5c4033; /* Dark bronze/wood */
+  --border-active: #fbbf24; /* Vibrant Gold */
+  
+  --text-primary: #f0e6d2; /* Parchment white */
+  --text-secondary: #a08c7d; /* Muted tan */
+  --text-tertiary: #8a7768; /* Legacy tertiary text tone */
+  --text-accent: #fbbf24; /* Gold */
+  
+  --accent-primary: #00b4d8; /* Mana Blue */
+  --accent-secondary: #4a3728;
+  --accent-danger: #ef4444; /* Ruby Red */
+  --accent-success: #4ade80; /* Emerald Green */
+  --accent-warning: #fbbf24; /* Topaz Gold */
+
+  --font-heading: 'Cinzel', serif;
+  --font-body: 'Lato', sans-serif;
+  
+  --radius-panel: 8px;
+  --radius-btn: 4px;
+  
+  --shadow-glow: none;
+}
+
+[data-theme="industrial"] {
+  --bg-app: #0f172a;
+  --bg-primary: #0f172a; /* Legacy alias for bg-app */
+  --bg-panel: #1e293b;
+  --bg-panel-header: #0f172a;
+  --bg-input: #0f172a;
+  
+  --border-primary: #334155;
+  --border-active: #f97316;
+  
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-accent: #f97316;
+  
+  --accent-primary: #f97316;
+  --accent-secondary: #334155;
+  --accent-danger: #ef4444;
+  --accent-success: #10b981;
+  --accent-warning: #f59e0b;
+
+  --font-heading: 'JetBrains Mono', monospace;
+  --font-body: 'JetBrains Mono', monospace;
+  
+  --radius-panel: 0px;
+  --radius-btn: 0px;
+  
+  --shadow-glow: none;
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  transition: background-color 0.3s ease, color 0.3s ease;
+  background-image: radial-gradient(circle at center, rgba(109, 80, 59, 0.1) 0%, transparent 100%);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app); 
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-primary); 
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--bg-panel);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary); 
+}
+
+/* Decorative Overlays for Hytale Style (Now Default) */
+[data-theme="hytale"] .panel-fancy,
+:root:not([data-theme="industrial"]) .panel-fancy {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="hytale"] button:hover,
+:root:not([data-theme="industrial"]) button:hover {
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}

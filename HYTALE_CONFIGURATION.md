@@ -66,6 +66,79 @@ Comma-separated list of domains allowed to connect via WebSocket (CORS).
   ```
 - **System Property**: `-Dvoice.allowed.origins=https://example.com,https://voice.example.com`
 
+### WebRTC Audio Transport
+Audio transport is fixed to WebRTC DataChannel only.
+
+- **Mode**: `webrtc` (always on)
+- **WebSocket audio transport**: Not supported
+
+### `StunServers` (String)
+Comma-separated list of STUN server URLs for ICE candidate gathering.
+
+- **Default**: `stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53`
+- **Example**: `StunServers = "stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302"`
+- **System Property**: `-Dvoice.webrtc.stun.servers=stun:stun.cloudflare.com:3478,stun:stun.l.google.com:19302`
+
+### `TurnServers` (String)
+Comma-separated list of TURN server URLs. (Not used yet, reserved for future.)
+
+- **Default**: (empty)
+- **Example**: `TurnServers = "turn:turn.example.com:3478?transport=udp"`
+- **System Property**: `-Dvoice.webrtc.turn.servers=turn:turn.example.com:3478?transport=udp`
+
+### `IcePortMin` / `IcePortMax` (Int)
+Fixed UDP port range for ICE host candidates. Use this if your server is behind NAT and you want stable WebRTC by forwarding a specific UDP range.
+
+- **Default**: `0` (ephemeral ports)
+- **Example**:
+  ```hocon
+  IcePortMin = 50000
+  IcePortMax = 51000
+  ```
+- **System Properties**:
+  - `-Dvoice.webrtc.ice.port.min=50000`
+  - `-Dvoice.webrtc.ice.port.max=51000`
+
+### `PositionSampleIntervalMs` (Integer)
+Interval in milliseconds for sampling player positions on the server.
+
+- **Default**: `50`
+- **Range**: `20 - 500`
+- **Example**: `PositionSampleIntervalMs = 50`
+- **System Property**: `-Dvoice.position.sample.interval.ms=50`
+
+### `PositionBroadcastIntervalMs` (Integer)
+Interval in milliseconds for broadcasting positions to web clients.
+
+- **Default**: `50`
+- **Range**: `20 - 500`
+- **Example**: `PositionBroadcastIntervalMs = 50`
+- **System Property**: `-Dvoice.position.broadcast.interval.ms=50`
+
+### `USE_PROXIMITY_RADAR` (Boolean)
+Enables live proximity radar metadata for web clients.
+
+- **Default**: `false`
+- **Behavior**: When enabled, routed audio frames include per-recipient `distance` and `maxRange`, and signaling exposes `useProximityRadar` so the UI can activate radar mode.
+- **Example**: `USE_PROXIMITY_RADAR = true`
+- **System Property**: `-DUSE_PROXIMITY_RADAR=true`
+
+### `PositionMinDistanceDelta` (Double)
+Minimum movement distance (blocks/meters) required to send a position update.
+
+- **Default**: `0.25`
+- **Range**: `0.05 - 5.0`
+- **Example**: `PositionMinDistanceDelta = 0.25`
+- **System Property**: `-Dvoice.position.min.distance.delta=0.25`
+
+### `PositionRotationThresholdDeg` (Double)
+Minimum rotation change (degrees) required to send a position update.
+
+- **Default**: `2.0`
+- **Range**: `0.1 - 45.0`
+- **Example**: `PositionRotationThresholdDeg = 2.0`
+- **System Property**: `-Dvoice.position.rotation.threshold.deg=2.0`
+
 ## Configuration Example
 
 ### HOCON Format (ovc.conf)
@@ -81,6 +154,19 @@ SSLKeyPath = "/etc/letsencrypt/live/voice.example.com/privkey.pem"
 
 # Allowed origins for WebSocket connections
 AllowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173"
+
+# ICE servers
+StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
+TurnServers = ""
+IcePortMin = 50000
+IcePortMax = 51000
+
+# Position tracking intervals and thresholds
+PositionSampleIntervalMs = 50
+PositionBroadcastIntervalMs = 50
+USE_PROXIMITY_RADAR = true
+PositionMinDistanceDelta = 0.25
+PositionRotationThresholdDeg = 2.0
 ```
 
 ### System Properties via JVM Arguments

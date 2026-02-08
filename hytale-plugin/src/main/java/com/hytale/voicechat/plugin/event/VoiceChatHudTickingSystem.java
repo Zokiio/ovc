@@ -61,21 +61,21 @@ public class VoiceChatHudTickingSystem extends TickingSystem<EntityStore> implem
 
                 VoiceChatMicHud hud = huds.get(playerId);
 
-                if (!connected || hidden) {
-                    if (hud != null) {
-                        player.getHudManager().setCustomHud(playerRef, null);
-                        huds.remove(playerId);
+                if (hud == null) {
+                    if (connected && !hidden) {
+                        hud = new VoiceChatMicHud(playerRef);
+                        huds.put(playerId, hud);
+                        player.getHudManager().setCustomHud(playerRef, hud);
+                        hud.updateState(true, muted, true);
                     }
                     continue;
                 }
 
-                if (hud == null) {
-                    hud = new VoiceChatMicHud(playerRef);
-                    huds.put(playerId, hud);
-                    player.getHudManager().setCustomHud(playerRef, hud);
+                if (connected && !hidden) {
+                    hud.updateState(true, muted, true);
+                } else {
+                    hud.updateState(false, muted, false);
                 }
-
-                hud.updateState(true, muted, true);
             }
         });
 

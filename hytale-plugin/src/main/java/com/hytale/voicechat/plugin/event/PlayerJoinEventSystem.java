@@ -11,6 +11,7 @@ import com.hypixel.hytale.server.core.modules.entity.component.TransformComponen
 import com.hypixel.hytale.server.core.modules.entity.component.HeadRotation;
 import com.hypixel.hytale.server.core.universe.PlayerRef;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
+import com.hytale.voicechat.plugin.HytaleVoiceChatPlugin;
 import com.hytale.voicechat.plugin.tracker.PlayerPositionTracker;
 
 import javax.annotation.Nonnull;
@@ -22,13 +23,11 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
     
     private final PlayerPositionTracker positionTracker;
+    private final HytaleVoiceChatPlugin plugin;
 
-    public PlayerJoinEventSystem(PlayerPositionTracker positionTracker, Object ignored) {
+    public PlayerJoinEventSystem(PlayerPositionTracker positionTracker, HytaleVoiceChatPlugin plugin) {
         this.positionTracker = positionTracker;
-    }
-
-    public PlayerJoinEventSystem(PlayerPositionTracker positionTracker) {
-        this(positionTracker, null);
+        this.plugin = plugin;
     }
 
     @Override
@@ -67,6 +66,9 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
                 }
 
                 logger.atInfo().log("Player joined: " + username + " (UUID: " + playerUUID + ")");
+                if (plugin != null) {
+                    plugin.markPlayerOnline(playerUUID);
+                }
                 positionTracker.updatePosition(playerUUID, username, pos.getX(), pos.getY(), pos.getZ(), yaw, pitch, worldId);
             }
         }
@@ -82,6 +84,9 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
             var playerUUID = playerRef.getUuid();
             
             logger.atInfo().log("Player quit: " + username + " (UUID: " + playerUUID + ")");
+            if (plugin != null) {
+                plugin.markPlayerOffline(playerUUID);
+            }
             positionTracker.removePlayer(playerUUID);
             
             // Clean up any open voice chat pages for this player
