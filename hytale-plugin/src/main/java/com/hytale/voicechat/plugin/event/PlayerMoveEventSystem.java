@@ -68,17 +68,9 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         double yaw = 0.0;
         double pitch = 0.0;
 
-        // Prefer independent head rotation if available
-        if (headRotation != null && headRotation.getRotation() != null) {
-            var hrot = headRotation.getRotation();
-            Double hx = null, hy = null, hz = null;
-            try { hx = (double) hrot.getX(); } catch (Exception ignored) {}
-            try { hy = (double) hrot.getY(); } catch (Exception ignored) {}
-            try { hz = (double) hrot.getZ(); } catch (Exception ignored) {}
-
-            yaw = chooseDegrees(hy, hz, null);   // likely Y is yaw
-            pitch = chooseDegrees(hx, null, null); // likely X is pitch
-        } else if (transform.getRotation() != null) {
+        // Prefer explicit transform yaw/pitch. Head rotation components can be quaternion values
+        // and are only used as a fallback when transform rotation is unavailable.
+        if (transform.getRotation() != null) {
             var rot = transform.getRotation();
             Double yawRaw = null;
             Double pitchRaw = null;
@@ -98,6 +90,15 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
             // Rotation capture logging disabled for performance (was causing audio stutters)
             // Uncomment for debugging rotation issues:
             // logger.atFine().log("[ROT_CAPTURE] player=" + username + " yaw=" + String.format("%.2f", yaw) + " pitch=" + String.format("%.2f", pitch));
+        } else if (headRotation != null && headRotation.getRotation() != null) {
+            var hrot = headRotation.getRotation();
+            Double hx = null, hy = null, hz = null;
+            try { hx = (double) hrot.getX(); } catch (Exception ignored) {}
+            try { hy = (double) hrot.getY(); } catch (Exception ignored) {}
+            try { hz = (double) hrot.getZ(); } catch (Exception ignored) {}
+
+            yaw = chooseDegrees(hy, hz, null);   // likely Y is yaw
+            pitch = chooseDegrees(hx, null, null); // likely X is pitch
         } else {
             logger.atWarning().log("TransformComponent.getRotation() is NULL for player " + username);
         }

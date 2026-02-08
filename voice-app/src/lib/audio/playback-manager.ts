@@ -637,14 +637,27 @@ export class AudioPlaybackManager {
   }
 
   private getOrientationFromPosition(position: PlayerPosition): ListenerOrientation {
-    const yawRad = (position.yaw * Math.PI) / 180
-    const pitchRad = (position.pitch * Math.PI) / 180
+    const yawRad = (this.normalizeDegrees(position.yaw) * Math.PI) / 180
+    const pitchRad = (this.clamp(position.pitch, -89.9, 89.9) * Math.PI) / 180
     const cosPitch = Math.cos(pitchRad)
     return {
       forwardX: -Math.sin(yawRad) * cosPitch,
       forwardY: -Math.sin(pitchRad),
       forwardZ: -Math.cos(yawRad) * cosPitch,
     }
+  }
+
+  private normalizeDegrees(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0
+    }
+    let normalized = value % 360
+    if (normalized > 180) {
+      normalized -= 360
+    } else if (normalized < -180) {
+      normalized += 360
+    }
+    return normalized
   }
 
   private clamp(value: number, min: number, max: number): number {

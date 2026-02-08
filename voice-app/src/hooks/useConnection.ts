@@ -857,13 +857,17 @@ export function useConnection() {
 
     signaling.on('player_list', (data) => {
       const rawPlayers = (data as { players?: unknown[] }).players ?? []
+      const existingUsers = useUserStore.getState().users
       // Normalize players to ensure they have all required fields
       const players: User[] = rawPlayers.map((playerEntry) => {
         const player = (playerEntry && typeof playerEntry === 'object')
           ? (playerEntry as Record<string, unknown>)
           : {}
+        const id = String(player.id || player.playerId || '')
+        const existingUser = existingUsers.get(id)
+        const nextPosition = toPlayerPosition(player.position) ?? existingUser?.position
         return ({
-          id: String(player.id || player.playerId || ''),
+          id,
           name: String(player.username || player.name || player.playerName || 'Unknown'),
           avatarUrl: typeof player.avatarUrl === 'string' ? player.avatarUrl : undefined,
           isSpeaking: !!player.isSpeaking,
@@ -871,7 +875,7 @@ export function useConnection() {
           isMicMuted: !!player.isMicMuted || !!player.isMuted,
           volume: typeof player.volume === 'number' ? player.volume : 100,
           groupId: typeof player.groupId === 'string' ? player.groupId : undefined,
-          position: player.position as PlayerPosition | undefined,
+          position: nextPosition,
           isVoiceConnected: player.isVoiceConnected !== false
         })
       })
