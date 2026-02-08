@@ -6,6 +6,7 @@ import { useAudioStore } from '../../../stores/audioStore';
 import { useConnectionStore } from '../../../stores/connectionStore';
 import { useGroupStore } from '../../../stores/groupStore';
 import { useUserStore } from '../../../stores/userStore';
+import { useSettingsStore } from '../../../stores/settingsStore';
 import { useAudioDevices } from '../../../hooks/useAudioDevices';
 
 // --- Sub-components ---
@@ -82,6 +83,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
    const status = useConnectionStore((s) => s.status);
    const latency = useConnectionStore((s) => s.latency);
    const serverUrl = useConnectionStore((s) => s.serverUrl);
+   const isStreamerMode = useSettingsStore((s) => s.isStreamerMode);
    
    const isConnected = status === 'connected';
    const isWarningStatus = status === 'connecting' || status === 'reconnecting';
@@ -117,7 +119,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
             <span className="opacity-30">|</span>
             <div className="flex items-center gap-1">
                <Globe className="w-3 h-3 opacity-50" />
-               <span className="truncate max-w-[100px]">{hostname}</span>
+               <span className={cn("truncate max-w-[100px]", isStreamerMode && "blur-[4px] select-none")}>{hostname}</span>
             </div>
             <span className="opacity-30">|</span>
             <div className="flex gap-3">
@@ -135,8 +137,8 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
                   <Globe className="w-8 h-8 text-[var(--accent-primary)]" />
                </div>
                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-extrabold text-[var(--text-primary)] truncate uppercase tracking-wider">{hostname}</div>
-                  <div className="text-[9px] text-[var(--text-secondary)] font-mono truncate">{serverUrl || 'Not connected'}</div>
+                  <div className={cn("text-[10px] font-extrabold text-[var(--text-primary)] truncate uppercase tracking-wider", isStreamerMode && "blur-[6px] select-none")}>{hostname}</div>
+                  <div className={cn("text-[9px] text-[var(--text-secondary)] font-mono truncate", isStreamerMode && "blur-[6px] select-none")}>{serverUrl || 'Not connected'}</div>
                </div>
                <Badge variant={statusBadgeVariant}>
                   {status}

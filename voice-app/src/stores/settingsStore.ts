@@ -13,17 +13,20 @@ interface SettingsStore {
   // UI Preferences
   theme: AppTheme
   sidebarCollapsed: boolean
+  isStreamerMode: boolean
   
   // Actions - Servers
   addSavedServer: (url: string, name?: string, username?: string, authToken?: string) => void
-  removeSavedServer: (url: string) => void
-  updateServerLastConnected: (url: string) => void
+  editSavedServer: (id: string, updates: Partial<Omit<SavedServer, 'id' | 'lastConnected'>>) => void
+  removeSavedServer: (id: string) => void
+  updateServerLastConnected: (id: string) => void
   setLastServerUrl: (url: string) => void
   
   // Actions - UI
   setTheme: (theme: AppTheme) => void
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
+  setStreamerMode: (enabled: boolean) => void
 }
 
 const deriveServerName = (url: string, explicitName?: string): string => {
@@ -46,37 +49,45 @@ export const useSettingsStore = create<SettingsStore>()(
       lastServerUrl: null,
       theme: 'industrial',
       sidebarCollapsed: false,
+      isStreamerMode: false,
 
       addSavedServer: (url, name, username, authToken) =>
         set((state) => {
-          const existing = state.savedServers.find((s) => s.url === url)
-          if (existing) {
-            existing.lastConnected = Date.now()
-            if (name) existing.name = name
-            if (username) existing.username = username
-            if (authToken) existing.authToken = authToken
-          } else {
-            state.savedServers.push({
-              url,
-              name: deriveServerName(url, name),
-              username,
-              authToken,
-              lastConnected: Date.now(),
-            })
-          }
+          // Allow multiple entries with same URL, use UUID for uniqueness
+          const id = crypto.randomUUID()
+          state.savedServers.push({
+            id,
+            url,
+            name: deriveServerName(url, name),
+            username,
+            authToken,
+            lastConnected: Date.now(),
+          })
+          
           // Keep only last 10 servers
           state.savedServers.sort((a, b) => b.lastConnected - a.lastConnected)
           state.savedServers = state.savedServers.slice(0, 10)
         }),
 
-      removeSavedServer: (url) =>
+      editSavedServer: (id, updates) =>
         set((state) => {
-          state.savedServers = state.savedServers.filter((s) => s.url !== url)
+          const server = state.savedServers.find((s) => s.id === id)
+          if (server) {
+            if (updates.url) server.url = updates.url
+            if (updates.name) server.name = updates.name
+            if (updates.username !== undefined) server.username = updates.username
+            if (updates.authToken !== undefined) server.authToken = updates.authToken
+          }
         }),
 
-      updateServerLastConnected: (url) =>
+      removeSavedServer: (id) =>
         set((state) => {
-          const server = state.savedServers.find((s) => s.url === url)
+          state.savedServers = state.savedServers.filter((s) => s.id !== id)
+        }),
+
+      updateServerLastConnected: (id) =>
+        set((state) => {
+          const server = state.savedServers.find((s) => s.id === id)
           if (server) {
             server.lastConnected = Date.now()
           }
@@ -100,6 +111,11 @@ export const useSettingsStore = create<SettingsStore>()(
       setSidebarCollapsed: (collapsed) =>
         set((state) => {
           state.sidebarCollapsed = collapsed
+        }),
+
+      setStreamerMode: (enabled) =>
+        set((state) => {
+          state.isStreamerMode = enabled
         }),
     })),
     {

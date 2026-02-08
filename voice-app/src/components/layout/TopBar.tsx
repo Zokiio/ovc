@@ -1,6 +1,8 @@
-import { Server, Power, Palette, Layout } from 'lucide-react';
+import { Server, Power, Palette, Layout, Shield, ShieldOff } from 'lucide-react';
 import { Button } from '../ui/Primitives';
 import { useTheme } from '../../context/theme-context';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { cn } from '../../lib/utils';
 
 export const TopBar = ({ 
   serverName, 
@@ -14,6 +16,8 @@ export const TopBar = ({
   onToggleRightPanel: () => void
 }) => {
   const { toggleTheme } = useTheme();
+  const isStreamerMode = useSettingsStore((s) => s.isStreamerMode);
+  const setStreamerMode = useSettingsStore((s) => s.setStreamerMode);
 
   return (
     <header className="h-14 bg-[var(--bg-panel)] border-b border-[var(--border-primary)] flex items-center justify-between px-4 shrink-0 z-30 shadow-md relative">
@@ -35,12 +39,25 @@ export const TopBar = ({
          
          <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-input)] px-2 py-1 rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
             <Server className="w-3 h-3" />
-            <span className="uppercase max-w-[120px] truncate font-mono">{serverName}</span>
+            <span className={cn("uppercase max-w-[120px] truncate font-mono", isStreamerMode && "blur-[6px] select-none")}>{serverName}</span>
          </div>
       </div>
       
       {/* System Controls */}
       <div className="flex items-center gap-2">
+         <button 
+            onClick={() => setStreamerMode(!isStreamerMode)} 
+            className={cn(
+               "w-8 h-8 flex items-center justify-center rounded-[var(--radius-btn)] transition-all",
+               isStreamerMode 
+                  ? "bg-[var(--accent-success)]/20 text-[var(--accent-success)] border border-[var(--accent-success)]/50" 
+                  : "hover:bg-[var(--bg-input)] text-[var(--text-secondary)]"
+            )}
+            title={isStreamerMode ? "Streamer Mode Active" : "Enable Streamer Mode"}
+         >
+            {isStreamerMode ? <Shield className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+         </button>
+
          <button 
             onClick={onToggleRightPanel} 
             className="hidden lg:flex w-8 h-8 items-center justify-center rounded-[var(--radius-btn)] hover:bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors"

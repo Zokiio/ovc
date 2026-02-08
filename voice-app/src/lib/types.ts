@@ -149,6 +149,7 @@ export type TransportMode = 'auto' | 'webrtc' | 'websocket'
 // --- Saved Server Types ---
 
 export interface SavedServer {
+  id: string
   url: string
   name: string
   username?: string

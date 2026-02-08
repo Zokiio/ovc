@@ -97,6 +97,7 @@ export const SavedServersManager = ({ className }: { className?: string }) => {
   const savedServers = useSettingsStore((s) => s.savedServers);
   const addSavedServer = useSettingsStore((s) => s.addSavedServer);
   const removeSavedServer = useSettingsStore((s) => s.removeSavedServer);
+  const isStreamerMode = useSettingsStore((s) => s.isStreamerMode);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newServerUrl, setNewServerUrl] = useState('');
   const [newServerName, setNewServerName] = useState('');
@@ -139,14 +140,14 @@ export const SavedServersManager = ({ className }: { className?: string }) => {
               <Server className="w-4 h-4 text-[var(--accent-primary)] shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-extrabold text-[var(--text-primary)] truncate">{server.name}</div>
-                <div className="text-[10px] text-[var(--text-secondary)] font-mono truncate font-medium">{server.url}</div>
+                <div className={cn("text-[10px] text-[var(--text-secondary)] font-mono truncate font-medium", isStreamerMode && "blur-[6px] select-none")}>{server.url}</div>
               </div>
               <div className="flex items-center gap-1 text-[9px] text-[var(--text-secondary)] shrink-0 font-medium">
                 <Clock className="w-3 h-3" />
                 {formatDate(server.lastConnected)}
               </div>
               <button
-                onClick={() => removeSavedServer(server.url)}
+                onClick={() => removeSavedServer(server.id)}
                 className="p-1 text-[var(--text-secondary)] hover:text-[var(--accent-danger)] transition-colors shrink-0"
               >
                 <Trash2 className="w-3.5 h-3.5" />
