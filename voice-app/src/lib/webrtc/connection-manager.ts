@@ -111,8 +111,8 @@ export class WebRTCConnectionManager {
 
       // Create data channel for audio (before creating offer)
       this.dataChannel = this.peerConnection.createDataChannel('audio', {
-        // Real-time voice prefers low latency over strict ordering.
-        ordered: false,
+        // Opus frames are decoded in sequence; preserve ordering to avoid audible artifacts.
+        ordered: true,
       })
       logger.debug('DataChannel created')
 

@@ -202,7 +202,7 @@ export function useConnection() {
     return true
   }, [])
 
-  const tryDrainOutboundOpusQueue = useCallback(async (forceFlushRemainder: boolean) => {
+  const tryDrainOutboundOpusQueue = useCallback(async () => {
     const signaling = getSignalingClient()
     if (signaling.getAudioCodec() !== 'opus') {
       return true
@@ -236,23 +236,13 @@ export function useConnection() {
     const remaining = pending.subarray(offset)
     pendingOutboundOpusPcmRef.current = cloneFloat32Array(remaining)
 
-    if (forceFlushRemainder && pendingOutboundOpusPcmRef.current.length > 0) {
-      const paddedFrame = new Float32Array(OPUS_FRAME_SAMPLES)
-      paddedFrame.set(pendingOutboundOpusPcmRef.current, 0)
-      const opusPacket = await opusEncoderRef.current.encodeFrame(paddedFrame)
-      if (!webrtc.sendAudio(uint8ToArrayBuffer(opusPacket))) {
-        return false
-      }
-      pendingOutboundOpusPcmRef.current = new Float32Array(0)
-    }
-
     return true
   }, [])
 
-  const enqueueOpusDrain = useCallback((forceFlushRemainder: boolean) => {
+  const enqueueOpusDrain = useCallback(() => {
     opusDrainChainRef.current = opusDrainChainRef.current
       .then(async () => {
-        const drained = await tryDrainOutboundOpusQueue(forceFlushRemainder)
+        const drained = await tryDrainOutboundOpusQueue()
         if (!drained) {
           pendingOutboundOpusPcmRef.current = new Float32Array(0)
         }
@@ -294,7 +284,7 @@ export function useConnection() {
 
     const runFlush = () => {
       outboundOpusFlushTimerRef.current = null
-      enqueueOpusDrain(true)
+      enqueueOpusDrain()
       if (pendingOutboundOpusPcmRef.current.length > 0) {
         outboundOpusFlushTimerRef.current = setTimeout(runFlush, OUTBOUND_OPUS_MAX_FLUSH_DELAY_MS)
       }
@@ -314,7 +304,7 @@ export function useConnection() {
       const scaledFrame = cloneFloat32Array(float32Data)
       scaleFloat32InPlace(scaledFrame, inputVolume / 100)
       pendingOutboundOpusPcmRef.current = concatFloat32Arrays(pendingOutboundOpusPcmRef.current, scaledFrame)
-      enqueueOpusDrain(false)
+      enqueueOpusDrain()
       if (pendingOutboundOpusPcmRef.current.length > 0) {
         scheduleOutboundOpusFlush()
       } else {
