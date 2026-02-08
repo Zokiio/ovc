@@ -29,9 +29,16 @@ export const ActiveChannel = ({ channelName }: { channelName: string }) => {
                 </p>
              </div>
           </div>
-          <Badge variant={currentGroup?.settings.isPrivate ? 'warning' : 'neutral'}>
-             {currentGroup?.settings.isPrivate ? 'Private' : 'Open'}
-          </Badge>
+          <div className="flex items-center gap-2">
+             <Badge variant={currentGroup?.settings.isPrivate ? 'warning' : 'neutral'}>
+                {currentGroup?.settings.isPrivate ? 'Private' : 'Open'}
+             </Badge>
+             {currentGroup && (
+               <Badge variant={currentGroup.settings.isIsolated ? 'warning' : 'success'}>
+                  {currentGroup.settings.isIsolated ? 'Isolated' : 'Hybrid'}
+               </Badge>
+             )}
+          </div>
        </div>
 
        {/* Users Grid */}

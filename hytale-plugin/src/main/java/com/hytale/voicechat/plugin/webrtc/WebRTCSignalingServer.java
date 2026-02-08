@@ -450,16 +450,15 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         JsonObject broadcastData = new JsonObject();
         broadcastData.addProperty("groupId", group.getGroupId().toString());
         broadcastData.addProperty("groupName", group.getName());
-        broadcastData.addProperty("membersCount", 1); // Creator is automatically added
+        broadcastData.addProperty("memberCount", group.getMemberCount());
+        broadcastData.addProperty("membersCount", group.getMemberCount()); // Backward compatibility
         broadcastData.addProperty("maxMembers", group.getSettings().getMaxMembers());
         broadcastData.addProperty("proximityRange", group.getSettings().getProximityRange());
+        broadcastData.addProperty("isIsolated", group.isIsolated());
         broadcastData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(creatorId));
         
         SignalingMessage broadcastMsg = new SignalingMessage("group_created", broadcastData);
         broadcastToAll(broadcastMsg);
-        
-        // Refresh group list for all clients
-        broadcastGroupList();
     }
     
     /**
@@ -468,7 +467,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     @Override
     public void onPlayerJoinedGroup(UUID playerId, Group group) {
         logger.atFine().log("Broadcasting player joined group: " + playerId + " joined " + group.getName());
+
+        WebRTCClient joiningClient = clients.get(playerId);
+        if (joiningClient != null && joiningClient.isConnected()) {
+            groupStateManager.addClientToGroup(playerId, joiningClient, group.getGroupId());
+        }
+
         broadcastGroupList();
+        broadcastPlayerList();
     }
     
     /**
@@ -479,13 +485,11 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         logger.atFine().log("Broadcasting player left group: " + playerId + " left " + group.getName());
         
         UUID groupId = group.getGroupId();
+        groupStateManager.removeClientFromAllGroups(playerId);
         
         // Send group_left to the leaving player's web client if connected
         WebRTCClient leavingClient = clients.get(playerId);
         if (leavingClient != null && leavingClient.isConnected()) {
-            // Remove from group state manager
-            groupStateManager.removeClientFromAllGroups(playerId);
-            
             // Send group_left message
             JsonObject leftData = new JsonObject();
             leftData.addProperty("groupId", groupId.toString());
@@ -511,6 +515,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         // Also refresh full group list for all clients
         broadcastGroupList();
+        broadcastPlayerList();
     }
     
     /**
@@ -549,6 +554,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             groupObj.addProperty("memberCount", group.getMemberCount());
             groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
             groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+            groupObj.addProperty("isIsolated", group.isIsolated());
             
             // Include members list so clients can verify membership
             com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
@@ -1415,16 +1421,20 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
             // Extract settings from message if provided
             GroupSettings settings = new GroupSettings();
+            boolean isIsolated = NetworkConfig.DEFAULT_GROUP_IS_ISOLATED;
             if (data.has("settings")) {
                 JsonObject settingsObj = data.getAsJsonObject("settings");
                 int defaultVolume = settingsObj.has("defaultVolume") ? settingsObj.get("defaultVolume").getAsInt() : GroupSettings.DEFAULT_VOLUME;
                 double proximityRange = settingsObj.has("proximityRange") ? settingsObj.get("proximityRange").getAsDouble() : GroupSettings.DEFAULT_PROXIMITY_RANGE;
                 boolean allowInvites = settingsObj.has("allowInvites") ? settingsObj.get("allowInvites").getAsBoolean() : GroupSettings.DEFAULT_ALLOW_INVITES;
                 int maxMembers = settingsObj.has("maxMembers") ? settingsObj.get("maxMembers").getAsInt() : GroupSettings.DEFAULT_MAX_MEMBERS;
+                isIsolated = settingsObj.has("isIsolated")
+                        ? settingsObj.get("isIsolated").getAsBoolean()
+                        : NetworkConfig.DEFAULT_GROUP_IS_ISOLATED;
                 settings = new GroupSettings(defaultVolume, proximityRange, allowInvites, maxMembers);
             }
 
-            var group = groupManager.createGroup(groupName, false, client.getClientId(), settings);
+            var group = groupManager.createGroup(groupName, false, client.getClientId(), settings, isIsolated);
             if (group == null) {
                 sendError(ctx, "Failed to create group (name may already exist)");
                 return;
@@ -1438,7 +1448,9 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             JsonObject responseData = new JsonObject();
             responseData.addProperty("groupId", group.getGroupId().toString());
             responseData.addProperty("groupName", group.getName());
+            responseData.addProperty("memberCount", group.getMemberCount());
             responseData.addProperty("membersCount", group.getMemberCount());
+            responseData.addProperty("isIsolated", group.isIsolated());
             responseData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(client.getClientId()));
             
             SignalingMessage response = new SignalingMessage("group_created", responseData);
@@ -1560,6 +1572,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 groupObj.addProperty("memberCount", group.getMemberCount());
                 groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
                 groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
+                groupObj.addProperty("isIsolated", group.isIsolated());
                 
                 // Include members list
                 com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);

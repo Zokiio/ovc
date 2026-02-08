@@ -504,6 +504,7 @@ export class SignalingClient {
           proximityRange: settings?.proximityRange ?? 30.0,
           allowInvites: settings?.allowInvites ?? true,
           maxMembers: settings?.maxMembers ?? 50,
+          isIsolated: settings?.isIsolated ?? true,
         },
       },
     })

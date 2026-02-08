@@ -13,6 +13,7 @@ import type { Group, GroupMember, User, PlayerPosition } from '../lib/types'
 
 // Keep outbound PCM chunks comfortably below the server's DataChannel payload cap (900 bytes).
 const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
+const PENDING_CREATE_GROUP_WINDOW_MS = 5000
 
 /**
  * Main connection hook that orchestrates signaling, WebRTC, and audio.
@@ -20,6 +21,7 @@ const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
 export function useConnection() {
   const isConnectingRef = useRef(false)
   const lastSentSpeakingRef = useRef<boolean | null>(null)
+  const pendingCreateGroupRef = useRef<number | null>(null)
   
   // Connection store
   const status = useConnectionStore((s) => s.status)
@@ -246,6 +248,7 @@ export function useConnection() {
       const rawGroups = (data as { groups?: unknown[] }).groups ?? []
       // Get current state to preserve locally created groups and member data
       const { groups: existingGroups, currentGroupId } = useGroupStore.getState()
+      const localUserId = useUserStore.getState().localUserId
       const existingGroupsMap = new Map(existingGroups.map(g => [g.id, g]))
 
       // Normalize groups to ensure they have all required fields
@@ -281,20 +284,34 @@ export function useConnection() {
             return true
           })
         
-        // If server has no members but we have existing members, preserve them
-        const members = serverMembers.length > 0 ? serverMembers : (existingGroup?.members ?? [])
+        // Preserve existing members only as a fallback for the local user's active group.
+        const shouldPreserveLocalMembers = (
+          serverMembers.length === 0 &&
+          !!existingGroup &&
+          groupId === currentGroupId &&
+          !!localUserId &&
+          existingGroup.members.some((member) => member.id === localUserId)
+        )
+        const members = serverMembers.length > 0
+          ? serverMembers
+          : (shouldPreserveLocalMembers ? (existingGroup?.members ?? []) : [])
         
+        const normalizedMemberCount = shouldPreserveLocalMembers
+          ? members.length
+          : Number(g.memberCount ?? members.length ?? 0)
+
         return {
           id: groupId,
           name: String(g.name || g.groupName || 'Unknown'),
-          memberCount: Number(g.memberCount ?? members.length ?? 0),
+          memberCount: Number.isFinite(normalizedMemberCount) ? normalizedMemberCount : members.length,
           members,
           settings: {
             defaultVolume: Number(groupSettings.defaultVolume ?? 100),
             proximityRange: Number(groupSettings.proximityRange ?? 30),
             allowInvites: Boolean(groupSettings.allowInvites ?? true),
             maxMembers: Number(groupSettings.maxMembers ?? g.maxMembers ?? 50),
-            isPrivate: Boolean(groupSettings.isPrivate ?? g.isPrivate ?? false)
+            isPrivate: Boolean(groupSettings.isPrivate ?? g.isPrivate ?? false),
+            isIsolated: Boolean(groupSettings.isIsolated ?? g.isIsolated ?? true),
           }
         }
       })
@@ -314,7 +331,6 @@ export function useConnection() {
       setGroups(finalGroups)
 
       // Check if local user is still in the current group (handles in-game leave)
-      const localUserId = useUserStore.getState().localUserId
       if (currentGroupId && localUserId) {
         const currentGroup = finalGroups.find(g => g.id === currentGroupId)
         // Only clear if we have fresh member data from server
@@ -329,29 +345,71 @@ export function useConnection() {
     })
 
     signaling.on('group_created', (data) => {
-      const { groupId, groupName } = data as { groupId: string; groupName: string }
+      const payload = data as {
+        groupId: string
+        groupName: string
+        creatorClientId?: string
+        memberCount?: number
+        membersCount?: number
+        isIsolated?: boolean
+      }
+      const groupId = payload.groupId
+      const groupName = payload.groupName
+      if (!groupId || !groupName) {
+        return
+      }
+
       // Get local user info to add as member
       const localUserId = useUserStore.getState().localUserId
       const localUser = localUserId ? useUserStore.getState().users.get(localUserId) : null
+      const creatorClientId = typeof payload.creatorClientId === 'string' ? payload.creatorClientId : ''
+      const pendingCreateAt = pendingCreateGroupRef.current
+      const hasRecentPendingCreate = pendingCreateAt !== null && (Date.now() - pendingCreateAt) <= PENDING_CREATE_GROUP_WINDOW_MS
+      const isCreator = !!localUserId && (
+        creatorClientId === localUserId ||
+        (!creatorClientId && hasRecentPendingCreate)
+      )
+
+      if (creatorClientId || hasRecentPendingCreate) {
+        pendingCreateGroupRef.current = null
+      }
+
+      const rawMemberCount = Number(payload.memberCount ?? payload.membersCount ?? (isCreator ? 1 : 0))
+      const members = isCreator && localUser
+        ? [{
+            id: localUser.id,
+            name: localUser.name,
+            isSpeaking: false,
+            isMicMuted: localUser.isMicMuted,
+            isVoiceConnected: true,
+          }]
+        : []
+      const memberCount = Number.isFinite(rawMemberCount)
+        ? Math.max(rawMemberCount, members.length)
+        : members.length
       
       addGroup({
         id: groupId,
         name: groupName,
-        memberCount: 1,
-        members: localUser ? [{
-          id: localUser.id,
-          name: localUser.name,
-          isSpeaking: false,
-          isMicMuted: localUser.isMicMuted,
-          isVoiceConnected: true
-        }] : [],
-        settings: { defaultVolume: 100, proximityRange: 30, allowInvites: true, maxMembers: 50, isPrivate: false },
+        memberCount,
+        members,
+        settings: {
+          defaultVolume: 100,
+          proximityRange: 30,
+          allowInvites: true,
+          maxMembers: 50,
+          isPrivate: false,
+          isIsolated: payload.isIsolated !== false,
+        },
       })
-      setCurrentGroupId(groupId)
+      if (isCreator) {
+        setCurrentGroupId(groupId)
+      }
     })
 
     signaling.on('group_joined', (data) => {
       const { groupId } = data as { groupId: string }
+      pendingCreateGroupRef.current = null
       setCurrentGroupId(groupId)
     })
 
@@ -625,6 +683,7 @@ export function useConnection() {
     stopListening()
     resetSignalingClient()
     resetWebRTCManager()
+    pendingCreateGroupRef.current = null
     setProximityRadarEnabled(false)
     resetConnection()
     resetGroups()
@@ -634,10 +693,14 @@ export function useConnection() {
   /**
    * Create a new group
    */
-  const createGroup = useCallback((name: string, maxMembers: number = 50) => {
+  const createGroup = useCallback((name: string, options: { maxMembers?: number; isIsolated?: boolean } = {}) => {
     const signaling = getSignalingClient()
     if (signaling.isConnected()) {
-      signaling.createGroup(name, { maxMembers })
+      pendingCreateGroupRef.current = Date.now()
+      signaling.createGroup(name, {
+        maxMembers: options.maxMembers ?? 50,
+        isIsolated: options.isIsolated ?? true,
+      })
     }
   }, [])
 

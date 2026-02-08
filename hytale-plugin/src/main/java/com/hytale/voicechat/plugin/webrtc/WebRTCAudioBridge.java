@@ -201,11 +201,27 @@ public class WebRTCAudioBridge {
         UUID senderId = senderPosition.getPlayerId();
         
         // Check if sender is in a group
-        if (groupStateManager != null) {
+        if (groupStateManager != null && groupManager != null) {
             UUID groupId = groupStateManager.getClientGroup(senderId);
-            if (groupId != null && groupManager != null) {
-                // Route within group with proximity filtering
+            if (groupId != null) {
+                var group = groupManager.getGroup(groupId);
+                if (group == null) {
+                    routeAudioByProximity(senderId, senderPosition, audioData);
+                    return;
+                }
+
+                // Always route within the sender's group.
                 routeAudioToGroup(groupId, senderId, senderPosition, audioData);
+
+                // Hybrid mode: also route to nearby non-group clients.
+                if (!group.isIsolated()) {
+                    Set<UUID> excludedRecipients = new HashSet<>();
+                    excludedRecipients.add(senderId);
+                    for (WebRTCClient groupMember : groupStateManager.getGroupClients(groupId)) {
+                        excludedRecipients.add(groupMember.getClientId());
+                    }
+                    routeAudioByProximity(senderId, senderPosition, audioData, excludedRecipients);
+                }
                 return;
             }
         }
@@ -282,9 +298,25 @@ public class WebRTCAudioBridge {
      * Route audio by proximity (for non-group players)
      */
     private void routeAudioByProximity(UUID senderId, PlayerPosition senderPosition, byte[] audioData) {
+        routeAudioByProximity(senderId, senderPosition, audioData, Collections.emptySet());
+    }
+
+    /**
+     * Route audio by proximity while excluding specific recipients.
+     */
+    private void routeAudioByProximity(
+            UUID senderId,
+            PlayerPosition senderPosition,
+            byte[] audioData,
+            Set<UUID> excludedRecipientIds
+    ) {
+        Set<UUID> excluded = excludedRecipientIds != null ? excludedRecipientIds : Collections.emptySet();
         for (WebRTCClient client : clients.values()) {
             // Skip self
             if (client.getClientId().equals(senderId)) {
+                continue;
+            }
+            if (excluded.contains(client.getClientId())) {
                 continue;
             }
             

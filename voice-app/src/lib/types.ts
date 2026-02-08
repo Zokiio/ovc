@@ -56,6 +56,7 @@ export interface GroupSettings {
   allowInvites: boolean
   maxMembers: number
   isPrivate: boolean
+  isIsolated: boolean
 }
 
 // --- Audio Types ---
@@ -160,7 +161,14 @@ export interface SignalingEvents {
   pending_game_session: { message?: string; timeoutSeconds?: number }
   game_session_ready: { message?: string }
   latency: { latency: number }
-  group_created: { groupId: string; groupName: string }
+  group_created: {
+    groupId: string
+    groupName: string
+    creatorClientId?: string
+    memberCount?: number
+    membersCount?: number
+    isIsolated?: boolean
+  }
   group_joined: { groupId: string; groupName: string }
   group_left: { groupId: string }
   group_list: { groups: Group[] }

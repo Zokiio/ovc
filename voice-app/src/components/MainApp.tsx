@@ -18,7 +18,7 @@ interface MainAppProps {
   user: { name: string; server: string };
   onLogout: () => void;
   disconnect: () => void;
-  createGroup: (name: string, maxMembers?: number) => void;
+  createGroup: (name: string, options?: { maxMembers?: number; isIsolated?: boolean }) => void;
   joinGroup: (groupId: string) => void;
   leaveGroup: () => void;
 }

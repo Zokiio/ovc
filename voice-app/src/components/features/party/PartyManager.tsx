@@ -5,7 +5,7 @@ import { Users, Plus, Lock, Globe, LogOut } from 'lucide-react';
 import { useGroupStore } from '../../../stores/groupStore';
  
 interface PartyManagerProps {
-  createGroup: (name: string, maxMembers?: number) => void;
+  createGroup: (name: string, options?: { maxMembers?: number; isIsolated?: boolean }) => void;
   joinGroup: (groupId: string) => void;
   leaveGroup: () => void;
 }
@@ -17,6 +17,7 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
   const [newGroupName, setNewGroupName] = useState('');
   const [maxPlayers, setMaxPlayers] = useState(10);
   const [password, setPassword] = useState('');
+  const [isIsolated, setIsIsolated] = useState(true);
 
   // Use individual selectors for proper reactivity
   const groups = useGroupStore((s) => s.groups);
@@ -29,11 +30,12 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
 
   const handleCreateGroup = () => {
     if (!newGroupName.trim()) return;
-    createGroup(newGroupName, maxPlayers);
+    createGroup(newGroupName, { maxMembers: maxPlayers, isIsolated });
     setShowCreateModal(false);
     setNewGroupName('');
     setPassword('');
     setIsPrivate(false);
+    setIsIsolated(true);
   };
 
   const handleJoinGroup = (groupId: string) => {
@@ -119,6 +121,10 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
                         <span className="bg-[var(--bg-input)] px-1 rounded">LOCAL</span>
                         <span className="opacity-50">|</span>
                         <span>#{group.id.slice(0, 4).toUpperCase()}</span>
+                        <span className="opacity-50">|</span>
+                        <span className={group.settings.isIsolated ? 'text-[var(--accent-warning)]' : 'text-[var(--accent-success)]'}>
+                          {group.settings.isIsolated ? 'ISOLATED' : 'HYBRID'}
+                        </span>
                      </div>
                   </div>
                   <Badge variant={group.id === currentGroup?.id ? 'success' : 'neutral'}>
@@ -172,6 +178,17 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
                   checked={isPrivate} 
                   onChange={setIsPrivate} 
                />
+
+               <Switch
+                  label={`Audio Mode: ${isIsolated ? 'Isolated' : 'Hybrid'}`}
+                  checked={isIsolated}
+                  onChange={setIsIsolated}
+               />
+               <p className="text-[10px] text-[var(--text-secondary)] -mt-2">
+                  {isIsolated
+                    ? 'Isolated: group members only hear each other.'
+                    : 'Hybrid: group voice plus nearby non-group players.'}
+               </p>
                
                {isPrivate && (
                   <div className="animate-in slide-in-from-top-2 duration-200">
