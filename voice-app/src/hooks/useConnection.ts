@@ -147,6 +147,7 @@ export function useConnection() {
   const inputVolume = useAudioStore((s) => s.settings.inputVolume)
   const setProximityRadarEnabled = useAudioStore((s) => s.setProximityRadarEnabled)
   const setProximityRadarSpeakingOnly = useAudioStore((s) => s.setProximityRadarSpeakingOnly)
+  const setGroupSpatialAudioEnabled = useAudioStore((s) => s.setGroupSpatialAudioEnabled)
   const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
 
   // Audio playback
@@ -504,6 +505,7 @@ export function useConnection() {
         pending,
         useProximityRadar,
         useProximityRadarSpeakingOnly,
+        groupSpatialAudio,
         audioCodec,
         audioCodecConfig,
       } = data as {
@@ -512,6 +514,7 @@ export function useConnection() {
         pending?: boolean
         useProximityRadar?: boolean
         useProximityRadarSpeakingOnly?: boolean
+        groupSpatialAudio?: boolean
         audioCodec?: string
         audioCodecConfig?: AudioCodecConfig
       }
@@ -519,6 +522,7 @@ export function useConnection() {
       setLocalUserId(clientId)
       setProximityRadarEnabled(!!useProximityRadar)
       setProximityRadarSpeakingOnly(!!useProximityRadarSpeakingOnly)
+      setGroupSpatialAudioEnabled(groupSpatialAudio !== false)
 
       if (audioCodec && audioCodec !== 'opus') {
         setError('Server selected unsupported audio codec. This client requires Opus.')
@@ -555,6 +559,9 @@ export function useConnection() {
       }
       if (typeof payload.useProximityRadarSpeakingOnly === 'boolean') {
         setProximityRadarSpeakingOnly(payload.useProximityRadarSpeakingOnly)
+      }
+      if (typeof payload.groupSpatialAudio === 'boolean') {
+        setGroupSpatialAudioEnabled(payload.groupSpatialAudio)
       }
       if (payload.audioCodec === 'opus') {
         const config = payload.audioCodecConfig && typeof payload.audioCodecConfig === 'object'
@@ -993,7 +1000,7 @@ export function useConnection() {
     setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
     updateMemberSpeaking, updateMemberMuted, setMicMuted, resolveUserIdFromEvent,
-    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, setProximityRadarSpeakingOnly, resetReconnectAttempt,
+    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, setProximityRadarSpeakingOnly, setGroupSpatialAudioEnabled, resetReconnectAttempt,
     toPlayerPosition, resolveRadarMaxRange, upsertProximityRadarContact,
   ])
 
@@ -1172,6 +1179,7 @@ export function useConnection() {
     pendingCreateGroupRef.current = null
     setProximityRadarEnabled(false)
     setProximityRadarSpeakingOnly(false)
+    setGroupSpatialAudioEnabled(true)
     resetConnection()
     resetGroups()
     resetUsers()
@@ -1181,6 +1189,7 @@ export function useConnection() {
     stopListening,
     setProximityRadarEnabled,
     setProximityRadarSpeakingOnly,
+    setGroupSpatialAudioEnabled,
     resetConnection,
     resetGroups,
     resetUsers,

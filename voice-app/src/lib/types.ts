@@ -170,6 +170,7 @@ export interface SignalingEvents {
     audioCodecConfig?: AudioCodecConfig
     useProximityRadar?: boolean
     useProximityRadarSpeakingOnly?: boolean
+    groupSpatialAudio?: boolean
     pending: boolean
     pendingMessage?: string
     pendingTimeoutSeconds?: number
@@ -186,6 +187,7 @@ export interface SignalingEvents {
     resumeWindowMs?: number
     useProximityRadar?: boolean
     useProximityRadarSpeakingOnly?: boolean
+    groupSpatialAudio?: boolean
     audioCodec?: AudioCodec
     audioCodecs?: AudioCodec[]
     audioCodecConfig?: AudioCodecConfig

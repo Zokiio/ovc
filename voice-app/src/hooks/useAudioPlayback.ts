@@ -6,6 +6,7 @@ import { createLogger } from '../lib/logger'
 import { getSignalingClient } from '../lib/signaling'
 import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
 import { useAudioStore } from '../stores/audioStore'
+import { useGroupStore } from '../stores/groupStore'
 import { useUserStore } from '../stores/userStore'
 
 const logger = createLogger('useAudioPlayback')
@@ -28,6 +29,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
   const setLocalMute = useAudioStore((s) => s.setLocalMute)
   const setStoredUserVolume = useAudioStore((s) => s.setUserVolume)
+  const isGroupSpatialAudioEnabled = useAudioStore((s) => s.isGroupSpatialAudioEnabled)
 
   const managerRef = useRef(getAudioPlaybackManager())
   const opusDecoderRef = useRef(new OpusCodecManager())
@@ -61,6 +63,11 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   const syncSpatialState = useCallback(() => {
     const manager = managerRef.current
     const { users, localUserId } = useUserStore.getState()
+    const { currentGroupId, groups } = useGroupStore.getState()
+    const localGroupId = localUserId ? users.get(localUserId)?.groupId ?? null : null
+    const activeGroupId = currentGroupId ?? localGroupId
+    const currentGroup = currentGroupId ? groups.find((group) => group.id === currentGroupId) : null
+    const currentGroupMembers = currentGroup ? new Set(currentGroup.members.map((member) => member.id)) : null
     const localPosition = localUserId ? users.get(localUserId)?.position ?? null : null
     manager.updateListenerPosition(localPosition)
 
@@ -68,9 +75,17 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       if (userId === localUserId) {
         return
       }
+      const shouldApplySpatial =
+        isGroupSpatialAudioEnabled ||
+        !activeGroupId ||
+        (
+          (!currentGroupMembers || !currentGroupMembers.has(userId)) &&
+          user.groupId !== activeGroupId
+        )
+      manager.setUserSpatialEnabled(userId, shouldApplySpatial)
       manager.updateUserPosition(userId, user.position ?? null)
     })
-  }, [])
+  }, [isGroupSpatialAudioEnabled])
 
   useEffect(() => {
     const manager = managerRef.current
@@ -114,11 +129,15 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
 
   useEffect(() => {
     syncSpatialState()
-    const unsubscribe = useUserStore.subscribe(() => {
+    const unsubscribeUsers = useUserStore.subscribe(() => {
+      syncSpatialState()
+    })
+    const unsubscribeGroups = useGroupStore.subscribe(() => {
       syncSpatialState()
     })
     return () => {
-      unsubscribe()
+      unsubscribeUsers()
+      unsubscribeGroups()
     }
   }, [syncSpatialState])
 

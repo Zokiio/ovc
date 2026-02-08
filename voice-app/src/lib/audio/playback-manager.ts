@@ -10,10 +10,10 @@ import { createLogger } from '../logger'
 const logger = createLogger('AudioPlayback')
 
 const DEFAULT_MAX_RANGE = 50
-const SPATIAL_REF_DISTANCE = 1.0
+const SPATIAL_REF_DISTANCE = 4.0
 const SPATIAL_MAX_DISTANCE_CLAMP: [number, number] = [5, 200]
-const SPATIAL_ROLLOFF_FULL = 1.35
-const SPATIAL_ROLLOFF_MIN = 0.35
+const SPATIAL_ROLLOFF_FULL = 0.75
+const SPATIAL_ROLLOFF_MIN = 0.0
 const SPATIAL_GAIN_THRESHOLD = 0.98
 const SPATIAL_SMOOTHING_TC = 0.05
 
@@ -32,6 +32,7 @@ interface ListenerOrientation {
 export interface UserAudioState {
   volume: number // 0-200 (allow boost)
   isMuted: boolean
+  spatialEnabled: boolean
   pannerNode: PannerNode | null
   gainNode: GainNode | null
   playbackProcessor: AudioWorkletNode | null
@@ -189,6 +190,22 @@ export class AudioPlaybackManager {
     this.diagnosticsListener = listener
   }
 
+  public setUserSpatialEnabled(userId: string, enabled: boolean): void {
+    const state = this.getOrCreateState(userId)
+    if (state.spatialEnabled === enabled) {
+      return
+    }
+    state.spatialEnabled = enabled
+    this.applyPannerSpatialConfig(state)
+    if (state.pannerNode) {
+      if (!enabled) {
+        this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+      } else if (state.lastKnownPosition) {
+        this.applyPannerPosition(state.pannerNode, this.toAudioPoint(state.lastKnownPosition))
+      }
+    }
+  }
+
   public updateListenerPosition(position: PlayerPosition | null): void {
     this.listenerPosition = position
     this.applyListenerState()
@@ -200,6 +217,10 @@ export class AudioPlaybackManager {
 
     if (position) {
       if (listenerPosition && position.worldId !== listenerPosition.worldId) {
+        state.lastKnownPosition = null
+        if (state.pannerNode) {
+          this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+        }
         return
       }
       state.lastKnownPosition = position
@@ -209,6 +230,11 @@ export class AudioPlaybackManager {
     }
 
     if (!state.pannerNode) {
+      return
+    }
+
+    if (!state.spatialEnabled) {
+      this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
       return
     }
 
@@ -347,7 +373,7 @@ export class AudioPlaybackManager {
       state.pannerNode.coneOuterAngle = 360
       state.pannerNode.coneOuterGain = 0
       this.applyPannerSpatialConfig(state)
-      const initialPoint = state.lastKnownPosition
+      const initialPoint = state.spatialEnabled && state.lastKnownPosition
         ? this.toAudioPoint(state.lastKnownPosition)
         : this.getCurrentListenerPoint()
       this.applyPannerPosition(state.pannerNode, initialPoint)
@@ -418,6 +444,7 @@ export class AudioPlaybackManager {
       state = {
         volume: 100,
         isMuted: false,
+        spatialEnabled: true,
         pannerNode: null,
         gainNode: null,
         playbackProcessor: null,
@@ -458,7 +485,7 @@ export class AudioPlaybackManager {
       ? this.getOrientationFromPosition(this.listenerPosition)
       : { forwardX: 0, forwardY: 0, forwardZ: -1 }
     this.applyListenerOrientation(listener, orientation)
-    this.recenterUsersWithoutKnownPosition(listenerPoint)
+    this.recenterUsersNeedingCenter(listenerPoint)
   }
 
   private applyListenerPosition(listener: AudioListener, point: SpatialPoint): void {
@@ -552,7 +579,7 @@ export class AudioPlaybackManager {
       SPATIAL_MAX_DISTANCE_CLAMP[0],
       SPATIAL_MAX_DISTANCE_CLAMP[1]
     )
-    pannerNode.rolloffFactor = this.getAdaptiveRolloff(state.serverGainHint)
+    pannerNode.rolloffFactor = state.spatialEnabled ? this.getAdaptiveRolloff(state.serverGainHint) : 0
   }
 
   private smoothAudioParam(param: AudioParam, value: number): void {
@@ -564,12 +591,25 @@ export class AudioPlaybackManager {
     param.setTargetAtTime(value, now, SPATIAL_SMOOTHING_TC)
   }
 
-  private recenterUsersWithoutKnownPosition(listenerPoint: SpatialPoint): void {
+  private recenterUsersNeedingCenter(listenerPoint: SpatialPoint): void {
     for (const state of this.userStates.values()) {
-      if (!state.pannerNode || state.lastKnownPosition) {
+      if (!state.pannerNode) {
         continue
       }
-      this.applyPannerPosition(state.pannerNode, listenerPoint)
+      if (!state.spatialEnabled) {
+        this.applyPannerPosition(state.pannerNode, listenerPoint)
+        continue
+      }
+      if (!state.lastKnownPosition) {
+        this.applyPannerPosition(state.pannerNode, listenerPoint)
+        continue
+      }
+      if (
+        this.listenerPosition &&
+        state.lastKnownPosition.worldId !== this.listenerPosition.worldId
+      ) {
+        this.applyPannerPosition(state.pannerNode, listenerPoint)
+      }
     }
   }
 
@@ -578,7 +618,7 @@ export class AudioPlaybackManager {
       return SPATIAL_ROLLOFF_FULL
     }
     const normalizedGain = this.clamp(serverGainHint, 0, 1)
-    return SPATIAL_ROLLOFF_MIN + (SPATIAL_ROLLOFF_FULL - SPATIAL_ROLLOFF_MIN) * normalizedGain
+    return SPATIAL_ROLLOFF_MIN + (SPATIAL_ROLLOFF_FULL - SPATIAL_ROLLOFF_MIN) * normalizedGain * normalizedGain
   }
 
   private getCurrentListenerPoint(): SpatialPoint {
