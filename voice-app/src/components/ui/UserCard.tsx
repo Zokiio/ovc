@@ -158,10 +158,11 @@ interface UserCardCompactProps {
   user: User | GroupMember;
   onClick?: () => void;
   showControls?: boolean;
+  alwaysShowControls?: boolean;
   className?: string;
 }
 
-const UserCardCompactComponent = ({ user, onClick, showControls = true, className }: UserCardCompactProps) => {
+const UserCardCompactComponent = ({ user, onClick, showControls = true, alwaysShowControls = false, className }: UserCardCompactProps) => {
   const selectLocalMuted = useCallback((s: ReturnType<typeof useAudioStore.getState>) => s.localMutes.get(user.id) ?? false, [user.id]);
   const selectUserVolume = useCallback((s: ReturnType<typeof useAudioStore.getState>) => s.userVolumes.get(user.id) ?? 100, [user.id]);
 
@@ -212,7 +213,12 @@ const UserCardCompactComponent = ({ user, onClick, showControls = true, classNam
 
       {/* Quick Controls */}
       {showControls && (
-        <div className="flex items-center gap-2 opacity-100 transition-opacity pointer-events-auto md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:pointer-events-auto">
+        <div
+          className={cn(
+            "flex items-center gap-2 opacity-100 transition-opacity pointer-events-auto",
+            !alwaysShowControls && "md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:pointer-events-auto"
+          )}
+        >
           <input 
             type="range" 
             className="w-16 h-1 bg-[var(--bg-panel)] appearance-none cursor-pointer accent-[var(--accent-primary)] rounded-full" 
@@ -263,6 +269,7 @@ const areUserCardCompactPropsEqual = (prev: UserCardCompactProps, next: UserCard
   prev.user.isSpeaking === next.user.isSpeaking &&
   prev.user.isMicMuted === next.user.isMicMuted &&
   prev.showControls === next.showControls &&
+  prev.alwaysShowControls === next.alwaysShowControls &&
   prev.onClick === next.onClick &&
   prev.className === next.className;
 

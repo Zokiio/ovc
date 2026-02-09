@@ -73,7 +73,7 @@ export const GlobalRoster = () => {
                 return (
                   <div key={player.id} className="flex items-center gap-2">
                     <div className="flex-1">
-                      <UserCardCompact user={player} showControls={true} />
+                      <UserCardCompact user={player} showControls={true} alwaysShowControls={true} />
                     </div>
                     {groupName && (
                       <Badge variant="neutral" className="shrink-0 text-[9px]">{groupName}</Badge>
