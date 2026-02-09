@@ -137,12 +137,14 @@ export const MainApp = ({
          <div className="h-auto bg-[var(--bg-panel)] border-t border-[var(--border-primary)] flex flex-col shrink-0 z-40 shadow-[0_-4px_10px_rgba(0,0,0,0.2)]">
 
             {/* Status Strip */}
-            <div className="h-7 px-4 flex items-center justify-between border-b border-[var(--border-primary)] bg-[var(--bg-panel-header)]/80 backdrop-blur-md">
-               <ConnectionMonitor compact />
+            <div className="h-7 px-3 sm:px-4 flex items-center justify-between gap-2 border-b border-[var(--border-primary)] bg-[var(--bg-panel-header)]/80 backdrop-blur-md overflow-hidden">
+               <div className="min-w-0 flex-1 overflow-hidden">
+                  <ConnectionMonitor compact />
+               </div>
 
-               <div className="flex items-center gap-2 text-[10px] font-mono text-[var(--text-secondary)]">
+               <div className="flex items-center gap-2 text-[10px] font-mono text-[var(--text-secondary)] shrink-0">
                   <Clock className="w-3 h-3" />
-                  <span>UPTIME:</span>
+                  <span className="hidden min-[430px]:inline">UPTIME:</span>
                   <span className="text-[var(--text-primary)] font-bold">{formatUptime(uptime)}</span>
                </div>
             </div>

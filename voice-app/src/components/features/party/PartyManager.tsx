@@ -111,10 +111,10 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
                )}
                onClick={() => handleJoinGroup(group.id)}
             >
-               <div className="flex justify-between items-start mb-2">
-                  <div>
+               <div className="flex justify-between items-start gap-2 mb-2">
+                  <div className="min-w-0 flex-1">
                      <div className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2 group-hover/item:text-[var(--accent-primary)] transition-colors">
-                        {group.name}
+                        <span className="truncate">{group.name}</span>
                         {group.settings.isPrivate && <Lock className="w-3 h-3 text-[var(--accent-warning)]" />}
                      </div>
                      <div className="text-[10px] text-[var(--text-secondary)] uppercase flex items-center gap-2 font-mono mt-0.5">

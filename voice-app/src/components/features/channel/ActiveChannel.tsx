@@ -15,13 +15,13 @@ export const ActiveChannel = ({ channelName }: { channelName: string }) => {
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)]">
        {/* Header */}
-       <div className="h-14 bg-[var(--bg-panel)] border-b border-[var(--border-primary)] flex items-center justify-between px-6 shadow-sm shrink-0 sticky top-0 z-10">
-          <div className="flex items-center gap-3">
+       <div className="h-14 bg-[var(--bg-panel)] border-b border-[var(--border-primary)] flex items-center justify-between px-3 sm:px-6 gap-2 shadow-sm shrink-0 sticky top-0 z-10">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
              <div className="p-2 bg-[var(--bg-input)] rounded-[var(--radius-btn)] border border-[var(--border-primary)] text-[var(--accent-primary)]">
                 <Activity className="w-5 h-5" />
              </div>
-             <div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] font-[family-name:var(--font-heading)]">
+             <div className="min-w-0">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] font-[family-name:var(--font-heading)] truncate">
                    {currentGroup?.name ?? channelName}
                 </h2>
                 <p className="text-[10px] text-[var(--text-secondary)] font-mono tracking-widest">
@@ -29,12 +29,12 @@ export const ActiveChannel = ({ channelName }: { channelName: string }) => {
                 </p>
              </div>
           </div>
-          <div className="flex items-center gap-2">
-             <Badge variant={currentGroup?.settings.isPrivate ? 'warning' : 'neutral'}>
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+             <Badge variant={currentGroup?.settings.isPrivate ? 'warning' : 'neutral'} className="px-1.5 sm:px-2">
                 {currentGroup?.settings.isPrivate ? 'Private' : 'Open'}
              </Badge>
              {currentGroup && (
-               <Badge variant={currentGroup.settings.isIsolated ? 'warning' : 'success'}>
+               <Badge variant={currentGroup.settings.isIsolated ? 'warning' : 'success'} className="px-1.5 sm:px-2 max-[380px]:hidden">
                   {currentGroup.settings.isIsolated ? 'Isolated' : 'Hybrid'}
                </Badge>
              )}
