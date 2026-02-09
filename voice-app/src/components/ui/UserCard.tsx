@@ -6,6 +6,9 @@ import { AudioLevelMeter, SpeakingIndicator } from './AudioControls';
 import type { GroupMember, User } from '../../lib/types';
 import { getAudioPlaybackManager } from '../../lib/audio/playback-manager';
 
+const clampUserVolume = (rawValue: number): number =>
+  Math.max(0, Math.min(200, Number.isFinite(rawValue) ? rawValue : 100))
+
 // --- Full User Card ---
 
 interface UserCardProps {
@@ -102,8 +105,12 @@ const UserCardComponent = ({ user, showVolumeControls = true, showSpeakingLevel 
               value={volume}
               min={0}
               max={200}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              aria-label={`Set ${user.name}'s volume`}
               onChange={(e) => {
-                const nextVolume = Number(e.target.value)
+                const nextVolume = clampUserVolume(Number(e.currentTarget.value))
                 setUserVolume(user.id, nextVolume)
                 playbackManager.setUserVolume(user.id, nextVolume)
               }}
@@ -115,6 +122,9 @@ const UserCardComponent = ({ user, showVolumeControls = true, showSpeakingLevel 
                   ? "bg-[var(--accent-danger)]/20 text-[var(--accent-danger)] border-[var(--accent-danger)]"
                   : "bg-[var(--bg-panel)] text-[var(--text-secondary)] border-[var(--border-primary)] hover:text-[var(--accent-danger)] hover:border-[var(--accent-danger)]"
               )}
+              onMouseDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               onClick={() => {
                 const nextMuted = !isLocalMuted
                 setLocalMute(user.id, nextMuted)
@@ -202,16 +212,20 @@ const UserCardCompactComponent = ({ user, onClick, showControls = true, classNam
 
       {/* Quick Controls */}
       {showControls && (
-        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-2 opacity-100 transition-opacity pointer-events-auto md:opacity-0 md:pointer-events-none md:group-hover:opacity-100 md:group-hover:pointer-events-auto md:group-focus-within:opacity-100 md:group-focus-within:pointer-events-auto">
           <input 
             type="range" 
             className="w-16 h-1 bg-[var(--bg-panel)] appearance-none cursor-pointer accent-[var(--accent-primary)] rounded-full" 
             value={volume}
             min={0}
             max={200}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
+            aria-label={`Set ${user.name}'s volume`}
             onChange={(e) => {
-              const nextVolume = Number(e.target.value)
+              const nextVolume = clampUserVolume(Number(e.currentTarget.value))
               setUserVolume(user.id, nextVolume)
               playbackManager.setUserVolume(user.id, nextVolume)
             }}
@@ -224,6 +238,9 @@ const UserCardCompactComponent = ({ user, onClick, showControls = true, classNam
                 ? "text-[var(--accent-danger)]"
                 : "text-[var(--text-secondary)] hover:text-[var(--accent-danger)]"
             )}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation()
               const nextMuted = !isLocalMuted

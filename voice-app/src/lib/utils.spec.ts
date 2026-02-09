@@ -30,8 +30,10 @@ const runTests = () => {
     console.log(`
   Tests completed: ${passed} passed, ${failed} failed.`);
   
-    // @ts-ignore
-    if (failed > 0) process.exit(1);
+    if (failed > 0) {
+      const runtimeProcess = (globalThis as { process?: { exit?: (code?: number) => void } }).process;
+      runtimeProcess?.exit?.(1);
+    }
   };
 // Check if running directly
 // if (import.meta.url === `file://${process.argv[1]}`) {

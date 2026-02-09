@@ -137,7 +137,7 @@ export function useConnection() {
   const resetUsers = useUserStore((s) => s.reset)
 
   // Settings store
-  const addSavedServer = useSettingsStore((s) => s.addSavedServer)
+  const updateServerLastConnected = useSettingsStore((s) => s.updateServerLastConnected)
   const setLastServerUrl = useSettingsStore((s) => s.setLastServerUrl)
 
   // Audio store
@@ -1141,9 +1141,15 @@ export function useConnection() {
       const signaling = getSignalingClient()
       await signaling.connect(serverUrl, username, authCode)
 
-      // Save server with credentials
-      addSavedServer(serverUrl, undefined, username, authCode || undefined)
-      setLastServerUrl(serverUrl)
+      // Only keep "last server" for manually-saved servers.
+      const matchingSavedServer = useSettingsStore.getState().savedServers
+        .find((savedServer) => savedServer.url === serverUrl)
+      if (matchingSavedServer) {
+        updateServerLastConnected(matchingSavedServer.id)
+        setLastServerUrl(serverUrl)
+      } else {
+        setLastServerUrl(null)
+      }
 
       // Connect WebRTC when transport mode and server state allow it.
       await connectWebRTCIfAllowed(signaling)
@@ -1163,7 +1169,7 @@ export function useConnection() {
   }, [
     setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
-    addSavedServer, clearReconnectTimer, clearWarnings, setLastServerUrl,
+    updateServerLastConnected, clearReconnectTimer, clearWarnings, setLastServerUrl,
     connectWebRTCIfAllowed, resetOutboundAudioQueues, resetOpusEncoder, resetReconnectAttempt,
   ])
 
