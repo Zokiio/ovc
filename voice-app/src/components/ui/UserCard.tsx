@@ -221,7 +221,7 @@ const UserCardCompactComponent = ({ user, onClick, showControls = true, alwaysSh
         >
           <input 
             type="range" 
-            className="w-16 h-1 bg-[var(--bg-panel)] appearance-none cursor-pointer accent-[var(--accent-primary)] rounded-full" 
+            className="player-volume-slider w-16 cursor-pointer" 
             value={volume}
             min={0}
             max={200}
