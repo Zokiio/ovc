@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Badge, Button, Input, Modal, Switch } from '../../ui/Primitives';
+import { Badge, Button, Input, Modal } from '../../ui/Primitives';
 import { Activity, Users, Lock, Pin, Crown, KeyRound } from 'lucide-react';
 import { useGroupStore } from '../../../stores/groupStore';
 import { useConnectionStore } from '../../../stores/connectionStore';

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Panel, Button, Input, Switch, Modal, Badge } from '../../ui/Primitives';
 import { cn } from '../../../lib/utils';
-import { Users, Plus, Lock, Globe, LogOut, Pin, Crown } from 'lucide-react';
+import { Users, Plus, Lock, Globe, LogOut, Pin } from 'lucide-react';
 import { useGroupStore } from '../../../stores/groupStore';
 import { useConnectionStore } from '../../../stores/connectionStore';
  
