@@ -610,6 +610,12 @@ export function useConnection() {
       if (code === 'resume_failed') {
         return
       }
+      // Non-fatal operational errors should not break connection state
+      const nonFatalCodes = new Set(['incorrect_password', 'group_full', 'group_not_found'])
+      if (code && nonFatalCodes.has(code)) {
+        if (message) addWarning('signaling', message)
+        return
+      }
       if (message) {
         addWarning('signaling', message)
         setError(message)

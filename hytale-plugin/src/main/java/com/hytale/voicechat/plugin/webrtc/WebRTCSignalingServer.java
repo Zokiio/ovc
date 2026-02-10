@@ -1579,14 +1579,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             if (group.hasPassword()) {
                 String password = data.has("password") ? data.get("password").getAsString() : null;
                 if (!group.checkPassword(password)) {
-                    sendError(ctx, "Incorrect password");
+                    sendError(ctx, "Incorrect password", "incorrect_password");
                     return;
                 }
             }
 
             // Check capacity
             if (group.getSettings().isAtCapacity(group.getMemberCount())) {
-                sendError(ctx, "Group is at capacity");
+                sendError(ctx, "Group is at capacity", "group_full");
                 return;
             }
 

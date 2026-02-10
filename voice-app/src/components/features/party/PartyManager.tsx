@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Panel, Button, Input, Switch, Modal, Badge } from '../../ui/Primitives';
 import { cn } from '../../../lib/utils';
 import { Users, Plus, Lock, Globe, LogOut, Pin } from 'lucide-react';
@@ -25,12 +25,33 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [joinPassword, setJoinPassword] = useState('');
   const [pendingJoinGroupId, setPendingJoinGroupId] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState('');
 
   // Use individual selectors for proper reactivity
   const groups = useGroupStore((s) => s.groups);
   const currentGroupId = useGroupStore((s) => s.currentGroupId);
   const currentGroup = groups.find((g) => g.id === currentGroupId) ?? null;
   const isAdmin = useConnectionStore((s) => s.isAdmin);
+  const warnings = useConnectionStore((s) => s.warnings);
+
+  // Auto-close password modal when successfully joined the pending group
+  useEffect(() => {
+    if (pendingJoinGroupId && currentGroupId === pendingJoinGroupId) {
+      setShowPasswordModal(false);
+      setPendingJoinGroupId(null);
+      setJoinPassword('');
+      setPasswordError('');
+    }
+  }, [currentGroupId, pendingJoinGroupId]);
+
+  // Show error in password modal when incorrect password warning arrives
+  useEffect(() => {
+    if (!showPasswordModal || warnings.length === 0) return;
+    const latest = warnings[0];
+    if (latest?.message === 'Incorrect password') {
+      setPasswordError('Incorrect password');
+    }
+  }, [warnings, showPasswordModal]);
 
   const filteredGroups = groups.filter(g => 
      g.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -67,10 +88,8 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
 
   const handlePasswordJoin = () => {
     if (pendingJoinGroupId) {
+      setPasswordError('');
       joinGroup(pendingJoinGroupId, joinPassword);
-      setShowPasswordModal(false);
-      setPendingJoinGroupId(null);
-      setJoinPassword('');
     }
   };
 
@@ -270,6 +289,7 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
           setShowPasswordModal(false);
           setPendingJoinGroupId(null);
           setJoinPassword('');
+          setPasswordError('');
         }}
         title="Enter Password"
       >
@@ -277,6 +297,9 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
           <p className="text-xs text-[var(--text-secondary)]">
             This party is password protected. Enter the password to join.
           </p>
+          {passwordError && (
+            <p className="text-xs text-red-400 font-medium">{passwordError}</p>
+          )}
           <Input
             label="Password"
             type="password"
@@ -303,6 +326,7 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
                 setShowPasswordModal(false);
                 setPendingJoinGroupId(null);
                 setJoinPassword('');
+                setPasswordError('');
               }}
             >
               Cancel
