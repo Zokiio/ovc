@@ -48,6 +48,9 @@ export interface Group {
   memberCount: number
   members: GroupMember[]
   settings: GroupSettings
+  isPermanent?: boolean
+  hasPassword?: boolean
+  creatorId?: string
 }
 
 export interface GroupSettings {
@@ -121,6 +124,7 @@ export interface ConnectionState {
   reconnectAttempt: number
   clientId: string | null
   username: string | null
+  isAdmin: boolean
 }
 
 // --- WebRTC Types ---
@@ -178,6 +182,7 @@ export interface SignalingEvents {
     resumeToken?: string
     heartbeatIntervalMs?: number
     resumeWindowMs?: number
+    isAdmin?: boolean
   }
   disconnected: { code: number; reason: string; wasClean: boolean }
   connection_error: Event
@@ -202,11 +207,15 @@ export interface SignalingEvents {
     memberCount?: number
     membersCount?: number
     isIsolated?: boolean
+    isPermanent?: boolean
+    hasPassword?: boolean
   }
   group_joined: { groupId: string; groupName: string }
   group_left: { groupId: string }
   group_list: { groups: Group[] }
   group_members_updated: { groupId: string; members: GroupMember[] }
+  group_password_updated: { groupId: string; hasPassword: boolean }
+  group_permanent_updated: { groupId: string; isPermanent: boolean }
   player_list: { players: User[] }
   user_speaking_status: {
     playerId?: string

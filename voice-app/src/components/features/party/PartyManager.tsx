@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { Panel, Button, Input, Switch, Modal, Badge } from '../../ui/Primitives';
 import { cn } from '../../../lib/utils';
-import { Users, Plus, Lock, Globe, LogOut } from 'lucide-react';
+import { Users, Plus, Lock, Globe, LogOut, Pin, Crown } from 'lucide-react';
 import { useGroupStore } from '../../../stores/groupStore';
+import { useConnectionStore } from '../../../stores/connectionStore';
  
 interface PartyManagerProps {
-  createGroup: (name: string, options?: { maxMembers?: number; isIsolated?: boolean }) => void;
-  joinGroup: (groupId: string) => void;
+  createGroup: (name: string, options?: { maxMembers?: number; isIsolated?: boolean; password?: string; isPermanent?: boolean }) => void;
+  joinGroup: (groupId: string, password?: string) => void;
   leaveGroup: () => void;
 }
 
@@ -18,11 +19,18 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
   const [maxPlayers, setMaxPlayers] = useState(10);
   const [password, setPassword] = useState('');
   const [isIsolated, setIsIsolated] = useState(true);
+  const [isPermanent, setIsPermanent] = useState(false);
+
+  // Password join modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [joinPassword, setJoinPassword] = useState('');
+  const [pendingJoinGroupId, setPendingJoinGroupId] = useState<string | null>(null);
 
   // Use individual selectors for proper reactivity
   const groups = useGroupStore((s) => s.groups);
   const currentGroupId = useGroupStore((s) => s.currentGroupId);
   const currentGroup = groups.find((g) => g.id === currentGroupId) ?? null;
+  const isAdmin = useConnectionStore((s) => s.isAdmin);
 
   const filteredGroups = groups.filter(g => 
      g.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -30,17 +38,40 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
 
   const handleCreateGroup = () => {
     if (!newGroupName.trim()) return;
-    createGroup(newGroupName, { maxMembers: maxPlayers, isIsolated });
+    createGroup(newGroupName, {
+      maxMembers: maxPlayers,
+      isIsolated,
+      password: isPrivate && password ? password : undefined,
+      isPermanent: isAdmin && isPermanent ? true : undefined,
+    });
     setShowCreateModal(false);
     setNewGroupName('');
     setPassword('');
     setIsPrivate(false);
     setIsIsolated(true);
+    setIsPermanent(false);
   };
 
   const handleJoinGroup = (groupId: string) => {
     if (currentGroup?.id === groupId) return;
-    joinGroup(groupId);
+    const group = groups.find((g) => g.id === groupId);
+    if (group?.hasPassword) {
+      // Show password prompt
+      setPendingJoinGroupId(groupId);
+      setJoinPassword('');
+      setShowPasswordModal(true);
+    } else {
+      joinGroup(groupId);
+    }
+  };
+
+  const handlePasswordJoin = () => {
+    if (pendingJoinGroupId) {
+      joinGroup(pendingJoinGroupId, joinPassword);
+      setShowPasswordModal(false);
+      setPendingJoinGroupId(null);
+      setJoinPassword('');
+    }
   };
 
   const handleLeaveGroup = () => {
@@ -115,7 +146,8 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
                   <div className="min-w-0 flex-1">
                      <div className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2 group-hover/item:text-[var(--accent-primary)] transition-colors">
                         <span className="truncate">{group.name}</span>
-                        {group.settings.isPrivate && <Lock className="w-3 h-3 text-[var(--accent-warning)]" />}
+                        {group.hasPassword && <Lock className="w-3 h-3 text-[var(--accent-warning)]" />}
+                        {group.isPermanent && <Pin className="w-3 h-3 text-[var(--accent-primary)]" />}
                      </div>
                      <div className="text-[10px] text-[var(--text-secondary)] uppercase flex items-center gap-2 font-mono mt-0.5">
                         <span className="bg-[var(--bg-input)] px-1 rounded">LOCAL</span>
@@ -202,6 +234,19 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
                      />
                   </div>
                )}
+
+               {isAdmin && (
+                  <Switch
+                     label="Permanent Group"
+                     checked={isPermanent}
+                     onChange={setIsPermanent}
+                  />
+               )}
+               {isAdmin && isPermanent && (
+                  <p className="text-[10px] text-[var(--text-secondary)] -mt-2">
+                     Permanent groups persist even when all members leave.
+                  </p>
+               )}
             </div>
 
             <div className="pt-4 flex gap-3">
@@ -216,6 +261,54 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
                <Button variant="ghost" onClick={() => setShowCreateModal(false)}>Cancel</Button>
             </div>
          </div>
+      </Modal>
+
+      {/* Password Join Modal */}
+      <Modal
+        isOpen={showPasswordModal}
+        onClose={() => {
+          setShowPasswordModal(false);
+          setPendingJoinGroupId(null);
+          setJoinPassword('');
+        }}
+        title="Enter Password"
+      >
+        <div className="space-y-4 p-1">
+          <p className="text-xs text-[var(--text-secondary)]">
+            This party is password protected. Enter the password to join.
+          </p>
+          <Input
+            label="Password"
+            type="password"
+            placeholder="••••••••"
+            value={joinPassword}
+            onChange={(e) => setJoinPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handlePasswordJoin();
+            }}
+            autoFocus
+          />
+          <div className="pt-2 flex gap-3">
+            <Button
+              fullWidth
+              onClick={handlePasswordJoin}
+              variant="primary"
+              disabled={!joinPassword}
+            >
+              Join Party
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowPasswordModal(false);
+                setPendingJoinGroupId(null);
+                setJoinPassword('');
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

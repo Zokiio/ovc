@@ -568,24 +568,32 @@ export class SignalingClient {
 
   // ========== Public API ==========
 
-  public createGroup(groupName: string, settings?: Partial<GroupSettings>): void {
-    this.send({
-      type: 'create_group',
-      data: {
-        groupName,
-        settings: {
-          defaultVolume: settings?.defaultVolume ?? 100,
-          proximityRange: settings?.proximityRange ?? 30.0,
-          allowInvites: settings?.allowInvites ?? true,
-          maxMembers: settings?.maxMembers ?? 50,
-          isIsolated: settings?.isIsolated ?? true,
-        },
+  public createGroup(groupName: string, settings?: Partial<GroupSettings> & { password?: string; isPermanent?: boolean }): void {
+    const payload: Record<string, unknown> = {
+      groupName,
+      settings: {
+        defaultVolume: settings?.defaultVolume ?? 100,
+        proximityRange: settings?.proximityRange ?? 30.0,
+        allowInvites: settings?.allowInvites ?? true,
+        maxMembers: settings?.maxMembers ?? 50,
+        isIsolated: settings?.isIsolated ?? true,
       },
-    })
+    }
+    if (settings?.password) {
+      payload.password = settings.password
+    }
+    if (settings?.isPermanent) {
+      payload.isPermanent = true
+    }
+    this.send({ type: 'create_group', data: payload })
   }
 
-  public joinGroup(groupId: string): void {
-    this.send({ type: 'join_group', data: { groupId } })
+  public joinGroup(groupId: string, password?: string): void {
+    const data: Record<string, unknown> = { groupId }
+    if (password) {
+      data.password = password
+    }
+    this.send({ type: 'join_group', data })
   }
 
   public leaveGroup(): void {
@@ -602,6 +610,14 @@ export class SignalingClient {
 
   public getGroupMembers(groupId: string): void {
     this.send({ type: 'get_group_members', data: { groupId } })
+  }
+
+  public updateGroupPassword(groupId: string, password: string | null): void {
+    this.send({ type: 'update_group_password', data: { groupId, password } })
+  }
+
+  public setGroupPermanent(groupId: string, isPermanent: boolean): void {
+    this.send({ type: 'set_group_permanent', data: { groupId, isPermanent } })
   }
 
   public updateSpeakingStatus(isSpeaking: boolean): void {

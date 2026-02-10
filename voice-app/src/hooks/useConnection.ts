@@ -122,6 +122,7 @@ export function useConnection() {
   const setGroups = useGroupStore((s) => s.setGroups)
   const addGroup = useGroupStore((s) => s.addGroup)
   const removeGroup = useGroupStore((s) => s.removeGroup)
+  const updateGroup = useGroupStore((s) => s.updateGroup)
   const setCurrentGroupId = useGroupStore((s) => s.setCurrentGroupId)
   const setGroupMembers = useGroupStore((s) => s.setGroupMembers)
   const updateMemberSpeaking = useGroupStore((s) => s.updateMemberSpeaking)
@@ -508,6 +509,7 @@ export function useConnection() {
         groupSpatialAudio,
         audioCodec,
         audioCodecConfig,
+        isAdmin,
       } = data as {
         clientId: string
         username: string
@@ -517,8 +519,9 @@ export function useConnection() {
         groupSpatialAudio?: boolean
         audioCodec?: string
         audioCodecConfig?: AudioCodecConfig
+        isAdmin?: boolean
       }
-      setAuthenticated(clientId, username, !!pending)
+      setAuthenticated(clientId, username, !!pending, !!isAdmin)
       setLocalUserId(clientId)
       setProximityRadarEnabled(!!useProximityRadar)
       setProximityRadarSpeakingOnly(!!useProximityRadarSpeakingOnly)
@@ -679,6 +682,9 @@ export function useConnection() {
           name: String(g.name || g.groupName || 'Unknown'),
           memberCount: Number.isFinite(normalizedMemberCount) ? normalizedMemberCount : members.length,
           members,
+          isPermanent: Boolean(g.isPermanent ?? false),
+          hasPassword: Boolean(g.hasPassword ?? false),
+          creatorId: typeof g.creatorClientId === 'string' ? g.creatorClientId : undefined,
           settings: {
             defaultVolume: Number(groupSettings.defaultVolume ?? 100),
             proximityRange: Number(groupSettings.proximityRange ?? 30),
@@ -726,6 +732,8 @@ export function useConnection() {
         memberCount?: number
         membersCount?: number
         isIsolated?: boolean
+        isPermanent?: boolean
+        hasPassword?: boolean
       }
       const groupId = payload.groupId
       const groupName = payload.groupName
@@ -767,6 +775,9 @@ export function useConnection() {
         name: groupName,
         memberCount,
         members,
+        isPermanent: Boolean(payload.isPermanent ?? false),
+        hasPassword: Boolean(payload.hasPassword ?? false),
+        creatorId: creatorClientId || undefined,
         settings: {
           defaultVolume: 100,
           proximityRange: 30,
@@ -852,6 +863,20 @@ export function useConnection() {
           // User was removed from group (e.g., left in-game)
           setCurrentGroupId(null)
         }
+      }
+    })
+
+    signaling.on('group_password_updated', (data) => {
+      const payload = data as { groupId: string; hasPassword: boolean }
+      if (payload.groupId) {
+        updateGroup(payload.groupId, { hasPassword: payload.hasPassword })
+      }
+    })
+
+    signaling.on('group_permanent_updated', (data) => {
+      const payload = data as { groupId: string; isPermanent: boolean }
+      if (payload.groupId) {
+        updateGroup(payload.groupId, { isPermanent: payload.isPermanent })
       }
     })
 
@@ -1001,7 +1026,7 @@ export function useConnection() {
   }, [
     addWarning,
     setAuthenticated, setLocalUserId, setStatus, setError, setLatency,
-    setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
+    setGroups, addGroup, removeGroup, updateGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
     updateMemberSpeaking, updateMemberMuted, setMicMuted, resolveUserIdFromEvent,
     handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, setProximityRadarSpeakingOnly, setGroupSpatialAudioEnabled, resetReconnectAttempt,
@@ -1210,13 +1235,15 @@ export function useConnection() {
   /**
    * Create a new group
    */
-  const createGroup = useCallback((name: string, options: { maxMembers?: number; isIsolated?: boolean } = {}) => {
+  const createGroup = useCallback((name: string, options: { maxMembers?: number; isIsolated?: boolean; password?: string; isPermanent?: boolean } = {}) => {
     const signaling = getSignalingClient()
     if (signaling.isConnected()) {
       pendingCreateGroupRef.current = Date.now()
       signaling.createGroup(name, {
         maxMembers: options.maxMembers ?? 50,
         isIsolated: options.isIsolated ?? true,
+        password: options.password,
+        isPermanent: options.isPermanent,
       })
     }
   }, [])
@@ -1224,10 +1251,10 @@ export function useConnection() {
   /**
    * Join a group
    */
-  const joinGroup = useCallback((groupId: string) => {
+  const joinGroup = useCallback((groupId: string, password?: string) => {
     const signaling = getSignalingClient()
     if (signaling.isConnected()) {
-      signaling.joinGroup(groupId)
+      signaling.joinGroup(groupId, password)
     }
   }, [])
 
