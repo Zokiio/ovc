@@ -16,6 +16,9 @@ const SPATIAL_ROLLOFF_FULL = 0.75
 const SPATIAL_ROLLOFF_MIN = 0.0
 const SPATIAL_GAIN_THRESHOLD = 0.98
 const SPATIAL_SMOOTHING_TC = 0.05
+const FRONT_BACK_FILTER_OPEN = 20000
+const FRONT_BACK_FILTER_BEHIND = 2500
+const FRONT_BACK_GAIN_BEHIND = 0.85
 
 interface SpatialPoint {
   x: number
@@ -34,6 +37,7 @@ export interface UserAudioState {
   isMuted: boolean
   spatialEnabled: boolean
   pannerNode: PannerNode | null
+  frontBackFilterNode: BiquadFilterNode | null
   gainNode: GainNode | null
   playbackProcessor: AudioWorkletNode | null
   lastKnownPosition: PlayerPosition | null
@@ -200,8 +204,10 @@ export class AudioPlaybackManager {
     if (state.pannerNode) {
       if (!enabled) {
         this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+        this.resetFrontBackFilter(state)
       } else if (state.lastKnownPosition) {
         this.applyPannerPosition(state.pannerNode, this.toAudioPoint(state.lastKnownPosition))
+        this.applyFrontBackFilter(state)
       }
     }
   }
@@ -235,15 +241,18 @@ export class AudioPlaybackManager {
 
     if (!state.spatialEnabled) {
       this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+      this.resetFrontBackFilter(state)
       return
     }
 
     if (state.lastKnownPosition) {
       this.applyPannerPosition(state.pannerNode, this.toAudioPoint(state.lastKnownPosition))
+      this.applyFrontBackFilter(state)
       return
     }
 
     this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+    this.resetFrontBackFilter(state)
   }
 
   public updateUserSpatialMetadata(userId: string, maxRange?: number, serverGainHint?: number): void {
@@ -289,6 +298,10 @@ export class AudioPlaybackManager {
       if (state.pannerNode) {
         state.pannerNode.disconnect()
         state.pannerNode = null
+      }
+      if (state.frontBackFilterNode) {
+        state.frontBackFilterNode.disconnect()
+        state.frontBackFilterNode = null
       }
       if (state.gainNode) {
         state.gainNode.disconnect()
@@ -363,6 +376,15 @@ export class AudioPlaybackManager {
       this.updateUserGain(userId)
     }
 
+    // Create front/back low-pass filter node (inserted between panner and gain)
+    if (!state.frontBackFilterNode) {
+      state.frontBackFilterNode = this.audioContext.createBiquadFilter()
+      state.frontBackFilterNode.type = 'lowpass'
+      state.frontBackFilterNode.frequency.value = FRONT_BACK_FILTER_OPEN
+      state.frontBackFilterNode.Q.value = 0.7
+      state.frontBackFilterNode.connect(state.gainNode)
+    }
+
     // Create spatial panner node
     if (!state.pannerNode) {
       state.pannerNode = this.audioContext.createPanner()
@@ -377,7 +399,8 @@ export class AudioPlaybackManager {
         ? this.toAudioPoint(state.lastKnownPosition)
         : this.getCurrentListenerPoint()
       this.applyPannerPosition(state.pannerNode, initialPoint)
-      state.pannerNode.connect(state.gainNode)
+      state.pannerNode.connect(state.frontBackFilterNode)
+      this.applyFrontBackFilter(state)
     }
 
     // Create worklet node
@@ -429,6 +452,10 @@ export class AudioPlaybackManager {
         state.pannerNode.disconnect()
         state.pannerNode = null
       }
+      if (state.frontBackFilterNode) {
+        state.frontBackFilterNode.disconnect()
+        state.frontBackFilterNode = null
+      }
       if (state.gainNode) {
         state.gainNode.disconnect()
         state.gainNode = null
@@ -446,6 +473,7 @@ export class AudioPlaybackManager {
         isMuted: false,
         spatialEnabled: true,
         pannerNode: null,
+        frontBackFilterNode: null,
         gainNode: null,
         playbackProcessor: null,
         lastKnownPosition: null,
@@ -486,6 +514,7 @@ export class AudioPlaybackManager {
       : { forwardX: 0, forwardY: 0, forwardZ: -1 }
     this.applyListenerOrientation(listener, orientation)
     this.recenterUsersNeedingCenter(listenerPoint)
+    this.updateAllFrontBackFilters()
   }
 
   private applyListenerPosition(listener: AudioListener, point: SpatialPoint): void {
@@ -629,23 +658,106 @@ export class AudioPlaybackManager {
   }
 
   private toAudioPoint(position: PlayerPosition): SpatialPoint {
+    // Pass game coordinates through unchanged — both positions and orientation
+    // use the same coordinate space so Web Audio resolves directions correctly.
     return {
       x: position.x,
       y: position.y,
-      z: -position.z,
+      z: position.z,
     }
   }
 
   private getOrientationFromPosition(position: PlayerPosition): ListenerOrientation {
+    // Yaw=0 faces north (-Z in game), increases clockwise.
+    // Game forward: x = -sin(yaw), z = -cos(yaw). No coordinate transform needed
+    // since toAudioPoint passes positions through unchanged.
     const yawRad = (this.normalizeDegrees(position.yaw) * Math.PI) / 180
     const pitchRad = (this.clamp(position.pitch, -89.9, 89.9) * Math.PI) / 180
     const cosPitch = Math.cos(pitchRad)
     return {
-      // Game forward in world space is x=-sin(yaw), z=-cos(yaw). Convert to WebAudio
-      // with audioZ=-worldZ, which keeps X and flips Z.
       forwardX: -Math.sin(yawRad) * cosPitch,
       forwardY: -Math.sin(pitchRad),
-      forwardZ: Math.cos(yawRad) * cosPitch,
+      forwardZ: -Math.cos(yawRad) * cosPitch,
+    }
+  }
+
+  /**
+   * Compute the horizontal angle (in radians, 0-PI) between the listener's
+   * forward direction and the direction from listener to source.
+   * 0 = directly in front, PI = directly behind.
+   */
+  private computeFrontBackAngle(listenerPos: PlayerPosition, sourcePos: PlayerPosition): number {
+    const dx = sourcePos.x - listenerPos.x
+    const dz = sourcePos.z - listenerPos.z
+    const len = Math.sqrt(dx * dx + dz * dz)
+    if (len < 0.001) {
+      return 0 // source is on top of listener, treat as front
+    }
+
+    const yawRad = (this.normalizeDegrees(listenerPos.yaw) * Math.PI) / 180
+    const fwdX = -Math.sin(yawRad)
+    const fwdZ = -Math.cos(yawRad)
+
+    // Dot product of forward and direction-to-source on XZ plane
+    const dot = (fwdX * dx + fwdZ * dz) / len
+    return Math.acos(this.clamp(dot, -1, 1))
+  }
+
+  /**
+   * Apply a low-pass filter that muffles audio coming from behind the listener,
+   * reinforcing the front/back distinction that HRTF alone handles poorly.
+   */
+  private applyFrontBackFilter(state: UserAudioState): void {
+    if (!state.frontBackFilterNode || !this.audioContext) {
+      return
+    }
+    if (!state.spatialEnabled || !state.lastKnownPosition || !this.listenerPosition) {
+      this.resetFrontBackFilter(state)
+      return
+    }
+    if (state.lastKnownPosition.worldId !== this.listenerPosition.worldId) {
+      this.resetFrontBackFilter(state)
+      return
+    }
+
+    const angle = this.computeFrontBackAngle(this.listenerPosition, state.lastKnownPosition)
+    const halfPI = Math.PI / 2
+
+    // 0..PI/2 = front hemisphere (filter wide open), PI/2..PI = rear hemisphere (muffle)
+    let t = 0
+    if (angle > halfPI) {
+      t = (angle - halfPI) / halfPI // 0 at side, 1 at directly behind
+    }
+    // Smooth ease-in curve for more natural transition
+    t = t * t
+
+    const freq = FRONT_BACK_FILTER_OPEN - (FRONT_BACK_FILTER_OPEN - FRONT_BACK_FILTER_BEHIND) * t
+    this.smoothAudioParam(state.frontBackFilterNode.frequency, freq)
+
+    // Subtle gain reduction for rear sources
+    const gainMultiplier = 1.0 - (1.0 - FRONT_BACK_GAIN_BEHIND) * t
+    if (state.gainNode) {
+      const baseVolume = state.isMuted ? 0 : state.volume / 100
+      this.smoothAudioParam(state.gainNode.gain, baseVolume * gainMultiplier)
+    }
+  }
+
+  private resetFrontBackFilter(state: UserAudioState): void {
+    if (!state.frontBackFilterNode || !this.audioContext) {
+      return
+    }
+    this.smoothAudioParam(state.frontBackFilterNode.frequency, FRONT_BACK_FILTER_OPEN)
+  }
+
+  /**
+   * Re-evaluate front/back filters for all spatial users (called when the listener moves/rotates).
+   */
+  private updateAllFrontBackFilters(): void {
+    for (const state of this.userStates.values()) {
+      if (!state.frontBackFilterNode) {
+        continue
+      }
+      this.applyFrontBackFilter(state)
     }
   }
 
