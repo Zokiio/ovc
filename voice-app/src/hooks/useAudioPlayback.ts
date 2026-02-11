@@ -128,12 +128,97 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
 
   useEffect(() => {
     syncSpatialState()
-    const unsubscribeUsers = useUserStore.subscribe(() => {
-      syncSpatialState()
+    
+    // Subscribe with manual change detection to avoid syncing on irrelevant changes
+    let prevUserPositions: Map<string, any> | null = null
+    let prevUserGroupIds: Map<string, string | null> | null = null
+    let prevLocalUserId: string | null = null
+    
+    const unsubscribeUsers = useUserStore.subscribe((state) => {
+      const currPositions = new Map(Array.from(state.users.entries()).map(([id, u]) => [id, u.position]))
+      const currGroupIds = new Map(Array.from(state.users.entries()).map(([id, u]) => [id, u.groupId ?? null]))
+      const currLocalUserId = state.localUserId
+      
+      // Initialize on first run
+      if (prevUserPositions === null || prevUserGroupIds === null) {
+        prevUserPositions = currPositions
+        prevUserGroupIds = currGroupIds
+        prevLocalUserId = currLocalUserId
+        return
+      }
+      
+      // Check if positions, groupIds, or localUserId changed
+      let hasChanged = currLocalUserId !== prevLocalUserId
+      
+      if (!hasChanged && (currPositions.size !== prevUserPositions.size || currGroupIds.size !== prevUserGroupIds.size)) {
+        hasChanged = true
+      }
+      
+      if (!hasChanged) {
+        for (const [userId, pos] of currPositions) {
+          const prevPos = prevUserPositions.get(userId)
+          if (JSON.stringify(pos) !== JSON.stringify(prevPos)) {
+            hasChanged = true
+            break
+          }
+        }
+      }
+      
+      if (!hasChanged) {
+        for (const [userId, groupId] of currGroupIds) {
+          if (prevUserGroupIds.get(userId) !== groupId) {
+            hasChanged = true
+            break
+          }
+        }
+      }
+      
+      if (hasChanged) {
+        prevUserPositions = currPositions
+        prevUserGroupIds = currGroupIds
+        prevLocalUserId = currLocalUserId
+        syncSpatialState()
+      }
     })
-    const unsubscribeGroups = useGroupStore.subscribe(() => {
-      syncSpatialState()
+    
+    let prevCurrentGroupId: string | null = null
+    let prevGroupMembers: Map<string, string[]> | null = null
+    
+    const unsubscribeGroups = useGroupStore.subscribe((state) => {
+      const currCurrentGroupId = state.currentGroupId
+      const currGroupMembers = new Map(state.groups.map(g => [g.id, g.members.map(m => m.id)]))
+      
+      // Initialize on first run
+      if (prevGroupMembers === null) {
+        prevCurrentGroupId = currCurrentGroupId
+        prevGroupMembers = currGroupMembers
+        return
+      }
+      
+      // Check if currentGroupId or group membership changed
+      let hasChanged = currCurrentGroupId !== prevCurrentGroupId
+      
+      if (!hasChanged && currGroupMembers.size !== prevGroupMembers.size) {
+        hasChanged = true
+      }
+      
+      if (!hasChanged) {
+        for (const [groupId, members] of currGroupMembers) {
+          const prevMembers = prevGroupMembers.get(groupId)
+          if (JSON.stringify(members) !== JSON.stringify(prevMembers)) {
+            hasChanged = true
+            break
+          }
+        }
+      }
+      
+      if (hasChanged) {
+        prevCurrentGroupId = currCurrentGroupId
+        prevGroupMembers = currGroupMembers
+        syncSpatialState()
+      }
     })
+    
     return () => {
       unsubscribeUsers()
       unsubscribeGroups()

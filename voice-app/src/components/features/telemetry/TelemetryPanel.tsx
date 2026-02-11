@@ -213,7 +213,7 @@ export const SpatialRadar = () => {
                return true;
             }
             const user = users.get(contact.userId);
-            return !user || user.isSpeaking;
+            return !!user && user.isSpeaking;
          });
 
       return contacts

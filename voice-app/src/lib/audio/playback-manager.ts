@@ -44,6 +44,7 @@ export interface UserAudioState {
   maxRange: number
   serverGainHint: number
   isInitialized: boolean
+  directionalGainMultiplier: number // Multiplier for front/back directional attenuation (1.0 = no attenuation)
 }
 
 interface AudioContextWithSinkId extends AudioContext {
@@ -480,6 +481,7 @@ export class AudioPlaybackManager {
         maxRange: DEFAULT_MAX_RANGE,
         serverGainHint: 1,
         isInitialized: false,
+        directionalGainMultiplier: 1.0,
       }
       this.userStates.set(userId, state)
     }
@@ -489,8 +491,9 @@ export class AudioPlaybackManager {
   private updateUserGain(userId: string): void {
     const state = this.userStates.get(userId)
     if (state?.gainNode && this.audioContext) {
-      const volume = state.isMuted ? 0 : state.volume / 100
-      state.gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime)
+      const baseVolume = state.isMuted ? 0 : state.volume / 100
+      const finalVolume = baseVolume * state.directionalGainMultiplier
+      state.gainNode.gain.setValueAtTime(finalVolume, this.audioContext.currentTime)
     }
   }
 
@@ -734,11 +737,12 @@ export class AudioPlaybackManager {
     const freq = FRONT_BACK_FILTER_OPEN - (FRONT_BACK_FILTER_OPEN - FRONT_BACK_FILTER_BEHIND) * t
     this.smoothAudioParam(state.frontBackFilterNode.frequency, freq)
 
-    // Subtle gain reduction for rear sources
-    const gainMultiplier = 1.0 - (1.0 - FRONT_BACK_GAIN_BEHIND) * t
+    // Subtle gain reduction for rear sources - store multiplier and update gain
+    state.directionalGainMultiplier = 1.0 - (1.0 - FRONT_BACK_GAIN_BEHIND) * t
     if (state.gainNode) {
       const baseVolume = state.isMuted ? 0 : state.volume / 100
-      this.smoothAudioParam(state.gainNode.gain, baseVolume * gainMultiplier)
+      const finalVolume = baseVolume * state.directionalGainMultiplier
+      this.smoothAudioParam(state.gainNode.gain, finalVolume)
     }
   }
 
@@ -747,6 +751,12 @@ export class AudioPlaybackManager {
       return
     }
     this.smoothAudioParam(state.frontBackFilterNode.frequency, FRONT_BACK_FILTER_OPEN)
+    // Reset directional gain multiplier to 1.0 (no attenuation) and update gain
+    state.directionalGainMultiplier = 1.0
+    if (state.gainNode) {
+      const baseVolume = state.isMuted ? 0 : state.volume / 100
+      this.smoothAudioParam(state.gainNode.gain, baseVolume)
+    }
   }
 
   /**
