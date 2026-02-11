@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 :root {
   /* Default (Hytale) */
   --bg-app: #1c140d; /* Deep earthy charcoal-brown */
@@ -108,4 +116,51 @@ body {
 
 .animate-shimmer {
   animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Compact per-player volume slider (Global Roster) */
+.player-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 14px;
+  background: transparent;
+}
+
+.player-volume-slider:focus {
+  outline: none;
+}
+
+.player-volume-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-primary);
+}
+
+.player-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  margin-top: -5px;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-app);
+  box-shadow: 0 0 0 1px var(--border-primary);
+}
+
+.player-volume-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-primary);
+}
+
+.player-volume-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-app);
+  box-shadow: 0 0 0 1px var(--border-primary);
 }

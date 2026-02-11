@@ -71,12 +71,12 @@ export const GlobalRoster = () => {
                 const groupName = userGroupMap.get(player.id);
                 
                 return (
-                  <div key={player.id} className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <UserCardCompact user={player} showControls={true} />
+                  <div key={player.id} className="flex items-center gap-2 min-w-0">
+                    <div className="flex-1 min-w-0">
+                      <UserCardCompact user={player} showControls={true} alwaysShowControls={true} />
                     </div>
                     {groupName && (
-                      <Badge variant="neutral" className="shrink-0 text-[9px]">{groupName}</Badge>
+                      <Badge variant="neutral" className="shrink-0 text-[9px] max-w-[96px] truncate">{groupName}</Badge>
                     )}
                   </div>
                 );

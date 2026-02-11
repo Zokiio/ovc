@@ -24,6 +24,7 @@ const PENDING_CREATE_GROUP_WINDOW_MS = 5000
 const WEBRTC_RECONNECT_BASE_DELAY_MS = 750
 const WEBRTC_RECONNECT_MAX_DELAY_MS = 5000
 const WEBRTC_RECONNECT_MAX_ATTEMPTS = 6
+const DEFAULT_RADAR_MAX_RANGE = 50
 const logger = createLogger('useConnection')
 const DEFAULT_OPUS_CODEC_CONFIG: AudioCodecConfig = {
   sampleRate: 48000,
@@ -121,6 +122,7 @@ export function useConnection() {
   const setGroups = useGroupStore((s) => s.setGroups)
   const addGroup = useGroupStore((s) => s.addGroup)
   const removeGroup = useGroupStore((s) => s.removeGroup)
+  const updateGroup = useGroupStore((s) => s.updateGroup)
   const setCurrentGroupId = useGroupStore((s) => s.setCurrentGroupId)
   const setGroupMembers = useGroupStore((s) => s.setGroupMembers)
   const updateMemberSpeaking = useGroupStore((s) => s.updateMemberSpeaking)
@@ -136,7 +138,7 @@ export function useConnection() {
   const resetUsers = useUserStore((s) => s.reset)
 
   // Settings store
-  const addSavedServer = useSettingsStore((s) => s.addSavedServer)
+  const updateServerLastConnected = useSettingsStore((s) => s.updateServerLastConnected)
   const setLastServerUrl = useSettingsStore((s) => s.setLastServerUrl)
 
   // Audio store
@@ -145,6 +147,9 @@ export function useConnection() {
   const isSpeaking = useAudioStore((s) => s.isSpeaking)
   const inputVolume = useAudioStore((s) => s.settings.inputVolume)
   const setProximityRadarEnabled = useAudioStore((s) => s.setProximityRadarEnabled)
+  const setProximityRadarSpeakingOnly = useAudioStore((s) => s.setProximityRadarSpeakingOnly)
+  const setGroupSpatialAudioEnabled = useAudioStore((s) => s.setGroupSpatialAudioEnabled)
+  const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
 
   // Audio playback
   const { handleAudioData, handleWebSocketAudio, initialize: initializePlayback } = useAudioPlayback({
@@ -477,6 +482,19 @@ export function useConnection() {
     return { x, y, z, yaw, pitch, worldId }
   }, [])
 
+  const resolveRadarMaxRange = useCallback(() => {
+    const { currentGroupId, groups } = useGroupStore.getState()
+    if (!currentGroupId) {
+      return DEFAULT_RADAR_MAX_RANGE
+    }
+    const activeGroup = groups.find((group) => group.id === currentGroupId)
+    const proximityRange = Number(activeGroup?.settings.proximityRange)
+    if (!Number.isFinite(proximityRange) || proximityRange <= 0) {
+      return DEFAULT_RADAR_MAX_RANGE
+    }
+    return proximityRange
+  }, [])
+
   // Setup signaling event listeners
   const setupSignalingListeners = useCallback(() => {
     const signaling = getSignalingClient()
@@ -487,19 +505,27 @@ export function useConnection() {
         username,
         pending,
         useProximityRadar,
+        useProximityRadarSpeakingOnly,
+        groupSpatialAudio,
         audioCodec,
         audioCodecConfig,
+        isAdmin,
       } = data as {
         clientId: string
         username: string
         pending?: boolean
         useProximityRadar?: boolean
+        useProximityRadarSpeakingOnly?: boolean
+        groupSpatialAudio?: boolean
         audioCodec?: string
         audioCodecConfig?: AudioCodecConfig
+        isAdmin?: boolean
       }
-      setAuthenticated(clientId, username, !!pending)
+      setAuthenticated(clientId, username, !!pending, !!isAdmin)
       setLocalUserId(clientId)
       setProximityRadarEnabled(!!useProximityRadar)
+      setProximityRadarSpeakingOnly(!!useProximityRadarSpeakingOnly)
+      setGroupSpatialAudioEnabled(groupSpatialAudio !== false)
 
       if (audioCodec && audioCodec !== 'opus') {
         setError('Server selected unsupported audio codec. This client requires Opus.')
@@ -533,6 +559,12 @@ export function useConnection() {
         : {}
       if (typeof payload.useProximityRadar === 'boolean') {
         setProximityRadarEnabled(payload.useProximityRadar)
+      }
+      if (typeof payload.useProximityRadarSpeakingOnly === 'boolean') {
+        setProximityRadarSpeakingOnly(payload.useProximityRadarSpeakingOnly)
+      }
+      if (typeof payload.groupSpatialAudio === 'boolean') {
+        setGroupSpatialAudioEnabled(payload.groupSpatialAudio)
       }
       if (payload.audioCodec === 'opus') {
         const config = payload.audioCodecConfig && typeof payload.audioCodecConfig === 'object'
@@ -576,6 +608,12 @@ export function useConnection() {
     signaling.on('error', (data) => {
       const { message, code } = data as { message?: string; code?: string }
       if (code === 'resume_failed') {
+        return
+      }
+      // Non-fatal operational errors should not break connection state
+      const nonFatalCodes = new Set(['incorrect_password', 'group_full', 'group_not_found'])
+      if (code && nonFatalCodes.has(code)) {
+        if (message) addWarning('signaling', message)
         return
       }
       if (message) {
@@ -650,6 +688,9 @@ export function useConnection() {
           name: String(g.name || g.groupName || 'Unknown'),
           memberCount: Number.isFinite(normalizedMemberCount) ? normalizedMemberCount : members.length,
           members,
+          isPermanent: Boolean(g.isPermanent ?? false),
+          hasPassword: Boolean(g.hasPassword ?? false),
+          creatorId: typeof g.creatorClientId === 'string' ? g.creatorClientId : undefined,
           settings: {
             defaultVolume: Number(groupSettings.defaultVolume ?? 100),
             proximityRange: Number(groupSettings.proximityRange ?? 30),
@@ -697,6 +738,8 @@ export function useConnection() {
         memberCount?: number
         membersCount?: number
         isIsolated?: boolean
+        isPermanent?: boolean
+        hasPassword?: boolean
       }
       const groupId = payload.groupId
       const groupName = payload.groupName
@@ -738,6 +781,9 @@ export function useConnection() {
         name: groupName,
         memberCount,
         members,
+        isPermanent: Boolean(payload.isPermanent ?? false),
+        hasPassword: Boolean(payload.hasPassword ?? false),
+        creatorId: creatorClientId || undefined,
         settings: {
           defaultVolume: 100,
           proximityRange: 30,
@@ -826,15 +872,33 @@ export function useConnection() {
       }
     })
 
+    signaling.on('group_password_updated', (data) => {
+      const payload = data as { groupId: string; hasPassword: boolean }
+      if (payload.groupId) {
+        updateGroup(payload.groupId, { hasPassword: payload.hasPassword })
+      }
+    })
+
+    signaling.on('group_permanent_updated', (data) => {
+      const payload = data as { groupId: string; isPermanent: boolean }
+      if (payload.groupId) {
+        updateGroup(payload.groupId, { isPermanent: payload.isPermanent })
+      }
+    })
+
     signaling.on('player_list', (data) => {
       const rawPlayers = (data as { players?: unknown[] }).players ?? []
+      const existingUsers = useUserStore.getState().users
       // Normalize players to ensure they have all required fields
       const players: User[] = rawPlayers.map((playerEntry) => {
         const player = (playerEntry && typeof playerEntry === 'object')
           ? (playerEntry as Record<string, unknown>)
           : {}
+        const id = String(player.id || player.playerId || '')
+        const existingUser = existingUsers.get(id)
+        const nextPosition = toPlayerPosition(player.position) ?? existingUser?.position
         return ({
-          id: String(player.id || player.playerId || ''),
+          id,
           name: String(player.username || player.name || player.playerName || 'Unknown'),
           avatarUrl: typeof player.avatarUrl === 'string' ? player.avatarUrl : undefined,
           isSpeaking: !!player.isSpeaking,
@@ -842,7 +906,7 @@ export function useConnection() {
           isMicMuted: !!player.isMicMuted || !!player.isMuted,
           volume: typeof player.volume === 'number' ? player.volume : 100,
           groupId: typeof player.groupId === 'string' ? player.groupId : undefined,
-          position: player.position as PlayerPosition | undefined,
+          position: nextPosition,
           isVoiceConnected: player.isVoiceConnected !== false
         })
       })
@@ -916,6 +980,7 @@ export function useConnection() {
       // New format: { positions: [...], listener: {...}, timestamp }
       const positions = Array.isArray(payload.positions) ? payload.positions : null
       if (positions) {
+        const radarMaxRange = resolveRadarMaxRange()
         positions.forEach((entry) => {
           if (!entry || typeof entry !== 'object') {
             return
@@ -927,6 +992,11 @@ export function useConnection() {
             return
           }
           setUserPosition(userId, position)
+
+          const distance = Number(row.distance)
+          if (Number.isFinite(distance) && distance >= 0 && distance <= radarMaxRange) {
+            upsertProximityRadarContact(userId, distance, radarMaxRange)
+          }
         })
       }
 
@@ -962,11 +1032,11 @@ export function useConnection() {
   }, [
     addWarning,
     setAuthenticated, setLocalUserId, setStatus, setError, setLatency,
-    setGroups, addGroup, removeGroup, setCurrentGroupId, setGroupMembers,
+    setGroups, addGroup, removeGroup, updateGroup, setCurrentGroupId, setGroupMembers,
     setUsers, setUserSpeaking, setUserMicMuted, setUserPosition,
     updateMemberSpeaking, updateMemberMuted, setMicMuted, resolveUserIdFromEvent,
-    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, resetReconnectAttempt,
-    toPlayerPosition,
+    handleWebSocketAudio, connectWebRTCIfAllowed, setProximityRadarEnabled, setProximityRadarSpeakingOnly, setGroupSpatialAudioEnabled, resetReconnectAttempt,
+    toPlayerPosition, resolveRadarMaxRange, upsertProximityRadarContact,
   ])
 
   // Setup WebRTC event listeners
@@ -1102,9 +1172,15 @@ export function useConnection() {
       const signaling = getSignalingClient()
       await signaling.connect(serverUrl, username, authCode)
 
-      // Save server with credentials
-      addSavedServer(serverUrl, undefined, username, authCode || undefined)
-      setLastServerUrl(serverUrl)
+      // Only keep "last server" for manually-saved servers.
+      const matchingSavedServer = useSettingsStore.getState().savedServers
+        .find((savedServer) => savedServer.url === serverUrl)
+      if (matchingSavedServer) {
+        updateServerLastConnected(matchingSavedServer.id)
+        setLastServerUrl(serverUrl)
+      } else {
+        setLastServerUrl(null)
+      }
 
       // Connect WebRTC when transport mode and server state allow it.
       await connectWebRTCIfAllowed(signaling)
@@ -1124,7 +1200,7 @@ export function useConnection() {
   }, [
     setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
-    addSavedServer, clearReconnectTimer, clearWarnings, setLastServerUrl,
+    updateServerLastConnected, clearReconnectTimer, clearWarnings, setLastServerUrl,
     connectWebRTCIfAllowed, resetOutboundAudioQueues, resetOpusEncoder, resetReconnectAttempt,
   ])
 
@@ -1143,6 +1219,8 @@ export function useConnection() {
     resetWebRTCManager()
     pendingCreateGroupRef.current = null
     setProximityRadarEnabled(false)
+    setProximityRadarSpeakingOnly(false)
+    setGroupSpatialAudioEnabled(true)
     resetConnection()
     resetGroups()
     resetUsers()
@@ -1151,6 +1229,8 @@ export function useConnection() {
     resetReconnectAttempt,
     stopListening,
     setProximityRadarEnabled,
+    setProximityRadarSpeakingOnly,
+    setGroupSpatialAudioEnabled,
     resetConnection,
     resetGroups,
     resetUsers,
@@ -1161,13 +1241,15 @@ export function useConnection() {
   /**
    * Create a new group
    */
-  const createGroup = useCallback((name: string, options: { maxMembers?: number; isIsolated?: boolean } = {}) => {
+  const createGroup = useCallback((name: string, options: { maxMembers?: number; isIsolated?: boolean; password?: string; isPermanent?: boolean } = {}) => {
     const signaling = getSignalingClient()
     if (signaling.isConnected()) {
       pendingCreateGroupRef.current = Date.now()
       signaling.createGroup(name, {
         maxMembers: options.maxMembers ?? 50,
         isIsolated: options.isIsolated ?? true,
+        password: options.password,
+        isPermanent: options.isPermanent,
       })
     }
   }, [])
@@ -1175,10 +1257,10 @@ export function useConnection() {
   /**
    * Join a group
    */
-  const joinGroup = useCallback((groupId: string) => {
+  const joinGroup = useCallback((groupId: string, password?: string) => {
     const signaling = getSignalingClient()
     if (signaling.isConnected()) {
-      signaling.joinGroup(groupId)
+      signaling.joinGroup(groupId, password)
     }
   }, [])
 

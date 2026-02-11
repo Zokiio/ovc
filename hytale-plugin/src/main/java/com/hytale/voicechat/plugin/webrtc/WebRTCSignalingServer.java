@@ -15,6 +15,7 @@ import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.entity.entities.Player;
+import com.hypixel.hytale.server.core.permissions.PermissionsModule;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -556,6 +557,14 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
             groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
             groupObj.addProperty("isIsolated", group.isIsolated());
+            groupObj.addProperty("isPermanent", group.isPermanent());
+            groupObj.addProperty("hasPassword", group.hasPassword());
+            
+            // Include creator client ID (obfuscated)
+            UUID creatorUuid = group.getCreatorUuid();
+            if (creatorUuid != null) {
+                groupObj.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(creatorUuid));
+            }
             
             // Include members list so clients can verify membership
             com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
@@ -630,6 +639,15 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         UUID lastGroupId = null;
         if (groupStateManager != null) {
             lastGroupId = groupStateManager.getClientGroup(clientId);
+        }
+
+        // Remove from authoritative group membership BEFORE clearing state manager
+        // so that auto-disband and event broadcasts work correctly
+        if (groupManager != null) {
+            groupManager.leaveGroup(clientId);
+        }
+
+        if (groupStateManager != null) {
             groupStateManager.removeClientFromAllGroups(clientId);
         }
 
@@ -990,6 +1008,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     case "get_group_members":
                         handleGetGroupMembers(ctx, message);
                         break;
+                    case "update_group_password":
+                        handleUpdateGroupPassword(ctx, message);
+                        break;
+                    case "set_group_permanent":
+                        handleSetGroupPermanent(ctx, message);
+                        break;
                     case "user_speaking":
                         handleUserSpeakingStatus(ctx, message);
                         break;
@@ -1102,9 +1126,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             responseData.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
             responseData.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
+            responseData.addProperty("useProximityRadarSpeakingOnly", NetworkConfig.isProximityRadarSpeakingOnlyEnabled());
+            responseData.addProperty("groupSpatialAudio", NetworkConfig.isGroupSpatialAudio());
             responseData.addProperty("audioCodec", client.getNegotiatedAudioCodec());
             responseData.add("audioCodecs", buildSupportedAudioCodecs());
             responseData.add("audioCodecConfig", buildAudioCodecConfig());
+            responseData.addProperty("isAdmin", PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin"));
 
             if (!playerOnline) {
                 int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
@@ -1123,6 +1150,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             data.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
             data.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
             data.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
+            data.addProperty("useProximityRadarSpeakingOnly", NetworkConfig.isProximityRadarSpeakingOnlyEnabled());
+            data.addProperty("groupSpatialAudio", NetworkConfig.isGroupSpatialAudio());
             data.addProperty("audioCodec", NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM);
             data.add("audioCodecs", buildSupportedAudioCodecs());
             data.add("audioCodecConfig", buildAudioCodecConfig());
@@ -1468,10 +1497,51 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 settings = new GroupSettings(defaultVolume, proximityRange, allowInvites, maxMembers);
             }
 
-            var group = groupManager.createGroup(groupName, false, client.getClientId(), settings, isIsolated);
+            // Extract password (any group creator can set password)
+            String password = null;
+            if (data.has("password")) {
+                JsonElement passwordElement = data.get("password");
+                if (!passwordElement.isJsonNull()) {
+                    try {
+                        password = passwordElement.getAsString();
+                    } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type: " + e.getMessage());
+                        sendError(ctx, "Invalid password value");
+                        return;
+                    }
+                }
+            }
+
+            // isPermanent is only allowed for admins
+            boolean isPermanent = false;
+            if (data.has("isPermanent")) {
+                JsonElement isPermanentElement = data.get("isPermanent");
+                if (!isPermanentElement.isJsonNull()) {
+                    try {
+                        if (isPermanentElement.getAsBoolean()) {
+                            if (PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin")) {
+                                isPermanent = true;
+                            } else {
+                                logger.atWarning().log("Non-admin " + client.getUsername() + " attempted to create permanent group");
+                            }
+                        }
+                    } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type: " + e.getMessage());
+                        sendError(ctx, "Invalid isPermanent value");
+                        return;
+                    }
+                }
+            }
+
+            var group = groupManager.createGroup(groupName, isPermanent, client.getClientId(), settings, isIsolated);
             if (group == null) {
                 sendError(ctx, "Failed to create group (name may already exist)");
                 return;
+            }
+
+            // Set password if provided
+            if (password != null && !password.isEmpty()) {
+                group.setPassword(password);
             }
 
             // Auto-join creator
@@ -1485,6 +1555,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             responseData.addProperty("memberCount", group.getMemberCount());
             responseData.addProperty("membersCount", group.getMemberCount());
             responseData.addProperty("isIsolated", group.isIsolated());
+            responseData.addProperty("isPermanent", group.isPermanent());
+            responseData.addProperty("hasPassword", group.hasPassword());
             responseData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(client.getClientId()));
             
             SignalingMessage response = new SignalingMessage("group_created", responseData);
@@ -1522,13 +1594,35 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
             var group = groupManager.getGroup(groupId);
             if (group == null) {
-                sendError(ctx, "Group not found");
+                sendError(ctx, "Group not found", "group_not_found");
                 return;
+            }
+
+            // Validate password if group has one
+            if (group.hasPassword()) {
+                String password = null;
+                if (data.has("password")) {
+                    JsonElement passwordElement = data.get("password");
+                    if (!passwordElement.isJsonNull()) {
+                        try {
+                            password = passwordElement.getAsString();
+                        } catch (ClassCastException | IllegalStateException e) {
+                            // Treat invalid password type as incorrect password
+                            logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type for group join: " + e.getMessage());
+                            sendError(ctx, "Incorrect password", "incorrect_password");
+                            return;
+                        }
+                    }
+                }
+                if (!group.checkPassword(password)) {
+                    sendError(ctx, "Incorrect password", "incorrect_password");
+                    return;
+                }
             }
 
             // Check capacity
             if (group.getSettings().isAtCapacity(group.getMemberCount())) {
-                sendError(ctx, "Group is at capacity");
+                sendError(ctx, "Group is at capacity", "group_full");
                 return;
             }
 
@@ -1571,8 +1665,8 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 return;
             }
 
-            groupStateManager.removeClientFromAllGroups(client.getClientId());
             groupManager.leaveGroup(client.getClientId());
+            groupStateManager.removeClientFromAllGroups(client.getClientId());
 
             // Calculate remaining member count
             int memberCount = groupManager.getGroupMembers(groupId).size();
@@ -1588,6 +1682,131 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             broadcastGroupMembersUpdate(groupId);
             
             logger.atFine().log("Client " + client.getUsername() + " left group: " + groupId);
+        }
+
+        private void handleUpdateGroupPassword(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (groupManager == null) {
+                sendError(ctx, "Group manager not available");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
+            if (groupIdStr == null) {
+                sendError(ctx, "Invalid group ID");
+                return;
+            }
+
+            UUID groupId;
+            try {
+                groupId = UUID.fromString(groupIdStr);
+            } catch (IllegalArgumentException e) {
+                sendError(ctx, "Invalid group ID format");
+                return;
+            }
+
+            var group = groupManager.getGroup(groupId);
+            if (group == null) {
+                sendError(ctx, "Group not found");
+                return;
+            }
+
+            // Only the group creator can change the password
+            if (!group.isCreator(client.getClientId())) {
+                sendError(ctx, "Only the group creator can change the password");
+                return;
+            }
+
+            // password=null or empty string removes the password
+            String password = data.has("password") && !data.get("password").isJsonNull()
+                    ? data.get("password").getAsString()
+                    : null;
+            group.setPassword(password);
+
+            // Send confirmation
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("groupId", groupId.toString());
+            responseData.addProperty("hasPassword", group.hasPassword());
+            SignalingMessage response = new SignalingMessage("group_password_updated", responseData);
+            sendMessage(ctx, response);
+
+            // Broadcast updated group list so all clients see the password status change
+            broadcastGroupList();
+
+            logger.atInfo().log("Group " + group.getName() + " password " +
+                    (group.hasPassword() ? "set" : "removed") + " by " + client.getUsername());
+        }
+
+        private void handleSetGroupPermanent(ChannelHandlerContext ctx, SignalingMessage message) {
+            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
+            if (client == null) {
+                sendError(ctx, "Not authenticated");
+                return;
+            }
+            if (groupManager == null) {
+                sendError(ctx, "Group manager not available");
+                return;
+            }
+
+            // Only admins can toggle permanent (uses Hytale's built-in permission system)
+            if (!PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin")) {
+                sendError(ctx, "Only server admins can mark groups as permanent");
+                return;
+            }
+
+            JsonObject data = message.getData();
+            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
+            boolean isPermanent = false;
+            if (data.has("isPermanent")) {
+                JsonElement isPermanentElement = data.get("isPermanent");
+                if (!isPermanentElement.isJsonNull()) {
+                    try {
+                        isPermanent = isPermanentElement.getAsBoolean();
+                    } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type for setPermanent: " + e.getMessage());
+                        sendError(ctx, "Invalid isPermanent value");
+                        return;
+                    }
+                }
+            }
+
+            if (groupIdStr == null) {
+                sendError(ctx, "Invalid group ID");
+                return;
+            }
+
+            UUID groupId;
+            try {
+                groupId = UUID.fromString(groupIdStr);
+            } catch (IllegalArgumentException e) {
+                sendError(ctx, "Invalid group ID format");
+                return;
+            }
+
+            var group = groupManager.getGroup(groupId);
+            if (group == null) {
+                sendError(ctx, "Group not found");
+                return;
+            }
+
+            group.setPermanent(isPermanent);
+
+            // Send confirmation
+            JsonObject responseData = new JsonObject();
+            responseData.addProperty("groupId", groupId.toString());
+            responseData.addProperty("isPermanent", group.isPermanent());
+            SignalingMessage response = new SignalingMessage("group_permanent_updated", responseData);
+            sendMessage(ctx, response);
+
+            // Broadcast updated group list
+            broadcastGroupList();
+
+            logger.atInfo().log("Group " + group.getName() + " permanent=" + isPermanent + " set by admin " + client.getUsername());
         }
 
         private void handleListGroups(ChannelHandlerContext ctx, SignalingMessage message) {

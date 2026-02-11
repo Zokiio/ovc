@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Panel, Input, Button, Badge, Modal, Select } from '../../ui/Primitives';
 import { MicTestDisplay } from '../../ui/MicLevelDisplay';
 import {
@@ -7,7 +7,7 @@ import {
   Settings, Loader2, Edit2
 } from 'lucide-react';
 import { useTheme } from '../../../context/theme-context';
-import { cn } from '../../../lib/utils';
+import { cn, normalizeUrl } from '../../../lib/utils';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useAudioDevices } from '../../../hooks/useAudioDevices';
 import type { ConnectionStatus } from '../../../lib/types';
@@ -34,12 +34,17 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
   // Audio devices
   const { inputDevices, outputDevices, inputDeviceId, outputDeviceId, setInputDevice, setOutputDevice } = useAudioDevices();
   
-  // Find the last used server info to pre-fill
-  const lastServer = savedServers.find(s => s.url === lastServerUrl);
+  const lastSavedServer = useMemo(() => {
+    if (!lastServerUrl) {
+      return null;
+    }
+    const normalizedLastServerUrl = normalizeUrl(lastServerUrl);
+    return savedServers.find((savedServer) => normalizeUrl(savedServer.url) === normalizedLastServerUrl) ?? null;
+  }, [lastServerUrl, savedServers]);
 
-  const [username, setUsername] = useState(lastServer?.username || '');
-  const [server, setServer] = useState(lastServerUrl || '');
-  const [password, setPassword] = useState(lastServer?.authToken || '');
+  const [username, setUsername] = useState<string | null>(null);
+  const [server, setServer] = useState<string | null>(null);
+  const [password, setPassword] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showAudioSettings, setShowAudioSettings] = useState(false);
   
@@ -50,38 +55,34 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
   const { toggleTheme } = useTheme();
   
   const isConnecting = connectionStatus === 'connecting';
-
-  // Update local state if lastServerUrl changes externally (unlikely but good practice)
-  useEffect(() => {
-    if (lastServerUrl && !server) {
-       setServer(lastServerUrl);
-       const match = savedServers.find(s => s.url === lastServerUrl);
-       if (match) {
-          if (match.username) setUsername(match.username);
-          if (match.authToken) setPassword(match.authToken);
-       }
-    }
-  }, [lastServerUrl, savedServers, server]);
+  const usernameValue = username ?? lastSavedServer?.username ?? '';
+  const serverValue = server ?? lastSavedServer?.url ?? '';
+  const passwordValue = password ?? lastSavedServer?.authToken ?? '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username && server && !isConnecting) {
-      // Auto-prefix wss:// if missing
-      let finalServer = server.trim();
-      if (!finalServer.startsWith('ws://') && !finalServer.startsWith('wss://')) {
-         finalServer = `wss://${finalServer}`;
-      }
-
-      await connect(finalServer, username, password);
+    if (isConnecting) {
+      return;
     }
+
+    const normalizedUsername = usernameValue.trim();
+    const normalizedServer = serverValue.trim();
+    if (!normalizedUsername || !normalizedServer) {
+      return;
+    }
+
+    const finalServer = normalizeUrl(normalizedServer);
+    setUsername(normalizedUsername);
+    setServer(finalServer);
+    await connect(finalServer, normalizedUsername, passwordValue);
   };
   
   // Watch for successful connection
   useEffect(() => {
-    if (connectionStatus === 'connected' && username && server) {
-      onConnect(username, server);
+    if (connectionStatus === 'connected' && usernameValue && serverValue) {
+      onConnect(usernameValue, serverValue);
     }
-  }, [connectionStatus, username, server, onConnect]);
+  }, [connectionStatus, usernameValue, serverValue, onConnect]);
 
   const handleOpenSaveModal = (serverToEdit?: SavedServer) => {
     if (serverToEdit) {
@@ -100,16 +101,17 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
   };
 
   const handleSaveRealm = () => {
-    if (server && nickname) {
+    const normalizedServer = serverValue.trim();
+    if (normalizedServer && nickname) {
       if (editingServerId) {
          editSavedServer(editingServerId, {
-            url: server,
+            url: normalizedServer,
             name: nickname,
-            username,
-            authToken: password
+            username: usernameValue,
+            authToken: passwordValue
          });
       } else {
-         addSavedServer(server, nickname, username, password);
+         addSavedServer(normalizedServer, nickname, usernameValue, passwordValue);
       }
     }
     setShowSaveModal(false);
@@ -251,7 +253,7 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
                      <Input
                         label="Player Identity"
                         placeholder="Your username..."
-                        value={username}
+                        value={usernameValue}
                         onChange={(e) => setUsername(e.target.value)}
                         autoComplete="username"
                         autoFocus
@@ -271,7 +273,7 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
                         <div className="relative group/relay">
                            <Input
                               placeholder="Server address..."
-                              value={server}
+                              value={serverValue}
                               onChange={(e) => setServer(e.target.value)}
                               autoComplete="url"
                               className={cn(
@@ -296,7 +298,7 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
                         <Input
                            type={showPassword ? "text" : "password"}
                            placeholder="••••••••••••"
-                           value={password}
+                           value={passwordValue}
                            onChange={(e) => setPassword(e.target.value)}
                            autoComplete="current-password"
                         />
@@ -365,7 +367,7 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
             <Input 
                label="Server Address" 
                placeholder="wss://..." 
-               value={server}
+               value={serverValue}
                onChange={(e) => setServer(e.target.value)}
                className={cn(isStreamerMode && "blur-[6px] focus:blur-0")}
             />
@@ -374,14 +376,14 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
                <Input 
                   label="Default Username" 
                   placeholder="Username" 
-                  value={username}
+                  value={usernameValue}
                   onChange={(e) => setUsername(e.target.value)}
                />
                <Input 
                   label="Access Token" 
                   type="password"
                   placeholder="Optional" 
-                  value={password}
+                  value={passwordValue}
                   onChange={(e) => setPassword(e.target.value)}
                />
             </div>

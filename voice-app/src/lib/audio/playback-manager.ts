@@ -4,17 +4,47 @@
  * Uses AudioWorklet for low-latency playback.
  */
 
-import type { AudioDiagnostics } from '../types'
+import type { AudioDiagnostics, PlayerPosition } from '../types'
 import { createLogger } from '../logger'
 
 const logger = createLogger('AudioPlayback')
 
+const DEFAULT_MAX_RANGE = 50
+const SPATIAL_REF_DISTANCE = 4.0
+const SPATIAL_MAX_DISTANCE_CLAMP: [number, number] = [5, 200]
+const SPATIAL_ROLLOFF_FULL = 0.75
+const SPATIAL_ROLLOFF_MIN = 0.0
+const SPATIAL_GAIN_THRESHOLD = 0.98
+const SPATIAL_SMOOTHING_TC = 0.05
+const FRONT_BACK_FILTER_OPEN = 20000
+const FRONT_BACK_FILTER_BEHIND = 2500
+const FRONT_BACK_GAIN_BEHIND = 0.85
+
+interface SpatialPoint {
+  x: number
+  y: number
+  z: number
+}
+
+interface ListenerOrientation {
+  forwardX: number
+  forwardY: number
+  forwardZ: number
+}
+
 export interface UserAudioState {
   volume: number // 0-200 (allow boost)
   isMuted: boolean
+  spatialEnabled: boolean
+  pannerNode: PannerNode | null
+  frontBackFilterNode: BiquadFilterNode | null
   gainNode: GainNode | null
   playbackProcessor: AudioWorkletNode | null
+  lastKnownPosition: PlayerPosition | null
+  maxRange: number
+  serverGainHint: number
   isInitialized: boolean
+  directionalGainMultiplier: number // Multiplier for front/back directional attenuation (1.0 = no attenuation)
 }
 
 interface AudioContextWithSinkId extends AudioContext {
@@ -30,6 +60,7 @@ export class AudioPlaybackManager {
   private masterMuted: boolean = false
   private outputDeviceId: string = 'default'
   private workletReady: Promise<void> | null = null
+  private listenerPosition: PlayerPosition | null = null
   private diagnosticsListener: ((userId: string, diagnostics: AudioDiagnostics) => void) | null = null
 
   /**
@@ -51,6 +82,7 @@ export class AudioPlaybackManager {
     this.masterGainNode.connect(this.masterCompressorNode)
     this.masterCompressorNode.connect(this.audioContext.destination)
     this.updateMasterGain()
+    this.applyListenerState()
 
     // Apply output device if set
     if (this.outputDeviceId !== 'default') {
@@ -163,6 +195,81 @@ export class AudioPlaybackManager {
     this.diagnosticsListener = listener
   }
 
+  public setUserSpatialEnabled(userId: string, enabled: boolean): void {
+    const state = this.getOrCreateState(userId)
+    if (state.spatialEnabled === enabled) {
+      return
+    }
+    state.spatialEnabled = enabled
+    this.applyPannerSpatialConfig(state)
+    if (state.pannerNode) {
+      if (!enabled) {
+        this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+        this.resetFrontBackFilter(state)
+      } else if (state.lastKnownPosition) {
+        this.applyPannerPosition(state.pannerNode, this.toAudioPoint(state.lastKnownPosition))
+        this.applyFrontBackFilter(state)
+      }
+    }
+  }
+
+  public updateListenerPosition(position: PlayerPosition | null): void {
+    this.listenerPosition = position
+    this.applyListenerState()
+  }
+
+  public updateUserPosition(userId: string, position: PlayerPosition | null): void {
+    const state = this.getOrCreateState(userId)
+    const listenerPosition = this.listenerPosition
+
+    if (position) {
+      if (listenerPosition && position.worldId !== listenerPosition.worldId) {
+        state.lastKnownPosition = null
+        if (state.pannerNode) {
+          this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+        }
+        return
+      }
+      state.lastKnownPosition = position
+    } else if (state.lastKnownPosition) {
+      // Hold the current panner direction until a new valid position arrives.
+      return
+    }
+
+    if (!state.pannerNode) {
+      return
+    }
+
+    if (!state.spatialEnabled) {
+      this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+      this.resetFrontBackFilter(state)
+      return
+    }
+
+    if (state.lastKnownPosition) {
+      this.applyPannerPosition(state.pannerNode, this.toAudioPoint(state.lastKnownPosition))
+      this.applyFrontBackFilter(state)
+      return
+    }
+
+    this.applyPannerPosition(state.pannerNode, this.getCurrentListenerPoint())
+    this.resetFrontBackFilter(state)
+  }
+
+  public updateUserSpatialMetadata(userId: string, maxRange?: number, serverGainHint?: number): void {
+    const state = this.getOrCreateState(userId)
+
+    if (typeof maxRange === 'number' && Number.isFinite(maxRange) && maxRange > 0) {
+      state.maxRange = this.clamp(maxRange, SPATIAL_MAX_DISTANCE_CLAMP[0], SPATIAL_MAX_DISTANCE_CLAMP[1])
+    }
+
+    if (typeof serverGainHint === 'number' && Number.isFinite(serverGainHint)) {
+      state.serverGainHint = this.clamp(serverGainHint, 0, 1)
+    }
+
+    this.applyPannerSpatialConfig(state)
+  }
+
   private async applyOutputDevice(): Promise<void> {
     if (!this.audioContext) return
 
@@ -188,6 +295,14 @@ export class AudioPlaybackManager {
       if (state.playbackProcessor) {
         state.playbackProcessor.disconnect()
         state.playbackProcessor = null
+      }
+      if (state.pannerNode) {
+        state.pannerNode.disconnect()
+        state.pannerNode = null
+      }
+      if (state.frontBackFilterNode) {
+        state.frontBackFilterNode.disconnect()
+        state.frontBackFilterNode = null
       }
       if (state.gainNode) {
         state.gainNode.disconnect()
@@ -251,11 +366,42 @@ export class AudioPlaybackManager {
     const state = this.userStates.get(userId)
     if (!state || state.isInitialized || !this.audioContext) return
 
+    if (!this.masterGainNode) {
+      return
+    }
+
     // Create gain node
     if (!state.gainNode) {
       state.gainNode = this.audioContext.createGain()
-      state.gainNode.connect(this.masterGainNode!)
+      state.gainNode.connect(this.masterGainNode)
       this.updateUserGain(userId)
+    }
+
+    // Create front/back low-pass filter node (inserted between panner and gain)
+    if (!state.frontBackFilterNode) {
+      state.frontBackFilterNode = this.audioContext.createBiquadFilter()
+      state.frontBackFilterNode.type = 'lowpass'
+      state.frontBackFilterNode.frequency.value = FRONT_BACK_FILTER_OPEN
+      state.frontBackFilterNode.Q.value = 0.7
+      state.frontBackFilterNode.connect(state.gainNode)
+    }
+
+    // Create spatial panner node
+    if (!state.pannerNode) {
+      state.pannerNode = this.audioContext.createPanner()
+      state.pannerNode.distanceModel = 'inverse'
+      state.pannerNode.panningModel = 'HRTF'
+      state.pannerNode.refDistance = SPATIAL_REF_DISTANCE
+      state.pannerNode.coneInnerAngle = 360
+      state.pannerNode.coneOuterAngle = 360
+      state.pannerNode.coneOuterGain = 0
+      this.applyPannerSpatialConfig(state)
+      const initialPoint = state.spatialEnabled && state.lastKnownPosition
+        ? this.toAudioPoint(state.lastKnownPosition)
+        : this.getCurrentListenerPoint()
+      this.applyPannerPosition(state.pannerNode, initialPoint)
+      state.pannerNode.connect(state.frontBackFilterNode)
+      this.applyFrontBackFilter(state)
     }
 
     // Create worklet node
@@ -285,7 +431,7 @@ export class AudioPlaybackManager {
         })
       }
 
-      workletNode.connect(state.gainNode)
+      workletNode.connect(state.pannerNode)
       state.playbackProcessor = workletNode
       state.isInitialized = true
     } catch (err) {
@@ -303,6 +449,14 @@ export class AudioPlaybackManager {
         state.playbackProcessor.disconnect()
         state.playbackProcessor = null
       }
+      if (state.pannerNode) {
+        state.pannerNode.disconnect()
+        state.pannerNode = null
+      }
+      if (state.frontBackFilterNode) {
+        state.frontBackFilterNode.disconnect()
+        state.frontBackFilterNode = null
+      }
       if (state.gainNode) {
         state.gainNode.disconnect()
         state.gainNode = null
@@ -318,9 +472,16 @@ export class AudioPlaybackManager {
       state = {
         volume: 100,
         isMuted: false,
+        spatialEnabled: true,
+        pannerNode: null,
+        frontBackFilterNode: null,
         gainNode: null,
         playbackProcessor: null,
+        lastKnownPosition: null,
+        maxRange: DEFAULT_MAX_RANGE,
+        serverGainHint: 1,
         isInitialized: false,
+        directionalGainMultiplier: 1.0,
       }
       this.userStates.set(userId, state)
     }
@@ -330,8 +491,9 @@ export class AudioPlaybackManager {
   private updateUserGain(userId: string): void {
     const state = this.userStates.get(userId)
     if (state?.gainNode && this.audioContext) {
-      const volume = state.isMuted ? 0 : state.volume / 100
-      state.gainNode.gain.setValueAtTime(volume, this.audioContext.currentTime)
+      const baseVolume = state.isMuted ? 0 : state.volume / 100
+      const finalVolume = baseVolume * state.directionalGainMultiplier
+      state.gainNode.gain.setValueAtTime(finalVolume, this.audioContext.currentTime)
     }
   }
 
@@ -340,6 +502,290 @@ export class AudioPlaybackManager {
       const volume = this.masterMuted ? 0 : this.masterVolume / 100
       this.masterGainNode.gain.setValueAtTime(volume, this.audioContext.currentTime)
     }
+  }
+
+  private applyListenerState(): void {
+    if (!this.audioContext) {
+      return
+    }
+
+    const listener = this.audioContext.listener
+    const listenerPoint = this.getCurrentListenerPoint()
+    this.applyListenerPosition(listener, listenerPoint)
+    const orientation = this.listenerPosition
+      ? this.getOrientationFromPosition(this.listenerPosition)
+      : { forwardX: 0, forwardY: 0, forwardZ: -1 }
+    this.applyListenerOrientation(listener, orientation)
+    this.recenterUsersNeedingCenter(listenerPoint)
+    this.updateAllFrontBackFilters()
+  }
+
+  private applyListenerPosition(listener: AudioListener, point: SpatialPoint): void {
+    const positionX = (listener as { positionX?: AudioParam }).positionX
+    const positionY = (listener as { positionY?: AudioParam }).positionY
+    const positionZ = (listener as { positionZ?: AudioParam }).positionZ
+    if (positionX && positionY && positionZ) {
+      this.smoothAudioParam(positionX, point.x)
+      this.smoothAudioParam(positionY, point.y)
+      this.smoothAudioParam(positionZ, point.z)
+      return
+    }
+
+    const setPosition = (listener as {
+      setPosition?: (x: number, y: number, z: number) => void
+    }).setPosition
+    if (typeof setPosition === 'function') {
+      setPosition(point.x, point.y, point.z)
+    }
+  }
+
+  private applyListenerOrientation(listener: AudioListener, orientation: ListenerOrientation): void {
+    const forwardX = (listener as { forwardX?: AudioParam }).forwardX
+    const forwardY = (listener as { forwardY?: AudioParam }).forwardY
+    const forwardZ = (listener as { forwardZ?: AudioParam }).forwardZ
+    const upX = (listener as { upX?: AudioParam }).upX
+    const upY = (listener as { upY?: AudioParam }).upY
+    const upZ = (listener as { upZ?: AudioParam }).upZ
+    if (forwardX && forwardY && forwardZ && upX && upY && upZ) {
+      this.smoothAudioParam(forwardX, orientation.forwardX)
+      this.smoothAudioParam(forwardY, orientation.forwardY)
+      this.smoothAudioParam(forwardZ, orientation.forwardZ)
+      this.smoothAudioParam(upX, 0)
+      this.smoothAudioParam(upY, 1)
+      this.smoothAudioParam(upZ, 0)
+      return
+    }
+
+    const setOrientation = (listener as {
+      setOrientation?: (
+        x: number,
+        y: number,
+        z: number,
+        xUp: number,
+        yUp: number,
+        zUp: number
+      ) => void
+    }).setOrientation
+    if (typeof setOrientation === 'function') {
+      setOrientation(
+        orientation.forwardX,
+        orientation.forwardY,
+        orientation.forwardZ,
+        0,
+        1,
+        0
+      )
+    }
+  }
+
+  private applyPannerPosition(node: PannerNode, point: SpatialPoint): void {
+    const positionX = (node as { positionX?: AudioParam }).positionX
+    const positionY = (node as { positionY?: AudioParam }).positionY
+    const positionZ = (node as { positionZ?: AudioParam }).positionZ
+    if (positionX && positionY && positionZ) {
+      this.smoothAudioParam(positionX, point.x)
+      this.smoothAudioParam(positionY, point.y)
+      this.smoothAudioParam(positionZ, point.z)
+      return
+    }
+
+    const setPosition = (node as {
+      setPosition?: (x: number, y: number, z: number) => void
+    }).setPosition
+    if (typeof setPosition === 'function') {
+      setPosition(point.x, point.y, point.z)
+    }
+  }
+
+  private applyPannerSpatialConfig(state: UserAudioState): void {
+    const pannerNode = state.pannerNode
+    if (!pannerNode) {
+      return
+    }
+
+    pannerNode.distanceModel = 'inverse'
+    pannerNode.panningModel = 'HRTF'
+    pannerNode.refDistance = SPATIAL_REF_DISTANCE
+    pannerNode.maxDistance = this.clamp(
+      state.maxRange,
+      SPATIAL_MAX_DISTANCE_CLAMP[0],
+      SPATIAL_MAX_DISTANCE_CLAMP[1]
+    )
+    pannerNode.rolloffFactor = state.spatialEnabled ? this.getAdaptiveRolloff(state.serverGainHint) : 0
+  }
+
+  private smoothAudioParam(param: AudioParam, value: number): void {
+    if (!this.audioContext) {
+      return
+    }
+    const now = this.audioContext.currentTime
+    param.cancelScheduledValues(now)
+    param.setTargetAtTime(value, now, SPATIAL_SMOOTHING_TC)
+  }
+
+  private recenterUsersNeedingCenter(listenerPoint: SpatialPoint): void {
+    for (const state of this.userStates.values()) {
+      if (!state.pannerNode) {
+        continue
+      }
+      if (!state.spatialEnabled) {
+        this.applyPannerPosition(state.pannerNode, listenerPoint)
+        continue
+      }
+      if (!state.lastKnownPosition) {
+        this.applyPannerPosition(state.pannerNode, listenerPoint)
+        continue
+      }
+      if (
+        this.listenerPosition &&
+        state.lastKnownPosition.worldId !== this.listenerPosition.worldId
+      ) {
+        this.applyPannerPosition(state.pannerNode, listenerPoint)
+      }
+    }
+  }
+
+  private getAdaptiveRolloff(serverGainHint: number): number {
+    if (serverGainHint >= SPATIAL_GAIN_THRESHOLD) {
+      return SPATIAL_ROLLOFF_FULL
+    }
+    const normalizedGain = this.clamp(serverGainHint, 0, 1)
+    return SPATIAL_ROLLOFF_MIN + (SPATIAL_ROLLOFF_FULL - SPATIAL_ROLLOFF_MIN) * normalizedGain * normalizedGain
+  }
+
+  private getCurrentListenerPoint(): SpatialPoint {
+    if (!this.listenerPosition) {
+      return { x: 0, y: 0, z: 0 }
+    }
+    return this.toAudioPoint(this.listenerPosition)
+  }
+
+  private toAudioPoint(position: PlayerPosition): SpatialPoint {
+    // Pass game coordinates through unchanged — both positions and orientation
+    // use the same coordinate space so Web Audio resolves directions correctly.
+    return {
+      x: position.x,
+      y: position.y,
+      z: position.z,
+    }
+  }
+
+  private getOrientationFromPosition(position: PlayerPosition): ListenerOrientation {
+    // Yaw=0 faces north (-Z in game), increases clockwise.
+    // Game forward: x = -sin(yaw), z = -cos(yaw). No coordinate transform needed
+    // since toAudioPoint passes positions through unchanged.
+    const yawRad = (this.normalizeDegrees(position.yaw) * Math.PI) / 180
+    const pitchRad = (this.clamp(position.pitch, -89.9, 89.9) * Math.PI) / 180
+    const cosPitch = Math.cos(pitchRad)
+    return {
+      forwardX: -Math.sin(yawRad) * cosPitch,
+      forwardY: -Math.sin(pitchRad),
+      forwardZ: -Math.cos(yawRad) * cosPitch,
+    }
+  }
+
+  /**
+   * Compute the horizontal angle (in radians, 0-PI) between the listener's
+   * forward direction and the direction from listener to source.
+   * 0 = directly in front, PI = directly behind.
+   */
+  private computeFrontBackAngle(listenerPos: PlayerPosition, sourcePos: PlayerPosition): number {
+    const dx = sourcePos.x - listenerPos.x
+    const dz = sourcePos.z - listenerPos.z
+    const len = Math.sqrt(dx * dx + dz * dz)
+    if (len < 0.001) {
+      return 0 // source is on top of listener, treat as front
+    }
+
+    const yawRad = (this.normalizeDegrees(listenerPos.yaw) * Math.PI) / 180
+    const fwdX = -Math.sin(yawRad)
+    const fwdZ = -Math.cos(yawRad)
+
+    // Dot product of forward and direction-to-source on XZ plane
+    const dot = (fwdX * dx + fwdZ * dz) / len
+    return Math.acos(this.clamp(dot, -1, 1))
+  }
+
+  /**
+   * Apply a low-pass filter that muffles audio coming from behind the listener,
+   * reinforcing the front/back distinction that HRTF alone handles poorly.
+   */
+  private applyFrontBackFilter(state: UserAudioState): void {
+    if (!state.frontBackFilterNode || !this.audioContext) {
+      return
+    }
+    if (!state.spatialEnabled || !state.lastKnownPosition || !this.listenerPosition) {
+      this.resetFrontBackFilter(state)
+      return
+    }
+    if (state.lastKnownPosition.worldId !== this.listenerPosition.worldId) {
+      this.resetFrontBackFilter(state)
+      return
+    }
+
+    const angle = this.computeFrontBackAngle(this.listenerPosition, state.lastKnownPosition)
+    const halfPI = Math.PI / 2
+
+    // 0..PI/2 = front hemisphere (filter wide open), PI/2..PI = rear hemisphere (muffle)
+    let t = 0
+    if (angle > halfPI) {
+      t = (angle - halfPI) / halfPI // 0 at side, 1 at directly behind
+    }
+    // Smooth ease-in curve for more natural transition
+    t = t * t
+
+    const freq = FRONT_BACK_FILTER_OPEN - (FRONT_BACK_FILTER_OPEN - FRONT_BACK_FILTER_BEHIND) * t
+    this.smoothAudioParam(state.frontBackFilterNode.frequency, freq)
+
+    // Subtle gain reduction for rear sources - store multiplier and update gain
+    state.directionalGainMultiplier = 1.0 - (1.0 - FRONT_BACK_GAIN_BEHIND) * t
+    if (state.gainNode) {
+      const baseVolume = state.isMuted ? 0 : state.volume / 100
+      const finalVolume = baseVolume * state.directionalGainMultiplier
+      this.smoothAudioParam(state.gainNode.gain, finalVolume)
+    }
+  }
+
+  private resetFrontBackFilter(state: UserAudioState): void {
+    if (!state.frontBackFilterNode || !this.audioContext) {
+      return
+    }
+    this.smoothAudioParam(state.frontBackFilterNode.frequency, FRONT_BACK_FILTER_OPEN)
+    // Reset directional gain multiplier to 1.0 (no attenuation) and update gain
+    state.directionalGainMultiplier = 1.0
+    if (state.gainNode) {
+      const baseVolume = state.isMuted ? 0 : state.volume / 100
+      this.smoothAudioParam(state.gainNode.gain, baseVolume)
+    }
+  }
+
+  /**
+   * Re-evaluate front/back filters for all spatial users (called when the listener moves/rotates).
+   */
+  private updateAllFrontBackFilters(): void {
+    for (const state of this.userStates.values()) {
+      if (!state.frontBackFilterNode) {
+        continue
+      }
+      this.applyFrontBackFilter(state)
+    }
+  }
+
+  private normalizeDegrees(value: number): number {
+    if (!Number.isFinite(value)) {
+      return 0
+    }
+    let normalized = value % 360
+    if (normalized > 180) {
+      normalized -= 360
+    } else if (normalized < -180) {
+      normalized += 360
+    }
+    return normalized
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.max(min, Math.min(max, value))
   }
 
   /**

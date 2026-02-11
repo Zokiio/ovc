@@ -11,7 +11,7 @@ interface ConnectionStore extends ConnectionState {
   clearError: () => void
   addWarning: (source: ConnectionWarningSource, message: string) => void
   clearWarnings: () => void
-  setAuthenticated: (clientId: string, username: string, isPending?: boolean) => void
+  setAuthenticated: (clientId: string, username: string, isPending?: boolean, isAdmin?: boolean) => void
   incrementReconnectAttempt: () => void
   resetReconnectAttempt: () => void
   reset: () => void
@@ -26,6 +26,7 @@ const initialState: ConnectionState = {
   reconnectAttempt: 0,
   clientId: null,
   username: null,
+  isAdmin: false,
 }
 
 export const useConnectionStore = create<ConnectionStore>()(
@@ -97,11 +98,12 @@ export const useConnectionStore = create<ConnectionStore>()(
         state.warnings = []
       }),
 
-    setAuthenticated: (clientId, username, isPending = false) =>
+    setAuthenticated: (clientId, username, isPending = false, isAdmin = false) =>
       set((state) => {
         state.status = isPending ? 'connecting' : 'connected'
         state.clientId = clientId
         state.username = username
+        state.isAdmin = isAdmin
         state.errorMessage = null
         state.reconnectAttempt = 0
         if (!isPending) {

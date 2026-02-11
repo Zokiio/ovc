@@ -102,7 +102,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
 
    if (compact) {
       return (
-         <div className="flex items-center gap-4 text-[10px] font-mono text-[var(--text-secondary)]">
+         <div className="flex min-w-0 items-center gap-2 sm:gap-4 text-[10px] font-mono text-[var(--text-secondary)] overflow-hidden">
             <div className="flex items-center gap-1.5">
                <div className={cn(
                   "w-1.5 h-1.5 rounded-full",
@@ -116,14 +116,15 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
                   {status.toUpperCase()}
                </span>
             </div>
-            <span className="opacity-30">|</span>
-            <div className="flex items-center gap-1">
+            <span className="opacity-30 hidden min-[430px]:inline">|</span>
+            <div className="hidden min-[430px]:flex items-center gap-1 min-w-0">
                <Globe className="w-3 h-3 opacity-50" />
                <span className={cn("truncate max-w-[100px]", isStreamerMode && "blur-[4px] select-none")}>{hostname}</span>
             </div>
-            <span className="opacity-30">|</span>
-            <div className="flex gap-3">
-               <span>PING: <span style={{ color: pingColor }}>{pingDisplay}</span></span>
+            <span className="opacity-30 hidden min-[430px]:inline">|</span>
+            <div className="flex items-center gap-1 shrink-0">
+               <span className="hidden min-[430px]:inline">PING:</span>
+               <span style={{ color: pingColor }}>{pingDisplay}</span>
             </div>
          </div>
       );
@@ -167,6 +168,7 @@ export const ConnectionMonitor = ({ compact = false }: { compact?: boolean }) =>
 export const SpatialRadar = () => {
    const [showMap, setShowMap] = useState(false);
    const isProximityRadarEnabled = useAudioStore((s) => s.isProximityRadarEnabled);
+   const isProximityRadarSpeakingOnly = useAudioStore((s) => s.isProximityRadarSpeakingOnly);
    const proximityRadarContacts = useAudioStore((s) => s.proximityRadarContacts);
    const pruneProximityRadarContacts = useAudioStore((s) => s.pruneProximityRadarContacts);
    const users = useUserStore((s) => s.users);
@@ -205,7 +207,16 @@ export const SpatialRadar = () => {
          return ((Math.abs(hash) % 360) * Math.PI) / 180;
       };
 
-      return Array.from(proximityRadarContacts.values())
+      const contacts = Array.from(proximityRadarContacts.values())
+         .filter((contact) => {
+            if (!isProximityRadarSpeakingOnly) {
+               return true;
+            }
+            const user = users.get(contact.userId);
+            return !!user && user.isSpeaking;
+         });
+
+      return contacts
          .map((contact) => {
             const user = users.get(contact.userId);
             const clampedDistance = Math.min(contact.distance, contact.maxRange);
@@ -235,7 +246,7 @@ export const SpatialRadar = () => {
             };
          })
          .sort((a, b) => a.distance - b.distance);
-   }, [isProximityRadarEnabled, localUser?.position, proximityRadarContacts, users]);
+   }, [isProximityRadarEnabled, isProximityRadarSpeakingOnly, localUser?.position, proximityRadarContacts, users]);
 
    const range = useMemo(() => {
       if (typeof currentGroupRange === 'number' && Number.isFinite(currentGroupRange) && currentGroupRange > 0) {

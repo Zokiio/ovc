@@ -4,9 +4,9 @@ This project uses a **CSS Variable-driven Theming System**. The UI components ar
 
 ## Architecture Overview
 
-1.  **`src/theme.css`**: Contains all theme definitions. Each theme is defined under a `[data-theme="theme-name"]` selector.
-2.  **`src/context/ThemeContext.tsx`**: Manages the active theme state and applies the `data-theme` attribute to the HTML root.
-3.  **`src/components/CommonUI.tsx`**: High-level components (`Panel`, `Button`, `Input`, etc.) that consume the CSS variables.
+1. **`src/theme.css`**: Contains all theme definitions. Each theme is defined under a `[data-theme="theme-name"]` selector.
+2. **`src/context/theme-context.ts`** + **`src/context/ThemeContext.tsx`**: Theme types/hooks and provider logic that applies `data-theme` on the root element.
+3. **`src/components/ui/Primitives.tsx`** and layout/components: UI primitives consume CSS variables and inherit theme values.
 
 ---
 
@@ -53,14 +53,19 @@ Add a new block in `src/theme.css`. You can copy an existing theme and modify th
 ```
 
 ### Step 2: Register in TypeScript
-Update the `Theme` type in `src/context/ThemeContext.tsx`:
+Update theme types where they are declared:
 
 ```typescript
 type Theme = 'industrial' | 'hytale' | 'neon-night';
 ```
 
+Current files to update:
+
+- `src/context/theme-context.ts` (`Theme` type)
+- `src/stores/settingsStore.ts` (`AppTheme` type)
+
 ### Step 3: Update Switcher Logic (Optional)
-If you want the toggle button to include the new theme, update the `toggleTheme` function in `ThemeContext.tsx` to cycle through your new list.
+If you want the top-bar toggle to cycle through the new theme, update the `toggleTheme` function in `src/context/ThemeContext.tsx`.
 
 ---
 
@@ -85,5 +90,5 @@ If you want the toggle button to include the new theme, update the `toggleTheme`
 
 ## Best Practices
 - **Use Opacity:** You can use CSS variables with opacity in tailwind: `bg-[var(--accent-primary)]/20`.
-- **Transitions:** All color changes are automatically transitioned via the `transition-colors` class in `CommonUI.tsx`.
+- **Transitions:** Use `transition-colors` on components that should animate theme changes.
 - **Typography:** Ensure any custom fonts are imported in `index.html`.

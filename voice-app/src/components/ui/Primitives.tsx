@@ -214,7 +214,7 @@ export const Badge = ({ children, variant = 'neutral', className }: { children: 
   };
 
   return (
-    <span className={cn("inline-flex items-center justify-center min-w-[64px] px-2 py-0.5 text-[10px] font-extrabold uppercase border font-[family-name:var(--font-heading)] rounded-[var(--radius-btn)] tracking-wider shadow-sm", variants[variant], className)}>
+    <span className={cn("inline-flex items-center justify-center min-w-[48px] sm:min-w-[64px] px-2 py-0.5 text-[10px] font-extrabold uppercase border font-[family-name:var(--font-heading)] rounded-[var(--radius-btn)] tracking-wider shadow-sm", variants[variant], className)}>
       {children}
     </span>
   );

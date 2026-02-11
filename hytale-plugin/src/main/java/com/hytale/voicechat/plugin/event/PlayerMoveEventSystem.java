@@ -68,16 +68,24 @@ public class PlayerMoveEventSystem extends TickingSystem<EntityStore> implements
         double yaw = 0.0;
         double pitch = 0.0;
 
-        // Prefer independent head rotation if available
+        // Prefer head/look rotation for spatial audio listener orientation so turning in place
+        // updates direction correctly. Fall back to transform/body rotation.
         if (headRotation != null && headRotation.getRotation() != null) {
             var hrot = headRotation.getRotation();
-            Double hx = null, hy = null, hz = null;
-            try { hx = (double) hrot.getX(); } catch (Exception ignored) {}
-            try { hy = (double) hrot.getY(); } catch (Exception ignored) {}
-            try { hz = (double) hrot.getZ(); } catch (Exception ignored) {}
+            Double yawRaw = null;
+            Double pitchRaw = null;
+            Double altX = null;
+            Double altY = null;
+            Double altZ = null;
 
-            yaw = chooseDegrees(hy, hz, null);   // likely Y is yaw
-            pitch = chooseDegrees(hx, null, null); // likely X is pitch
+            try { yawRaw = (double) hrot.getYaw(); } catch (Exception ignored) {}
+            try { pitchRaw = (double) hrot.getPitch(); } catch (Exception ignored) {}
+            try { altX = (double) hrot.getX(); } catch (Exception ignored) {}
+            try { altY = (double) hrot.getY(); } catch (Exception ignored) {}
+            try { altZ = (double) hrot.getZ(); } catch (Exception ignored) {}
+
+            yaw = chooseDegrees(yawRaw, altY, altZ);
+            pitch = chooseDegrees(pitchRaw, altX, null);
         } else if (transform.getRotation() != null) {
             var rot = transform.getRotation();
             Double yawRaw = null;

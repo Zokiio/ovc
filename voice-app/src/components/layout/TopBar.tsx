@@ -22,7 +22,7 @@ export const TopBar = ({
   return (
     <header className="h-14 bg-[var(--bg-panel)] border-b border-[var(--border-primary)] flex items-center justify-between px-4 shrink-0 z-30 shadow-md relative">
       {/* Brand & Server Info */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
          <div className="flex items-center gap-2 text-[var(--text-accent)] group cursor-default">
             <div className="relative w-8 h-8">
                <img src="/logo.png" alt="OVC" className="w-full h-full object-contain relative z-10" />
@@ -37,14 +37,14 @@ export const TopBar = ({
          
          <div className="hidden sm:block h-6 w-[1px] bg-[var(--border-primary)]" />
          
-         <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-input)] px-2 py-1 rounded-[var(--radius-btn)] border border-[var(--border-primary)]">
+         <div className="hidden min-[430px]:flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-input)] px-2 py-1 rounded-[var(--radius-btn)] border border-[var(--border-primary)] min-w-0">
             <Server className="w-3 h-3" />
             <span className={cn("uppercase max-w-[120px] truncate font-mono", isStreamerMode && "blur-[6px] select-none")}>{serverName}</span>
          </div>
       </div>
       
       {/* System Controls */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
          <button 
             onClick={() => setStreamerMode(!isStreamerMode)} 
             className={cn(

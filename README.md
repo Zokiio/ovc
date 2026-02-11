@@ -14,9 +14,7 @@ Proximity-based voice chat for Hytale using a Java SFU and a browser client over
 
 - `voice-app/`: React + TypeScript browser client
 - `hytale-plugin/`: Java plugin with signaling, WebRTC, routing, and game integration
-- `HYTALE_CONFIGURATION.md`: Complete server configuration reference
-- `REVERSE_PROXY_SETUP.md`: Reverse proxy setup examples
-- `SSL_SETUP.md`: Direct SSL setup notes
+- `docs/`: Canonical documentation hub for operators and contributors
 
 ## Architecture
 
@@ -24,6 +22,14 @@ Proximity-based voice chat for Hytale using a Java SFU and a browser client over
 2. Plugin establishes WebRTC peer/data-channel transport.
 3. Client audio frames are routed server-side based on proximity/group rules.
 4. Optional proximity metadata (`distance`, `maxRange`) is embedded in routed audio payloads when `USE_PROXIMITY_RADAR = true`.
+
+## Documentation
+
+- `docs/README.md`: Primary docs entry point
+- `docs/operations/configuration.md`: Full `ovc.conf` key reference
+- `docs/operations/reverse-proxy.md`: Recommended production deployment path
+- `docs/operations/direct-ssl.md`: Advanced plugin-managed TLS setup
+- `docs/operations/troubleshooting.md`: Common operator issues and fixes
 
 ## Quick start
 
@@ -67,7 +73,7 @@ PendingGameJoinTimeoutSeconds = 60
 USE_PROXIMITY_RADAR = false
 ```
 
-See `HYTALE_CONFIGURATION.md` for full defaults, ranges, and troubleshooting.
+See `docs/README.md` for full configuration, deployment, and troubleshooting guides.
 
 ## Development
 

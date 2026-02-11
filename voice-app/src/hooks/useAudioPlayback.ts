@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import { getAudioPlaybackManager } from '../lib/audio/playback-manager'
 import { OpusCodecManager } from '../lib/audio/opus-codec-manager'
 import { createLogger } from '../lib/logger'
 import { getSignalingClient } from '../lib/signaling'
 import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc/audio-channel'
 import { useAudioStore } from '../stores/audioStore'
+import { useGroupStore } from '../stores/groupStore'
+import { useUserStore } from '../stores/userStore'
+import type { PlayerPosition } from '../lib/types'
 
 const logger = createLogger('useAudioPlayback')
 
@@ -21,12 +23,13 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   const outputVolume = useAudioStore((s) => s.settings.outputVolume)
   const outputDeviceId = useAudioStore((s) => s.settings.outputDeviceId)
   const isDeafened = useAudioStore((s) => s.isDeafened)
-  const localMuteEntries = useAudioStore(useShallow((s) => Array.from(s.localMutes.entries())))
-  const userVolumeEntries = useAudioStore(useShallow((s) => Array.from(s.userVolumes.entries())))
+  const localMutes = useAudioStore((s) => s.localMutes)
+  const userVolumes = useAudioStore((s) => s.userVolumes)
   const setAudioDiagnostics = useAudioStore((s) => s.setAudioDiagnostics)
   const upsertProximityRadarContact = useAudioStore((s) => s.upsertProximityRadarContact)
   const setLocalMute = useAudioStore((s) => s.setLocalMute)
   const setStoredUserVolume = useAudioStore((s) => s.setUserVolume)
+  const isGroupSpatialAudioEnabled = useAudioStore((s) => s.isGroupSpatialAudioEnabled)
 
   const managerRef = useRef(getAudioPlaybackManager())
   const opusDecoderRef = useRef(new OpusCodecManager())
@@ -44,6 +47,45 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       targetBitrate: 32000,
     })
   }, [])
+
+  const upsertRadarIfInRange = useCallback((userId: string, distance: number, maxRange: number) => {
+    if (!Number.isFinite(distance) || !Number.isFinite(maxRange)) {
+      return
+    }
+    const nextDistance = Math.max(0, distance)
+    const nextRange = Math.max(1, maxRange)
+    if (nextDistance > nextRange) {
+      return
+    }
+    upsertProximityRadarContact(userId, nextDistance, nextRange)
+  }, [upsertProximityRadarContact])
+
+  const syncSpatialState = useCallback(() => {
+    const manager = managerRef.current
+    const { users, localUserId } = useUserStore.getState()
+    const { currentGroupId, groups } = useGroupStore.getState()
+    const localGroupId = localUserId ? users.get(localUserId)?.groupId ?? null : null
+    const activeGroupId = currentGroupId ?? localGroupId
+    const currentGroup = currentGroupId ? groups.find((group) => group.id === currentGroupId) : null
+    const currentGroupMembers = currentGroup ? new Set(currentGroup.members.map((member) => member.id)) : null
+    const localPosition = localUserId ? users.get(localUserId)?.position ?? null : null
+    manager.updateListenerPosition(localPosition)
+
+    users.forEach((user, userId) => {
+      if (userId === localUserId) {
+        return
+      }
+      const shouldApplySpatial =
+        isGroupSpatialAudioEnabled ||
+        !activeGroupId ||
+        (
+          (!currentGroupMembers || !currentGroupMembers.has(userId)) &&
+          user.groupId !== activeGroupId
+        )
+      manager.setUserSpatialEnabled(userId, shouldApplySpatial)
+      manager.updateUserPosition(userId, user.position ?? null)
+    })
+  }, [isGroupSpatialAudioEnabled])
 
   useEffect(() => {
     const manager = managerRef.current
@@ -73,17 +115,135 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
   // Keep per-user controls authoritative from store state to survive reconnect/HMR/re-init.
   useEffect(() => {
     const manager = managerRef.current
-    localMuteEntries.forEach(([userId, muted]) => {
+    localMutes.forEach((muted, userId) => {
       manager.setUserMuted(userId, Boolean(muted))
     })
-  }, [localMuteEntries])
+  }, [localMutes])
 
   useEffect(() => {
     const manager = managerRef.current
-    userVolumeEntries.forEach(([userId, volume]) => {
+    userVolumes.forEach((volume, userId) => {
       manager.setUserVolume(userId, Number.isFinite(volume) ? volume : 100)
     })
-  }, [userVolumeEntries])
+  }, [userVolumes])
+
+  useEffect(() => {
+    syncSpatialState()
+    
+    // Subscribe with manual change detection to avoid syncing on irrelevant changes
+    // Initialize prev state from current store state to avoid dropping first change
+    const initialUserState = useUserStore.getState()
+    let prevUserPositions: Map<string, PlayerPosition | null | undefined> = new Map()
+    let prevUserGroupIds: Map<string, string | null> = new Map()
+    for (const [id, u] of initialUserState.users) {
+      prevUserPositions.set(id, u.position)
+      prevUserGroupIds.set(id, u.groupId ?? null)
+    }
+    let prevLocalUserId: string | null = initialUserState.localUserId
+    
+    const unsubscribeUsers = useUserStore.subscribe((state) => {
+      // Single pass to build both Maps
+      const currPositions = new Map<string, PlayerPosition | null | undefined>()
+      const currGroupIds = new Map<string, string | null>()
+      for (const [id, u] of state.users) {
+        currPositions.set(id, u.position)
+        currGroupIds.set(id, u.groupId ?? null)
+      }
+      const currLocalUserId = state.localUserId
+      
+      // Check if positions, groupIds, or localUserId changed
+      let hasChanged = currLocalUserId !== prevLocalUserId
+      
+      if (!hasChanged && (currPositions.size !== prevUserPositions.size || currGroupIds.size !== prevUserGroupIds.size)) {
+        hasChanged = true
+      }
+      
+      if (!hasChanged) {
+        for (const [userId, pos] of currPositions) {
+          const prevPos = prevUserPositions.get(userId)
+          // Check if presence of position changed
+          if ((!pos) !== (!prevPos)) {
+            hasChanged = true
+            break
+          }
+          // Shallow equality check for position properties (skip if both are null/undefined)
+          if (pos && prevPos && (
+              pos.x !== prevPos.x || 
+              pos.y !== prevPos.y || 
+              pos.z !== prevPos.z || 
+              pos.yaw !== prevPos.yaw || 
+              pos.pitch !== prevPos.pitch || 
+              pos.worldId !== prevPos.worldId)) {
+            hasChanged = true
+            break
+          }
+        }
+      }
+      
+      if (!hasChanged) {
+        for (const [userId, groupId] of currGroupIds) {
+          if (prevUserGroupIds.get(userId) !== groupId) {
+            hasChanged = true
+            break
+          }
+        }
+      }
+      
+      if (hasChanged) {
+        prevUserPositions = currPositions
+        prevUserGroupIds = currGroupIds
+        prevLocalUserId = currLocalUserId
+        syncSpatialState()
+      }
+    })
+    
+    // Initialize prev group state from current store state to avoid dropping first change
+    const initialGroupState = useGroupStore.getState()
+    let prevCurrentGroupId: string | null = initialGroupState.currentGroupId
+    const initialGroup = initialGroupState.groups.find(g => g.id === prevCurrentGroupId) || null
+    let prevGroupMemberIds: string[] = initialGroup ? initialGroup.members.map(m => m.id) : []
+    
+    const unsubscribeGroups = useGroupStore.subscribe((state) => {
+      const currCurrentGroupId = state.currentGroupId
+      const currentGroup = state.groups.find(g => g.id === currCurrentGroupId) || null
+      const currMemberIds = currentGroup ? currentGroup.members.map(m => m.id) : []
+      
+      // Check if currentGroupId or current group's membership changed
+      let hasChanged = currCurrentGroupId !== prevCurrentGroupId
+      
+      if (!hasChanged) {
+        const prevMembers = prevGroupMemberIds
+        if (currMemberIds.length !== prevMembers.length) {
+          hasChanged = true
+        } else {
+          // Order-independent membership comparison
+          const currSet = new Set(currMemberIds)
+          const prevSet = new Set(prevMembers)
+          if (currSet.size !== prevSet.size) {
+            hasChanged = true
+          } else {
+            for (const member of currSet) {
+              if (!prevSet.has(member)) {
+                hasChanged = true
+                break
+              }
+            }
+          }
+        }
+      }
+      
+      if (hasChanged) {
+        prevCurrentGroupId = currCurrentGroupId
+        prevGroupMemberIds = currMemberIds
+        syncSpatialState()
+      }
+    })
+    
+    return () => {
+      unsubscribeUsers()
+      unsubscribeGroups()
+    }
+  }, [syncSpatialState])
 
   /**
    * Handle incoming audio data from DataChannel
@@ -100,8 +260,14 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       ? payload.opusData?.byteLength ?? 0
       : payload.pcmData?.length ?? 0
     logger.debug('Playing audio from:', payload.senderId, 'samplesOrPacketBytes:', sampleOrPacketSize)
+    managerRef.current.updateUserSpatialMetadata(
+      payload.senderId,
+      payload.proximity?.maxRange,
+      typeof payload.gain === 'number' && Number.isFinite(payload.gain) ? payload.gain : undefined
+    )
+
     if (payload.proximity && Number.isFinite(payload.proximity.distance) && Number.isFinite(payload.proximity.maxRange)) {
-      upsertProximityRadarContact(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
+      upsertRadarIfInRange(payload.senderId, payload.proximity.distance, payload.proximity.maxRange)
     }
 
     if (payload.codec === 'opus') {
@@ -137,7 +303,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
 
     const float32Data = int16ToFloat32(payload.pcmData)
     await managerRef.current.playAudio(payload.senderId, float32Data)
-  }, [ensureOpusDecoderReady, runtimeWarningHandler, upsertProximityRadarContact])
+  }, [ensureOpusDecoderReady, runtimeWarningHandler, upsertRadarIfInRange])
 
   /**
    * Handle fallback WebSocket audio message payloads.
@@ -155,12 +321,16 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     }
 
     if (Number.isFinite(distance) && Number.isFinite(maxRange)) {
-      upsertProximityRadarContact(senderId, distance as number, maxRange as number)
+      upsertRadarIfInRange(senderId, distance as number, maxRange as number)
     }
+    managerRef.current.updateUserSpatialMetadata(
+      senderId,
+      typeof maxRange === 'number' && Number.isFinite(maxRange) ? maxRange : undefined
+    )
 
     const float32Data = int16ToFloat32(pcmData)
     await managerRef.current.playAudio(senderId, float32Data)
-  }, [upsertProximityRadarContact])
+  }, [upsertRadarIfInRange])
 
   /**
    * Set volume for a specific user

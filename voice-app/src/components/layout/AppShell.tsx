@@ -44,7 +44,7 @@ export const AppShell = ({
         onToggleRightPanel={() => setRightPanelOpen(!rightPanelOpen)}
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex overflow-hidden relative min-w-0">
         
         {/* Desktop Left Nav */}
         <NavigationRail 
@@ -59,7 +59,7 @@ export const AppShell = ({
 
         {/* Center Content (Grid) */}
         <main className={cn(
-          "flex-1 bg-[var(--bg-app)] flex flex-col min-w-0 relative transition-all duration-300",
+          "flex-1 bg-[var(--bg-app)] flex flex-col min-w-0 relative transition-all duration-300 overflow-x-hidden",
           activeMobileTab === 'channel' ? "flex" : "hidden md:flex" // Mobile toggle logic
         )}>
            {children}
@@ -77,7 +77,7 @@ export const AppShell = ({
 
         {/* Mobile View Layer (Overlays center content) */}
         <div className={cn(
-           "absolute inset-0 bg-[var(--bg-app)] z-20 md:hidden flex flex-col",
+           "absolute inset-0 bg-[var(--bg-app)] z-20 md:hidden flex flex-col min-w-0 overflow-x-hidden",
            activeMobileTab !== 'channel' ? "flex" : "hidden"
         )}>
            {mobileViewContent}

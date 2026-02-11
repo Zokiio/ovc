@@ -49,20 +49,36 @@ public class PlayerJoinEventSystem extends HolderSystem<EntityStore> {
                 
                 double yaw = 0.0;
                 double pitch = 0.0;
+                // Prefer head/look rotation for spatial audio listener orientation so turning in place
+                // updates direction correctly. Fall back to transform/body rotation.
                 if (headRotation != null && headRotation.getRotation() != null) {
                     var hrot = headRotation.getRotation();
-                    Double hx = null, hy = null, hz = null;
-                    try { hx = (double) hrot.getX(); } catch (Exception ignored) {}
-                    try { hy = (double) hrot.getY(); } catch (Exception ignored) {}
-                    try { hz = (double) hrot.getZ(); } catch (Exception ignored) {}
-                    yaw = chooseDegrees(hy, hz, null);
-                    pitch = chooseDegrees(hx, null, null);
+                    Double yawRaw = null;
+                    Double pitchRaw = null;
+                    Double altX = null;
+                    Double altY = null;
+                    Double altZ = null;
+                    try { yawRaw = (double) hrot.getYaw(); } catch (Exception ignored) {}
+                    try { pitchRaw = (double) hrot.getPitch(); } catch (Exception ignored) {}
+                    try { altX = (double) hrot.getX(); } catch (Exception ignored) {}
+                    try { altY = (double) hrot.getY(); } catch (Exception ignored) {}
+                    try { altZ = (double) hrot.getZ(); } catch (Exception ignored) {}
+                    yaw = chooseDegrees(yawRaw, altY, altZ);
+                    pitch = chooseDegrees(pitchRaw, altX, null);
                 } else if (transform.getRotation() != null) {
-                    try {
-                        yaw = transform.getRotation().getYaw();
-                        pitch = transform.getRotation().getPitch();
-                    } catch (Exception ignored) {
-                    }
+                    var rot = transform.getRotation();
+                    Double yawRaw = null;
+                    Double pitchRaw = null;
+                    Double altX = null;
+                    Double altY = null;
+                    Double altZ = null;
+                    try { yawRaw = (double) rot.getYaw(); } catch (Exception ignored) {}
+                    try { pitchRaw = (double) rot.getPitch(); } catch (Exception ignored) {}
+                    try { altX = (double) rot.getX(); } catch (Exception ignored) {}
+                    try { altY = (double) rot.getY(); } catch (Exception ignored) {}
+                    try { altZ = (double) rot.getZ(); } catch (Exception ignored) {}
+                    yaw = chooseDegrees(yawRaw, altY, altZ);
+                    pitch = chooseDegrees(pitchRaw, altX, null);
                 }
 
                 logger.atInfo().log("Player joined: " + username + " (UUID: " + playerUUID + ")");

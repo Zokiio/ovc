@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { SavedServer } from '../lib/types'
+import { normalizeUrl } from '../lib/utils'
 
 type AppTheme = 'industrial' | 'hytale'
 
@@ -20,7 +21,7 @@ interface SettingsStore {
   editSavedServer: (id: string, updates: Partial<Omit<SavedServer, 'id' | 'lastConnected'>>) => void
   removeSavedServer: (id: string) => void
   updateServerLastConnected: (id: string) => void
-  setLastServerUrl: (url: string) => void
+  setLastServerUrl: (url: string | null) => void
   
   // Actions - UI
   setTheme: (theme: AppTheme) => void
@@ -42,6 +43,47 @@ const deriveServerName = (url: string, explicitName?: string): string => {
   }
 }
 
+const normalizeSavedServerUrl = (url: string): string => {
+  const trimmed = url.trim()
+  if (!trimmed) {
+    return ''
+  }
+  return normalizeUrl(trimmed)
+}
+
+const sanitizeSavedServers = (servers: SavedServer[]): SavedServer[] => {
+  const dedupedByUrl = new Map<string, SavedServer>()
+
+  for (const server of servers) {
+    if (!server || typeof server.url !== 'string') {
+      continue
+    }
+
+    const normalizedUrl = normalizeSavedServerUrl(server.url)
+    if (!normalizedUrl) {
+      continue
+    }
+
+    const nextServer: SavedServer = {
+      id: typeof server.id === 'string' && server.id ? server.id : crypto.randomUUID(),
+      url: normalizedUrl,
+      name: deriveServerName(normalizedUrl, server.name),
+      username: typeof server.username === 'string' && server.username.length > 0 ? server.username : undefined,
+      authToken: typeof server.authToken === 'string' && server.authToken.length > 0 ? server.authToken : undefined,
+      lastConnected: Number.isFinite(server.lastConnected) ? server.lastConnected : 0,
+    }
+
+    const existing = dedupedByUrl.get(normalizedUrl)
+    if (!existing || nextServer.lastConnected >= existing.lastConnected) {
+      dedupedByUrl.set(normalizedUrl, nextServer)
+    }
+  }
+
+  return Array.from(dedupedByUrl.values())
+    .sort((a, b) => b.lastConnected - a.lastConnected)
+    .slice(0, 10)
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     immer((set) => ({
@@ -53,31 +95,59 @@ export const useSettingsStore = create<SettingsStore>()(
 
       addSavedServer: (url, name, username, authToken) =>
         set((state) => {
-          // Allow multiple entries with same URL, use UUID for uniqueness
-          const id = crypto.randomUUID()
-          state.savedServers.push({
-            id,
-            url,
-            name: deriveServerName(url, name),
-            username,
-            authToken,
-            lastConnected: Date.now(),
-          })
-          
-          // Keep only last 10 servers
-          state.savedServers.sort((a, b) => b.lastConnected - a.lastConnected)
-          state.savedServers = state.savedServers.slice(0, 10)
+          const normalizedUrl = normalizeSavedServerUrl(url)
+          if (!normalizedUrl) {
+            return
+          }
+
+          const normalizedUsername = typeof username === 'string' && username.length > 0
+            ? username
+            : undefined
+          const normalizedAuthToken = typeof authToken === 'string' && authToken.length > 0
+            ? authToken
+            : undefined
+          const existing = state.savedServers.find((server) => server.url === normalizedUrl)
+
+          if (existing) {
+            if (typeof name === 'string' && name.trim().length > 0) {
+              existing.name = deriveServerName(normalizedUrl, name)
+            }
+            if (normalizedUsername !== undefined) {
+              existing.username = normalizedUsername
+            }
+            if (normalizedAuthToken !== undefined) {
+              existing.authToken = normalizedAuthToken
+            }
+            existing.lastConnected = Date.now()
+          } else {
+            state.savedServers.push({
+              id: crypto.randomUUID(),
+              url: normalizedUrl,
+              name: deriveServerName(normalizedUrl, name),
+              username: normalizedUsername,
+              authToken: normalizedAuthToken,
+              lastConnected: Date.now(),
+            })
+          }
+
+          state.savedServers = sanitizeSavedServers(state.savedServers)
         }),
 
       editSavedServer: (id, updates) =>
         set((state) => {
           const server = state.savedServers.find((s) => s.id === id)
           if (server) {
-            if (updates.url) server.url = updates.url
+            if (updates.url) {
+              const normalizedUrl = normalizeSavedServerUrl(updates.url)
+              if (normalizedUrl) {
+                server.url = normalizedUrl
+              }
+            }
             if (updates.name) server.name = updates.name
             if (updates.username !== undefined) server.username = updates.username
             if (updates.authToken !== undefined) server.authToken = updates.authToken
           }
+          state.savedServers = sanitizeSavedServers(state.savedServers)
         }),
 
       removeSavedServer: (id) =>
@@ -95,7 +165,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setLastServerUrl: (url) =>
         set((state) => {
-          state.lastServerUrl = url
+          state.lastServerUrl = typeof url === 'string' ? normalizeSavedServerUrl(url) : null
         }),
 
       setTheme: (theme) =>
@@ -120,6 +190,25 @@ export const useSettingsStore = create<SettingsStore>()(
     })),
     {
       name: 'voice-client-settings',
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState ?? {}) as Partial<SettingsStore>
+        const savedServers = sanitizeSavedServers(
+          Array.isArray(persisted.savedServers) ? persisted.savedServers : []
+        )
+        const normalizedLastServerUrl = typeof persisted.lastServerUrl === 'string'
+          ? normalizeSavedServerUrl(persisted.lastServerUrl)
+          : null
+        const lastServerUrl = normalizedLastServerUrl && savedServers.some((server) => server.url === normalizedLastServerUrl)
+          ? normalizedLastServerUrl
+          : null
+
+        return {
+          ...currentState,
+          ...persisted,
+          savedServers,
+          lastServerUrl,
+        }
+      },
     }
   )
 )
