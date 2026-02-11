@@ -131,22 +131,25 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     syncSpatialState()
     
     // Subscribe with manual change detection to avoid syncing on irrelevant changes
-    let prevUserPositions: Map<string, PlayerPosition | null | undefined> | null = null
-    let prevUserGroupIds: Map<string, string | null> | null = null
-    let prevLocalUserId: string | null = null
+    // Initialize prev state from current store state to avoid dropping first change
+    const initialUserState = useUserStore.getState()
+    let prevUserPositions: Map<string, PlayerPosition | null | undefined> = new Map()
+    let prevUserGroupIds: Map<string, string | null> = new Map()
+    for (const [id, u] of initialUserState.users) {
+      prevUserPositions.set(id, u.position)
+      prevUserGroupIds.set(id, u.groupId ?? null)
+    }
+    let prevLocalUserId: string | null = initialUserState.localUserId
     
     const unsubscribeUsers = useUserStore.subscribe((state) => {
-      const currPositions = new Map(Array.from(state.users.entries()).map(([id, u]) => [id, u.position]))
-      const currGroupIds = new Map(Array.from(state.users.entries()).map(([id, u]) => [id, u.groupId ?? null]))
-      const currLocalUserId = state.localUserId
-      
-      // Initialize on first run
-      if (prevUserPositions === null || prevUserGroupIds === null) {
-        prevUserPositions = currPositions
-        prevUserGroupIds = currGroupIds
-        prevLocalUserId = currLocalUserId
-        return
+      // Single pass to build both Maps
+      const currPositions = new Map<string, PlayerPosition | null | undefined>()
+      const currGroupIds = new Map<string, string | null>()
+      for (const [id, u] of state.users) {
+        currPositions.set(id, u.position)
+        currGroupIds.set(id, u.groupId ?? null)
       }
+      const currLocalUserId = state.localUserId
       
       // Check if positions, groupIds, or localUserId changed
       let hasChanged = currLocalUserId !== prevLocalUserId
@@ -194,55 +197,44 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       }
     })
     
-    let prevCurrentGroupId: string | null = null
-    let prevGroupMembers: Map<string, string[]> | null = null
+    // Initialize prev group state from current store state to avoid dropping first change
+    const initialGroupState = useGroupStore.getState()
+    let prevCurrentGroupId: string | null = initialGroupState.currentGroupId
+    const initialGroup = initialGroupState.groups.find(g => g.id === prevCurrentGroupId) || null
+    let prevGroupMemberIds: string[] = initialGroup ? initialGroup.members.map(m => m.id) : []
     
     const unsubscribeGroups = useGroupStore.subscribe((state) => {
       const currCurrentGroupId = state.currentGroupId
-      const currGroupMembers = new Map(state.groups.map(g => [g.id, g.members.map(m => m.id)]))
+      const currentGroup = state.groups.find(g => g.id === currCurrentGroupId) || null
+      const currMemberIds = currentGroup ? currentGroup.members.map(m => m.id) : []
       
-      // Initialize on first run
-      if (prevGroupMembers === null) {
-        prevCurrentGroupId = currCurrentGroupId
-        prevGroupMembers = currGroupMembers
-        return
-      }
-      
-      // Check if currentGroupId or group membership changed
+      // Check if currentGroupId or current group's membership changed
       let hasChanged = currCurrentGroupId !== prevCurrentGroupId
       
-      if (!hasChanged && currGroupMembers.size !== prevGroupMembers.size) {
-        hasChanged = true
-      }
-      
       if (!hasChanged) {
-        for (const [groupId, members] of currGroupMembers) {
-          const prevMembers = prevGroupMembers.get(groupId)
-          // Compare membership using Set (order-independent)
-          if (!prevMembers || members.length !== prevMembers.length) {
-            hasChanged = true
-            break
-          }
-          // Use Set to check if same members regardless of order
-          const currSet = new Set(members)
+        const prevMembers = prevGroupMemberIds
+        if (currMemberIds.length !== prevMembers.length) {
+          hasChanged = true
+        } else {
+          // Order-independent membership comparison
+          const currSet = new Set(currMemberIds)
           const prevSet = new Set(prevMembers)
           if (currSet.size !== prevSet.size) {
             hasChanged = true
-            break
-          }
-          for (const member of currSet) {
-            if (!prevSet.has(member)) {
-              hasChanged = true
-              break
+          } else {
+            for (const member of currSet) {
+              if (!prevSet.has(member)) {
+                hasChanged = true
+                break
+              }
             }
           }
-          if (hasChanged) break
         }
       }
       
       if (hasChanged) {
         prevCurrentGroupId = currCurrentGroupId
-        prevGroupMembers = currGroupMembers
+        prevGroupMemberIds = currMemberIds
         syncSpatialState()
       }
     })
