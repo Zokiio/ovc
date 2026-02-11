@@ -158,14 +158,19 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       if (!hasChanged) {
         for (const [userId, pos] of currPositions) {
           const prevPos = prevUserPositions.get(userId)
-          // Shallow equality check for position properties
-          if (!prevPos || 
-              pos?.x !== prevPos?.x || 
-              pos?.y !== prevPos?.y || 
-              pos?.z !== prevPos?.z || 
-              pos?.yaw !== prevPos?.yaw || 
-              pos?.pitch !== prevPos?.pitch || 
-              pos?.worldId !== prevPos?.worldId) {
+          // Check if presence of position changed
+          if ((!pos) !== (!prevPos)) {
+            hasChanged = true
+            break
+          }
+          // Shallow equality check for position properties (skip if both are null/undefined)
+          if (pos && prevPos && (
+              pos.x !== prevPos.x || 
+              pos.y !== prevPos.y || 
+              pos.z !== prevPos.z || 
+              pos.yaw !== prevPos.yaw || 
+              pos.pitch !== prevPos.pitch || 
+              pos.worldId !== prevPos.worldId)) {
             hasChanged = true
             break
           }
@@ -213,14 +218,20 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       if (!hasChanged) {
         for (const [groupId, members] of currGroupMembers) {
           const prevMembers = prevGroupMembers.get(groupId)
-          // Compare array lengths first, then check element equality
+          // Compare membership using Set (order-independent)
           if (!prevMembers || members.length !== prevMembers.length) {
             hasChanged = true
             break
           }
-          // Check if all members are the same
-          for (let i = 0; i < members.length; i++) {
-            if (members[i] !== prevMembers[i]) {
+          // Use Set to check if same members regardless of order
+          const currSet = new Set(members)
+          const prevSet = new Set(prevMembers)
+          if (currSet.size !== prevSet.size) {
+            hasChanged = true
+            break
+          }
+          for (const member of currSet) {
+            if (!prevSet.has(member)) {
               hasChanged = true
               break
             }
