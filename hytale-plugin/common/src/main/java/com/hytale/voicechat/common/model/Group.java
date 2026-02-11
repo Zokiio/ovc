@@ -17,12 +17,12 @@ public class Group {
     private final UUID groupId;
     private final String name;
     private final Set<UUID> members;
-    private boolean isPermanent;
+    private volatile boolean isPermanent;
     private final long createdAt;
     private UUID creatorUuid;
     private boolean isIsolated;
     private GroupSettings settings;
-    private String passwordHash;
+    private volatile String passwordHash;
 
     public Group(UUID groupId, String name, boolean isPermanent, UUID creatorUuid) {
         this(groupId, name, isPermanent, creatorUuid, new GroupSettings());
