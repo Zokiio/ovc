@@ -1505,6 +1505,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     try {
                         password = passwordElement.getAsString();
                     } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type: " + e.getMessage());
                         sendError(ctx, "Invalid password value");
                         return;
                     }
@@ -1525,6 +1526,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                             }
                         }
                     } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type: " + e.getMessage());
                         sendError(ctx, "Invalid isPermanent value");
                         return;
                     }
@@ -1606,6 +1608,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                             password = passwordElement.getAsString();
                         } catch (ClassCastException | IllegalStateException e) {
                             // Treat invalid password type as incorrect password
+                            logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type for group join: " + e.getMessage());
                             sendError(ctx, "Incorrect password", "incorrect_password");
                             return;
                         }
@@ -1765,6 +1768,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                     try {
                         isPermanent = isPermanentElement.getAsBoolean();
                     } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type for setPermanent: " + e.getMessage());
                         sendError(ctx, "Invalid isPermanent value");
                         return;
                     }

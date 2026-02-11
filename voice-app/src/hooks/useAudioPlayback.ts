@@ -7,6 +7,7 @@ import { base64ToInt16, decodeAudioPayload, int16ToFloat32 } from '../lib/webrtc
 import { useAudioStore } from '../stores/audioStore'
 import { useGroupStore } from '../stores/groupStore'
 import { useUserStore } from '../stores/userStore'
+import type { PlayerPosition } from '../lib/types'
 
 const logger = createLogger('useAudioPlayback')
 
@@ -130,7 +131,7 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
     syncSpatialState()
     
     // Subscribe with manual change detection to avoid syncing on irrelevant changes
-    let prevUserPositions: Map<string, any> | null = null
+    let prevUserPositions: Map<string, PlayerPosition | null | undefined> | null = null
     let prevUserGroupIds: Map<string, string | null> | null = null
     let prevLocalUserId: string | null = null
     
