@@ -157,7 +157,14 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       if (!hasChanged) {
         for (const [userId, pos] of currPositions) {
           const prevPos = prevUserPositions.get(userId)
-          if (JSON.stringify(pos) !== JSON.stringify(prevPos)) {
+          // Shallow equality check for position properties
+          if (!prevPos || 
+              pos?.x !== prevPos?.x || 
+              pos?.y !== prevPos?.y || 
+              pos?.z !== prevPos?.z || 
+              pos?.yaw !== prevPos?.yaw || 
+              pos?.pitch !== prevPos?.pitch || 
+              pos?.worldId !== prevPos?.worldId) {
             hasChanged = true
             break
           }
@@ -205,10 +212,19 @@ export function useAudioPlayback(options: UseAudioPlaybackOptions = {}) {
       if (!hasChanged) {
         for (const [groupId, members] of currGroupMembers) {
           const prevMembers = prevGroupMembers.get(groupId)
-          if (JSON.stringify(members) !== JSON.stringify(prevMembers)) {
+          // Compare array lengths first, then check element equality
+          if (!prevMembers || members.length !== prevMembers.length) {
             hasChanged = true
             break
           }
+          // Check if all members are the same
+          for (let i = 0; i < members.length; i++) {
+            if (members[i] !== prevMembers[i]) {
+              hasChanged = true
+              break
+            }
+          }
+          if (hasChanged) break
         }
       }
       
