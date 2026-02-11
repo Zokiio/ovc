@@ -17,10 +17,21 @@ fi
 
 missing=0
 
+has_key() {
+  local key="$1"
+  local file="$2"
+
+  if command -v rg >/dev/null 2>&1; then
+    rg -Fq -- "$key" "$file"
+  else
+    grep -Fq -- "$key" "$file"
+  fi
+}
+
 while IFS= read -r key; do
   [[ -z "$key" ]] && continue
 
-  if ! rg -Fq -- "$key" "$doc_file"; then
+  if ! has_key "$key" "$doc_file"; then
     echo "Missing config key in docs/operations/configuration.md: $key"
     missing=$((missing + 1))
   fi
