@@ -1498,15 +1498,38 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
 
             // Extract password (any group creator can set password)
-            String password = data.has("password") ? data.get("password").getAsString() : null;
+            String password = null;
+            if (data.has("password")) {
+                JsonElement passwordElement = data.get("password");
+                if (!passwordElement.isJsonNull()) {
+                    try {
+                        password = passwordElement.getAsString();
+                    } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type: " + e.getMessage());
+                        sendError(ctx, "Invalid password value");
+                        return;
+                    }
+                }
+            }
 
             // isPermanent is only allowed for admins
             boolean isPermanent = false;
-            if (data.has("isPermanent") && data.get("isPermanent").getAsBoolean()) {
-                if (PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin")) {
-                    isPermanent = true;
-                } else {
-                    logger.atWarning().log("Non-admin " + client.getUsername() + " attempted to create permanent group");
+            if (data.has("isPermanent")) {
+                JsonElement isPermanentElement = data.get("isPermanent");
+                if (!isPermanentElement.isJsonNull()) {
+                    try {
+                        if (isPermanentElement.getAsBoolean()) {
+                            if (PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin")) {
+                                isPermanent = true;
+                            } else {
+                                logger.atWarning().log("Non-admin " + client.getUsername() + " attempted to create permanent group");
+                            }
+                        }
+                    } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type: " + e.getMessage());
+                        sendError(ctx, "Invalid isPermanent value");
+                        return;
+                    }
                 }
             }
 
@@ -1571,13 +1594,26 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
             var group = groupManager.getGroup(groupId);
             if (group == null) {
-                sendError(ctx, "Group not found");
+                sendError(ctx, "Group not found", "group_not_found");
                 return;
             }
 
             // Validate password if group has one
             if (group.hasPassword()) {
-                String password = data.has("password") ? data.get("password").getAsString() : null;
+                String password = null;
+                if (data.has("password")) {
+                    JsonElement passwordElement = data.get("password");
+                    if (!passwordElement.isJsonNull()) {
+                        try {
+                            password = passwordElement.getAsString();
+                        } catch (ClassCastException | IllegalStateException e) {
+                            // Treat invalid password type as incorrect password
+                            logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type for group join: " + e.getMessage());
+                            sendError(ctx, "Incorrect password", "incorrect_password");
+                            return;
+                        }
+                    }
+                }
                 if (!group.checkPassword(password)) {
                     sendError(ctx, "Incorrect password", "incorrect_password");
                     return;
@@ -1725,7 +1761,19 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
             JsonObject data = message.getData();
             String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
-            boolean isPermanent = data.has("isPermanent") && data.get("isPermanent").getAsBoolean();
+            boolean isPermanent = false;
+            if (data.has("isPermanent")) {
+                JsonElement isPermanentElement = data.get("isPermanent");
+                if (!isPermanentElement.isJsonNull()) {
+                    try {
+                        isPermanent = isPermanentElement.getAsBoolean();
+                    } catch (ClassCastException | IllegalStateException e) {
+                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type for setPermanent: " + e.getMessage());
+                        sendError(ctx, "Invalid isPermanent value");
+                        return;
+                    }
+                }
+            }
 
             if (groupIdStr == null) {
                 sendError(ctx, "Invalid group ID");
