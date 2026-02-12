@@ -42,7 +42,7 @@ IcePortMax = 51000
 | `SSLKeyPath` | String | `"/etc/letsencrypt/live/example.com/privkey.pem"` | Same path string | Used when `EnableSSL = true`. |
 | `AllowedOrigins` | String | `"https://ovc.zottik.com"` | `"https://ovc.zottik.com"` | Comma-separated exact origins. |
 | `VoiceClientUrl` | String | `"https://ovc.zottik.com"` | `"https://ovc.zottik.com"` | Optional public web client URL used for `/vc login` clickable deep links. |
-| `VoiceSignalingUrl` | String | `""` | Empty | Optional signaling endpoint (`ws://` or `wss://`) prefilled from `/vc login` links. |
+| `VoiceSignalingUrl` | String | `"wss://ovc.zottik.com"` | `"wss://ovc.zottik.com"` | Optional signaling endpoint (`ws://` or `wss://`) prefilled from `/vc login` links. |
 | `GameQuitGraceSeconds` | Integer | `10` | `10` | Grace period before disconnecting web client after game quit. |
 | `PendingGameJoinTimeoutSeconds` | Integer | `60` | `60` | Timeout while waiting for in-game session after auth. |
 | `StunServers` | String | `"stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"` | Same list | Comma-separated STUN servers. |

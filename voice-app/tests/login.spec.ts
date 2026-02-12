@@ -101,6 +101,15 @@ test.describe('Voice Client - Login View', () => {
     await expect(connectBtn).toBeVisible();
   });
 
+  test('should prefill login fields from URL query params', async ({ page }) => {
+    await page.goto('/?username=Rumbe&code=PPWJRC&server=wss%3A%2F%2Fovc.zottik.com');
+
+    await expect(page.getByPlaceholder('Your username...')).toHaveValue('Rumbe');
+    await expect(page.getByPlaceholder('••••••••••••')).toHaveValue('PPWJRC');
+    await expect(page.getByPlaceholder('Server address...')).toHaveValue('wss://ovc.zottik.com');
+    await expect(page).toHaveURL(/\/$/);
+  });
+
   test('should have saved servers dropdown', async ({ page }) => {
     await page.goto('/');
 

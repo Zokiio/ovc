@@ -37,8 +37,8 @@ VoiceClientUrl = "https://ovc.zottik.com"
 
 # Optional signaling endpoint prefilled in the web client via /vc login link
 # Example: wss://voice.example.com
-# Default: (empty)
-VoiceSignalingUrl = ""
+# Default: wss://ovc.zottik.com
+VoiceSignalingUrl = "wss://ovc.zottik.com"
 
 # Grace period (seconds) before disconnecting web client after player quits the game
 # Helps avoid false disconnects during brief network hiccups
