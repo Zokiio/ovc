@@ -12,6 +12,7 @@ function AppContent() {
   const {
     connect,
     disconnect,
+    prepareAudio,
     createGroup,
     joinGroup,
     leaveGroup,
@@ -37,6 +38,7 @@ function AppContent() {
         <LoginView
           onConnect={handleConnect}
           connect={connect}
+          prepareAudio={prepareAudio}
           connectionStatus={status}
           connectionError={connectionError}
         />
@@ -46,6 +48,7 @@ function AppContent() {
             user={user}
             onLogout={handleLogout}
             disconnect={disconnect}
+            prepareAudio={prepareAudio}
             createGroup={createGroup}
             joinGroup={joinGroup}
             leaveGroup={leaveGroup}
