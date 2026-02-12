@@ -89,7 +89,7 @@ export const useSettingsStore = create<SettingsStore>()(
     immer((set) => ({
       savedServers: [],
       lastServerUrl: null,
-      theme: 'industrial',
+      theme: 'hytale',
       sidebarCollapsed: false,
       isStreamerMode: false,
 
