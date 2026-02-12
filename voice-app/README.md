@@ -53,3 +53,5 @@ The test captures connection logs and screenshots in `test-results/`.
 
 - This client expects WebRTC DataChannel transport for audio.
 - WebSocket is signaling/auth only.
+- Microphone permission is requested on explicit user action (`Audio Config` or `Connect`), not on page load.
+- If microphone permission is denied, the client can still connect in listen-only mode and exposes retry actions in `Audio Config` and the dashboard footer.

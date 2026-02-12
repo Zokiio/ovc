@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Documentation and repository metadata updated for open-source public use.
+- Voice app now defers microphone permission prompts until explicit user action (`Audio Config` or `Connect`) and adds retry controls on the landing modal and dashboard footer, with listen-only fallback when permission is denied.
 
 ## [0.3.3] - 2026-02-11
 
