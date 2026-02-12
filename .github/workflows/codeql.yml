@@ -19,22 +19,22 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: java,javascript-typescript
 
       - name: Set up Java 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '25'
           cache: gradle
 
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
@@ -47,8 +47,16 @@ jobs:
         working-directory: voice-app
 
       - name: Build plugin
-        run: ./gradlew build -x test --no-daemon
+        run: ./gradlew clean build -x test --no-daemon --no-build-cache --rerun-tasks -Dorg.gradle.caching=false
         working-directory: hytale-plugin
 
+      - name: Verify Java classes were produced
+        run: |
+          if ! find hytale-plugin -path '*/build/classes/java/main/*.class' -print -quit | grep -q .; then
+            echo "No compiled Java class files found after build."
+            echo "CodeQL Java extractor requires a real compilation step."
+            exit 1
+          fi
+
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
