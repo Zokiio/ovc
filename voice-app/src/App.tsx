@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { LoginView } from './components/features/auth/LoginView';
 import { MainApp } from './components/MainApp';
 import { ThemeProvider } from './context/ThemeContext';
@@ -63,6 +64,7 @@ function App() {
   return (
     <ThemeProvider>
       <AppContent />
+      <Analytics />
     </ThemeProvider>
   );
 }
