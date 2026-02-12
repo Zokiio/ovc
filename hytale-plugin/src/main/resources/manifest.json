@@ -1,7 +1,7 @@
 {
-  "Group": "com.zottik.voicechat",
-  "Name": "HytaleVoiceChat",
-  "Version": "2.0.0-webrtc-alpha",
+  "Group": "com.zottik.ovc",
+  "Name": "OVC",
+  "Version": "0.4.0-alpha.1",
   "Description": "Proximity-based voice chat system for Hytale with WebRTC SFU",
   "Authors": [
     {
@@ -15,6 +15,6 @@
   },
   "OptionalDependencies": {},
   "DisabledByDefault": false,
-  "Main": "com.hytale.voicechat.plugin.HytaleVoiceChatPlugin",
+  "Main": "com.zottik.ovc.plugin.OVCPlugin",
   "IncludesAssetPack": true
 }

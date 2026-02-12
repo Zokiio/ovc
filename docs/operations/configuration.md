@@ -1,4 +1,4 @@
-# Hytale Voice Chat Configuration Reference
+# Obsolete Voice Chat Configuration Reference
 
 This is the canonical reference for `ovc.conf`.
 

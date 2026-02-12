@@ -1,4 +1,4 @@
-![Hytale Voice Chat Logo](.github/images/logo.png)
+![Obsolete Voice Chat Logo](.github/images/logo.png)
 
 # Obsolete Voice Chat (OVC)
 
@@ -77,8 +77,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution workflow.
 
 ## Releases
 
-- Versioning model: Semantic Versioning (`vX.Y.Z` tags)
-- Release artifacts: plugin JAR + SHA-256 checksums
+- Versioning model: Semantic Versioning (`vX.Y.Z` and pre-release tags like `vX.Y.Z-alpha.1`)
+- Release artifacts: plugin JAR, website bundle archive, and SHA-256 checksums
 - Process: [docs/releases.md](docs/releases.md)
 
 ## Support and security

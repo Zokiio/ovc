@@ -23,6 +23,13 @@ jobs:
           java-version: '25'
           cache: gradle
 
+      - name: Set up Node 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: voice-app/package-lock.json
+
       - name: Ensure Gradle wrapper executable
         run: chmod +x ./gradlew
         working-directory: hytale-plugin
@@ -31,11 +38,22 @@ jobs:
         run: ./gradlew clean build --no-daemon
         working-directory: hytale-plugin
 
+      - name: Build website artifact
+        run: |
+          npm ci
+          npm run build
+        working-directory: voice-app
+
       - name: Prepare release assets
         run: |
+          VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release-assets
           cp hytale-plugin/build/libs/*.jar release-assets/
-          for file in release-assets/*.jar; do
+          tar -C voice-app -czf "release-assets/voice-app-${VERSION}.tar.gz" dist
+          for file in release-assets/*; do
+            if [ ! -f "$file" ] || [[ "$file" == *.sha256 ]]; then
+              continue
+            fi
             sha256sum "$file" > "${file}.sha256"
           done
 

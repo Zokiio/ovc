@@ -1,6 +1,6 @@
 # Voice App
 
-Browser client for Hytale Voice Chat (`hytale-plugin`).
+Browser client for Obsolete Voice Chat (`hytale-plugin`).
 
 ## Stack
 

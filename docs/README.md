@@ -26,4 +26,4 @@ This repository uses a structured, operator-first documentation layout.
 The configuration documentation is validated against these files:
 
 - `hytale-plugin/src/main/resources/ovc.conf.example`
-- `hytale-plugin/common/src/main/java/com/hytale/voicechat/common/network/NetworkConfig.java`
+- `hytale-plugin/common/src/main/java/com/zottik/ovc/common/network/NetworkConfig.java`
