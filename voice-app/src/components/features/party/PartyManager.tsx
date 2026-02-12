@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Panel, Button, Input, Switch, Modal, Badge } from '../../ui/Primitives';
 import { cn } from '../../../lib/utils';
 import { Users, Plus, Lock, Globe, LogOut, Pin } from 'lucide-react';
@@ -52,6 +52,17 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
     setJoinPassword('');
     setHasSubmittedPassword(false);
   };
+
+  // Auto-close and reset password modal state when successfully joined the pending group
+  useEffect(() => {
+    if (pendingJoinGroupId && currentGroupId === pendingJoinGroupId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Legitimate cleanup: resetting modal state after successful join
+      setShowPasswordModal(false);
+      setPendingJoinGroupId(null);
+      setJoinPassword('');
+      setHasSubmittedPassword(false);
+    }
+  }, [currentGroupId, pendingJoinGroupId]);
 
   const filteredGroups = groups.filter(g => 
      g.name.toLowerCase().includes(searchTerm.toLowerCase())
