@@ -61,10 +61,13 @@ function AppContent() {
 }
 
 function App() {
+  const isAnalyticsEnabled =
+    import.meta.env.VITE_ENABLE_VERCEL_ANALYTICS === 'true';
+
   return (
     <ThemeProvider>
       <AppContent />
-      <Analytics />
+      {isAnalyticsEnabled && <Analytics />}
     </ThemeProvider>
   );
 }
