@@ -75,7 +75,7 @@ public class NetworkConfig {
 
     // Optional web client deep-link targets for /vc login
     private static String voiceClientUrl = "https://ovc.zottik.com";
-    private static String voiceSignalingUrl = "wss://ovc.zottik.com";
+    private static String voiceSignalingUrl = "";
     
     // Voice chat proximity settings - initialized from constants
     private static double defaultProximityDistance = DEFAULT_PROXIMITY_DISTANCE;
