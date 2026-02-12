@@ -55,3 +55,4 @@ The test captures connection logs and screenshots in `test-results/`.
 - WebSocket is signaling/auth only.
 - Microphone permission is requested on explicit user action (`Audio Config` or `Connect`), not on page load.
 - If microphone permission is denied, the client can still connect in listen-only mode and exposes retry actions in `Audio Config` and the dashboard footer.
+- `eslint` and `@eslint/js` are pinned to major v9 because `eslint-plugin-react-hooks@7.0.1` currently supports ESLint up to v9; remove this pin once the plugin adds ESLint 10 support.
