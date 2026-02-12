@@ -293,7 +293,7 @@ export class SignalingClient {
     this.sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
     this.resumeToken = typeof data.resumeToken === 'string' ? data.resumeToken : ''
 
-    const heartbeatIntervalMs = this.readNumber(data.heartbeatIntervalMs)
+    const heartbeatIntervalMs = this.readIntervalMs(data.heartbeatIntervalMs)
     const resumeWindowMs = this.readNumber(data.resumeWindowMs)
     if (heartbeatIntervalMs > 0) {
       this.heartbeatIntervalMs = heartbeatIntervalMs
@@ -474,6 +474,18 @@ export class SignalingClient {
       return Number.isFinite(parsed) ? parsed : 0
     }
     return 0
+  }
+
+  /**
+   * Reads a heartbeat interval from untrusted input and clamps it to a safe range.
+   */
+  private readIntervalMs(value: unknown): number {
+    const numeric = this.readNumber(value)
+    if (numeric <= 0) {
+      return 0
+    }
+    const max = MAX_HEARTBEAT_INTERVAL_MS
+    return numeric > max ? max : numeric
   }
 
   private readBoolean(value: unknown): boolean {
