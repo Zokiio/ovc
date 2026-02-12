@@ -56,11 +56,12 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
   // Auto-close and reset password modal state when successfully joined the pending group
   useEffect(() => {
     if (pendingJoinGroupId && currentGroupId === pendingJoinGroupId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Legitimate cleanup: resetting modal state after successful join
+      /* eslint-disable react-hooks/set-state-in-effect -- Legitimate cleanup: resetting modal state after successful join */
       setShowPasswordModal(false);
       setPendingJoinGroupId(null);
       setJoinPassword('');
       setHasSubmittedPassword(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [currentGroupId, pendingJoinGroupId]);
 
