@@ -41,7 +41,7 @@ IcePortMax = 51000
 | `SSLCertPath` | String | `"/etc/letsencrypt/live/example.com/fullchain.pem"` | Same path string | Used when `EnableSSL = true`. |
 | `SSLKeyPath` | String | `"/etc/letsencrypt/live/example.com/privkey.pem"` | Same path string | Used when `EnableSSL = true`. |
 | `AllowedOrigins` | String | `"https://ovc.zottik.com"` | `"https://ovc.zottik.com"` | Comma-separated exact origins. |
-| `VoiceClientUrl` | String | `"https://ovc.zottik.com"` | `"https://ovc.zottik.com"` | Optional public web client URL used for `/vc login` clickable deep links. |
+| `VoiceClientUrl` | String | `"https://ovc.zottik.com"` | `"https://ovc.zottik.com"` | Optional public web client URL used for `/vc login` clickable deep links. Must be `http://` or `https://`. |
 | `VoiceSignalingUrl` | String | `"wss://ovc.zottik.com"` | `"wss://ovc.zottik.com"` | Optional signaling endpoint (`ws://` or `wss://`) prefilled from `/vc login` links. |
 | `GameQuitGraceSeconds` | Integer | `10` | `10` | Grace period before disconnecting web client after game quit. |
 | `PendingGameJoinTimeoutSeconds` | Integer | `60` | `60` | Timeout while waiting for in-game session after auth. |

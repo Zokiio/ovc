@@ -31,6 +31,7 @@ AllowedOrigins = "https://ovc.zottik.com"
 
 # Public web client URL used by /vc login for clickable deep links
 # Leave empty to disable login deep links and keep manual code entry
+# Must use http:// or https://
 # Example: https://voice.example.com
 # Default: https://ovc.zottik.com
 VoiceClientUrl = "https://ovc.zottik.com"

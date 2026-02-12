@@ -20,8 +20,10 @@ import com.zottik.ovc.plugin.GroupManager;
 import com.zottik.ovc.plugin.OVCPlugin;
 import com.zottik.ovc.plugin.gui.VoiceChatPage;
 
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -34,6 +36,26 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
 
     private static String encodeQueryParam(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static boolean isHttpUrl(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+
+        try {
+            URI uri = URI.create(value.trim());
+            String scheme = uri.getScheme();
+            if (scheme == null) {
+                return false;
+            }
+            String normalizedScheme = scheme.toLowerCase(Locale.ROOT);
+            return ("http".equals(normalizedScheme) || "https".equals(normalizedScheme))
+                && uri.getHost() != null
+                && !uri.getHost().isBlank();
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private static String appendQueryParam(String url, String key, String value) {
@@ -70,6 +92,12 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
         if (voiceClientUrl == null || voiceClientUrl.isBlank()) {
             context.sendMessage(Message.raw("Use this code with your username in the web UI."));
             context.sendMessage(Message.raw("Tip: set VoiceClientUrl in ovc.conf to get a clickable prefilled link."));
+            return;
+        }
+        if (!isHttpUrl(voiceClientUrl)) {
+            logger.atWarning().log("Invalid VoiceClientUrl in config: " + voiceClientUrl);
+            context.sendMessage(Message.raw("Use this code with your username in the web UI."));
+            context.sendMessage(Message.raw("VoiceClientUrl is misconfigured; ask an admin to set a valid http(s) URL."));
             return;
         }
 
