@@ -9,6 +9,11 @@ Browser client for Hytale Voice Chat (`hytale-plugin`).
 - Zustand state management
 - Playwright for live connection smoke tests
 
+## Prerequisites
+
+- Node.js 22.x LTS
+- npm 10+
+
 ## Local development
 
 ```bash
@@ -23,6 +28,7 @@ Default local URL is usually `http://localhost:5173`.
 ```bash
 npm run lint
 npm run build
+npm run test:e2e:ci
 ```
 
 ## Live server smoke test

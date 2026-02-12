@@ -8,6 +8,13 @@ This repository uses a structured, operator-first documentation layout.
 - [Reverse proxy deployment (recommended)](operations/reverse-proxy.md): Production setup with SSL termination.
 - [Direct SSL deployment (advanced)](operations/direct-ssl.md): Plugin-managed TLS.
 - [Troubleshooting](operations/troubleshooting.md): Common deployment and runtime failures.
+- [Support policy](operations/support.md): Scope and support channel policy.
+
+## Release and Contribution Guides
+
+- [Release process](releases.md): Tagging, artifacts, and release checklist.
+- [Contributing](../CONTRIBUTING.md)
+- [Security policy](../SECURITY.md)
 
 ## Project-Local Docs
 
