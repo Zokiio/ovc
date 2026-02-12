@@ -458,7 +458,12 @@ export function useConnection() {
       }
 
       const status = classifyMicPermissionStatus(listeningResult.errorName, listeningResult.error)
-      const sourceLabel = source === 'connect' ? 'during connect' : 'from audio settings'
+      const sourceLabelBySource: Record<AudioPrepareSource, string> = {
+        connect: 'during connect',
+        'audio-config': 'from audio settings',
+        'dashboard-retry': 'from the dashboard retry action',
+      }
+      const sourceLabel = sourceLabelBySource[source]
       const fallbackMessage = status === 'denied'
         ? `Microphone permission was denied ${sourceLabel}. You can retry microphone access.`
         : `Microphone initialization failed ${sourceLabel}. You can retry microphone access.`
