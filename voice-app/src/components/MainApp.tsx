@@ -9,15 +9,18 @@ import { type SidebarView } from './layout/NavigationRail';
 import { type MobileTab } from './layout/MobileNav';
 import { MuteButton } from './ui/AudioControls';
 import { MicLevelDisplay, SpeakingIndicatorIsolated } from './ui/MicLevelDisplay';
-import { Clock } from 'lucide-react';
+import { Clock, RefreshCw } from 'lucide-react';
 import { useAudioStore } from '../stores/audioStore';
 import { useGroupStore } from '../stores/groupStore';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import type { MicPermissionStatus } from '../lib/types';
+import { cn } from '../lib/utils';
 
 interface MainAppProps {
   user: { name: string; server: string };
   onLogout: () => void;
   disconnect: () => void;
+  prepareAudio: (source: 'connect' | 'audio-config' | 'dashboard-retry') => Promise<{ ok: boolean; status: MicPermissionStatus; message?: string }>;
   createGroup: (name: string, options?: { maxMembers?: number; isIsolated?: boolean; password?: string; isPermanent?: boolean }) => void;
   joinGroup: (groupId: string, password?: string) => void;
   leaveGroup: () => void;
@@ -27,6 +30,7 @@ export const MainApp = ({
   user,
   onLogout,
   disconnect,
+  prepareAudio,
   createGroup,
   joinGroup,
   leaveGroup,
@@ -36,6 +40,9 @@ export const MainApp = ({
   const toggleMicMuted = useAudioStore((s) => s.toggleMicMuted);
   const deafen = useAudioStore((s) => s.isDeafened);
   const toggleDeafened = useAudioStore((s) => s.toggleDeafened);
+  const micPermissionStatus = useAudioStore((s) => s.micPermissionStatus);
+  const micPermissionMessage = useAudioStore((s) => s.micPermissionMessage);
+  const [isRetryingMicPermission, setIsRetryingMicPermission] = useState(false);
 
   // Use individual selectors for proper reactivity
   const groups = useGroupStore((s) => s.groups);
@@ -66,6 +73,13 @@ export const MainApp = ({
   const handleLogout = () => {
     disconnect();
     onLogout();
+  };
+
+  const showMicRetryButton = micPermissionStatus === 'denied' || micPermissionStatus === 'error';
+
+  const retryMicrophoneAccess = () => {
+    setIsRetryingMicPermission(true);
+    void prepareAudio('dashboard-retry').finally(() => setIsRetryingMicPermission(false));
   };
 
   // Sidebar Content Logic
@@ -160,6 +174,18 @@ export const MainApp = ({
                </div>
 
                <div className="flex items-center gap-2 sm:gap-3">
+                  {showMicRetryButton && (
+                     <button
+                        onClick={retryMicrophoneAccess}
+                        className="h-10 px-3 rounded-[var(--radius-btn)] border border-[var(--accent-warning)]/50 bg-[var(--accent-warning)]/10 text-[var(--accent-warning)] text-[10px] font-extrabold uppercase tracking-wide flex items-center gap-2 hover:bg-[var(--accent-warning)]/20 transition-all"
+                        title={micPermissionMessage ?? 'Retry microphone access'}
+                        aria-label="Retry microphone access"
+                        disabled={isRetryingMicPermission}
+                     >
+                        <RefreshCw className={cn("w-3.5 h-3.5", isRetryingMicPermission && "animate-spin")} />
+                        <span className="hidden sm:inline">Enable Mic</span>
+                     </button>
+                  )}
                   <MuteButton
                      muted={micMuted}
                      onToggle={toggleMicMuted}

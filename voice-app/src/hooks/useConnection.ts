@@ -9,9 +9,10 @@ import { useUserStore } from '../stores/userStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useAudioStore } from '../stores/audioStore'
 import { useVoiceActivity } from './useVoiceActivity'
+import { refreshAudioDevices } from './useAudioDevices'
 import { useAudioPlayback } from './useAudioPlayback'
 import { createLogger } from '../lib/logger'
-import type { AudioCodecConfig, Group, GroupMember, User, PlayerPosition } from '../lib/types'
+import type { AudioCodecConfig, Group, GroupMember, User, PlayerPosition, MicPermissionStatus } from '../lib/types'
 
 // Keep outbound PCM chunks comfortably below the server's DataChannel payload cap (900 bytes).
 const MAX_WEBRTC_PCM_SAMPLES_PER_CHUNK = 384 // 768 bytes
@@ -31,6 +32,14 @@ const DEFAULT_OPUS_CODEC_CONFIG: AudioCodecConfig = {
   channels: 1,
   frameDurationMs: 20,
   targetBitrate: 32000,
+}
+
+type AudioPrepareSource = 'connect' | 'audio-config' | 'dashboard-retry'
+
+interface AudioPrepareResult {
+  ok: boolean
+  status: MicPermissionStatus
+  message?: string
 }
 
 function concatInt16Arrays(left: Int16Array, right: Int16Array): Int16Array {
@@ -86,6 +95,22 @@ function int16ToArrayBuffer(data: Int16Array): ArrayBuffer {
   return buffer
 }
 
+function classifyMicPermissionStatus(errorName?: string, errorMessage?: string): MicPermissionStatus {
+  const normalizedName = (errorName ?? '').toLowerCase()
+  const normalizedMessage = (errorMessage ?? '').toLowerCase()
+  if (
+    normalizedName === 'notallowederror' ||
+    normalizedName === 'permissiondeniederror' ||
+    normalizedName === 'securityerror' ||
+    normalizedMessage.includes('permission') ||
+    normalizedMessage.includes('not allowed') ||
+    normalizedMessage.includes('denied')
+  ) {
+    return 'denied'
+  }
+  return 'error'
+}
+
 /**
  * Main connection hook that orchestrates signaling, WebRTC, and audio.
  */
@@ -103,6 +128,7 @@ export function useConnection() {
   const opusEncoderRef = useRef(new OpusCodecManager())
   const opusEncoderGenerationRef = useRef(0)
   const opusDrainChainRef = useRef<Promise<void>>(Promise.resolve())
+  const audioPrepareInFlightRef = useRef<Promise<AudioPrepareResult> | null>(null)
   
   // Connection store
   const status = useConnectionStore((s) => s.status)
@@ -144,6 +170,7 @@ export function useConnection() {
   // Audio store
   const isMicMuted = useAudioStore((s) => s.isMicMuted)
   const setMicMuted = useAudioStore((s) => s.setMicMuted)
+  const setMicPermissionState = useAudioStore((s) => s.setMicPermissionState)
   const isSpeaking = useAudioStore((s) => s.isSpeaking)
   const inputVolume = useAudioStore((s) => s.settings.inputVolume)
   const setProximityRadarEnabled = useAudioStore((s) => s.setProximityRadarEnabled)
@@ -411,10 +438,40 @@ export function useConnection() {
   const voiceEnabled = status === 'connected' && !isMicMuted
   logger.debug('Voice activity enabled:', voiceEnabled, '(status:', status, ', isMicMuted:', isMicMuted, ')')
   
-  const { isInitialized: isVoiceInitialized, stopListening } = useVoiceActivity({
+  const { isInitialized: isVoiceInitialized, startListening, stopListening } = useVoiceActivity({
     enabled: voiceEnabled,
     onAudioData: handleVoiceData,
   })
+
+  const prepareAudio = useCallback(async (source: AudioPrepareSource): Promise<AudioPrepareResult> => {
+    if (audioPrepareInFlightRef.current) {
+      return audioPrepareInFlightRef.current
+    }
+
+    const run = (async (): Promise<AudioPrepareResult> => {
+      const listeningResult = await startListening()
+      await refreshAudioDevices({ requestPermission: false })
+
+      if (listeningResult.ok) {
+        setMicPermissionState('granted', null)
+        return { ok: true, status: 'granted' as const }
+      }
+
+      const status = classifyMicPermissionStatus(listeningResult.errorName, listeningResult.error)
+      const sourceLabel = source === 'connect' ? 'during connect' : 'from audio settings'
+      const fallbackMessage = status === 'denied'
+        ? `Microphone permission was denied ${sourceLabel}. You can retry microphone access.`
+        : `Microphone initialization failed ${sourceLabel}. You can retry microphone access.`
+      const message = listeningResult.error || fallbackMessage
+      setMicPermissionState(status, message)
+      return { ok: false, status, message }
+    })().finally(() => {
+      audioPrepareInFlightRef.current = null
+    })
+
+    audioPrepareInFlightRef.current = run
+    return run
+  }, [setMicPermissionState, startListening])
 
   const connectWebRTCIfAllowed = useCallback(async (signaling = getSignalingClient()) => {
     const mode = signaling.getTransportMode()
@@ -1156,6 +1213,12 @@ export function useConnection() {
       setStatus('connecting')
       setServerUrl(serverUrl)
 
+      const audioPreparation = await prepareAudio('connect')
+      const shouldConnectListenOnly = !audioPreparation.ok && (audioPreparation.status === 'denied' || audioPreparation.status === 'error')
+      if (shouldConnectListenOnly) {
+        setMicMuted(true)
+      }
+
       const opusSupported = await OpusCodecManager.isSupported(DEFAULT_OPUS_CODEC_CONFIG)
       if (!opusSupported) {
         throw new Error('This browser does not support required Opus WebCodecs + Dedicated Worker audio.')
@@ -1185,6 +1248,10 @@ export function useConnection() {
       // Connect WebRTC when transport mode and server state allow it.
       await connectWebRTCIfAllowed(signaling)
 
+      if (shouldConnectListenOnly) {
+        addWarning('audio', audioPreparation.message ?? 'Microphone unavailable. Connected in listen-only mode.')
+      }
+
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Connection failed'
       clearReconnectTimer()
@@ -1201,7 +1268,7 @@ export function useConnection() {
     setStatus, setError, setServerUrl, initializePlayback,
     setupSignalingListeners, setupWebRTCListeners,
     updateServerLastConnected, clearReconnectTimer, clearWarnings, setLastServerUrl,
-    connectWebRTCIfAllowed, resetOutboundAudioQueues, resetOpusEncoder, resetReconnectAttempt,
+    addWarning, connectWebRTCIfAllowed, prepareAudio, resetOutboundAudioQueues, resetOpusEncoder, resetReconnectAttempt, setMicMuted,
   ])
 
   /**
@@ -1322,6 +1389,7 @@ export function useConnection() {
     // Actions
     connect,
     disconnect,
+    prepareAudio,
     createGroup,
     joinGroup,
     leaveGroup,

@@ -4,23 +4,25 @@ import { MicTestDisplay } from '../../ui/MicLevelDisplay';
 import {
   Terminal, Palette, Eye, EyeOff,
   Save, Trash2, Play, Plus, Shield, ShieldOff,
-  Settings, Loader2, Edit2
+  Settings, Loader2, Edit2, RefreshCw
 } from 'lucide-react';
 import { useTheme } from '../../../context/theme-context';
 import { cn, normalizeUrl } from '../../../lib/utils';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useAudioDevices } from '../../../hooks/useAudioDevices';
-import type { ConnectionStatus } from '../../../lib/types';
+import { useAudioStore } from '../../../stores/audioStore';
+import type { ConnectionStatus, MicPermissionStatus } from '../../../lib/types';
 import type { SavedServer } from '../../../lib/types';
 
 interface LoginViewProps {
   onConnect: (username: string, server: string) => void;
   connect: (serverUrl: string, username: string, authCode?: string) => Promise<void>;
+  prepareAudio: (source: 'connect' | 'audio-config' | 'dashboard-retry') => Promise<{ ok: boolean; status: MicPermissionStatus; message?: string }>;
   connectionStatus: ConnectionStatus;
   connectionError: string | null;
 }
 
-export const LoginView = ({ onConnect, connect, connectionStatus, connectionError }: LoginViewProps) => {
+export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, connectionError }: LoginViewProps) => {
   
   // Saved servers from store
   const savedServers = useSettingsStore((s) => s.savedServers);
@@ -47,12 +49,15 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
   const [password, setPassword] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showAudioSettings, setShowAudioSettings] = useState(false);
+  const [isPreparingAudio, setIsPreparingAudio] = useState(false);
   
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [editingServerId, setEditingServerId] = useState<string | null>(null);
   const [nickname, setNickname] = useState('');
 
   const { toggleTheme } = useTheme();
+  const micPermissionStatus = useAudioStore((s) => s.micPermissionStatus);
+  const micPermissionMessage = useAudioStore((s) => s.micPermissionMessage);
   
   const isConnecting = connectionStatus === 'connecting';
   const usernameValue = username ?? lastSavedServer?.username ?? '';
@@ -127,6 +132,17 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
   
   const handleDeleteServer = (id: string) => {
     removeSavedServer(id);
+  };
+
+  const openAudioConfig = () => {
+    setShowAudioSettings(true);
+    setIsPreparingAudio(true);
+    void prepareAudio('audio-config').finally(() => setIsPreparingAudio(false));
+  };
+
+  const retryAudioPermission = () => {
+    setIsPreparingAudio(true);
+    void prepareAudio('audio-config').finally(() => setIsPreparingAudio(false));
   };
 
   return (
@@ -223,7 +239,7 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
                {/* Audio Settings Toggle (Triggers Modal) */}
                <div className="absolute top-4 right-4">
                   <button 
-                     onClick={() => setShowAudioSettings(true)}
+                     onClick={openAudioConfig}
                      className="p-2 rounded-[var(--radius-btn)] transition-all flex items-center gap-2 text-[10px] font-extrabold uppercase text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-input)]"
                   >
                      <Settings className="w-4 h-4" />
@@ -406,6 +422,34 @@ export const LoginView = ({ onConnect, connect, connectionStatus, connectionErro
         title="Audio Configuration"
       >
          <div className="space-y-6 p-1">
+            <div className="space-y-2">
+               {isPreparingAudio ? (
+                  <div className="p-2 bg-[var(--accent-warning)]/10 border border-[var(--accent-warning)]/30 rounded text-[var(--accent-warning)] text-[10px] font-medium flex items-center gap-2">
+                     <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                     Preparing microphone access...
+                  </div>
+               ) : micPermissionStatus === 'granted' ? (
+                  <div className="p-2 bg-[var(--accent-success)]/10 border border-[var(--accent-success)]/30 rounded text-[var(--accent-success)] text-[10px] font-medium">
+                     Microphone ready.
+                  </div>
+               ) : micPermissionStatus === 'denied' || micPermissionStatus === 'error' ? (
+                  <div className="space-y-2">
+                     <div className="p-2 bg-[var(--accent-danger)]/10 border border-[var(--accent-danger)]/30 rounded text-[var(--accent-danger)] text-[10px] font-medium">
+                        {micPermissionMessage ?? 'Microphone access is unavailable.'}
+                     </div>
+                     <Button
+                        fullWidth
+                        variant="secondary"
+                        onClick={retryAudioPermission}
+                        disabled={isPreparingAudio}
+                     >
+                        <RefreshCw className="w-4 h-4" />
+                        Retry Microphone Access
+                     </Button>
+                  </div>
+               ) : null}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                <Select
                   label="Input Device"

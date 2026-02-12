@@ -16,7 +16,7 @@ interface UseVoiceActivityResult {
   isInitialized: boolean
   isSwitchingDevice: boolean
   error: string | null
-  startListening: () => Promise<void>
+  startListening: () => Promise<{ ok: boolean; error?: string; errorName?: string }>
   stopListening: () => void
 }
 
@@ -126,6 +126,7 @@ function cleanupGlobal() {
   globalIsSpeaking = false
   globalCaptureActive = false
   lastLevel = 0
+  useAudioStore.getState().setAudioInitialized(false)
 }
 
 async function tryResumeAudioContext(reason: string): Promise<void> {
@@ -245,6 +246,7 @@ async function initializeGlobal(settings: {
 
     globalIsInitialized = true
     globalIsInitializing = false
+    useAudioStore.getState().setAudioInitialized(true)
     logger.debug('Global initialization complete, starting VAD detection loop')
 
     // Start VAD detection loop
@@ -379,7 +381,8 @@ export function useVoiceActivity({
       logger.debug('startListening: already initialized/initializing')
       setGlobalCaptureActive(enabled)
       setIsInitialized(true)
-      return
+      useAudioStore.getState().setAudioInitialized(true)
+      return { ok: true }
     }
 
     try {
@@ -393,10 +396,18 @@ export function useVoiceActivity({
       })
       setGlobalCaptureActive(enabled)
       setIsInitialized(true)
+      useAudioStore.getState().setAudioInitialized(true)
+      return { ok: true }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to access microphone'
       setError(errorMessage)
       setIsInitialized(false)
+      useAudioStore.getState().setAudioInitialized(false)
+      return {
+        ok: false,
+        error: errorMessage,
+        errorName: err instanceof Error ? err.name : undefined,
+      }
     }
   }, [settings, vadSettings.smoothingTimeConstant, enabled])
 
@@ -439,7 +450,7 @@ export function useVoiceActivity({
 
   // Restart on device change
   useEffect(() => {
-    if (!enabled || !globalIsInitialized) {
+    if (!globalIsInitialized) {
       return
     }
 

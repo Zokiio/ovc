@@ -102,6 +102,8 @@ export interface AudioDiagnostics {
   updatedAt: number
 }
 
+export type MicPermissionStatus = 'unknown' | 'granted' | 'denied' | 'error'
+
 // --- Connection Types ---
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'

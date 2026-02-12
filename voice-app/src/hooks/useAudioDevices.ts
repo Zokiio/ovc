@@ -3,7 +3,6 @@ import { useAudioStore } from '../stores/audioStore'
 import type { AudioDevice } from '../lib/types'
 
 let enumerationInFlight: Promise<void> | null = null
-let hasRequestedPermission = false
 let listenerAttached = false
 let sharedError: string | null = null
 
@@ -17,18 +16,6 @@ async function enumerateAndStoreDevices(): Promise<void> {
       if (!navigator.mediaDevices?.enumerateDevices) {
         sharedError = 'Media devices API is unavailable'
         return
-      }
-
-      if (!hasRequestedPermission) {
-        hasRequestedPermission = true
-        try {
-          if (navigator.mediaDevices.getUserMedia) {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-            stream.getTracks().forEach((track) => track.stop())
-          }
-        } catch {
-          // Permission denied still allows non-labeled device enumeration.
-        }
       }
 
       const mediaDevices = await navigator.mediaDevices.enumerateDevices()
@@ -53,21 +40,43 @@ async function enumerateAndStoreDevices(): Promise<void> {
   return enumerationInFlight
 }
 
+async function requestMicrophonePermission(): Promise<void> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  stream.getTracks().forEach((track) => track.stop())
+}
+
+export async function refreshAudioDevices(options?: { requestPermission?: boolean }): Promise<void> {
+  const requestPermission = options?.requestPermission ?? false
+
+  if (requestPermission) {
+    try {
+      await requestMicrophonePermission()
+    } catch (err) {
+      sharedError = err instanceof Error ? err.message : 'Failed to access microphone'
+    }
+  }
+
+  await enumerateAndStoreDevices()
+}
+
 export function useInitializeAudioDevices() {
   useEffect(() => {
     if (!navigator.mediaDevices?.addEventListener) {
-      void enumerateAndStoreDevices()
+      void refreshAudioDevices()
       return
     }
 
     if (!listenerAttached) {
       listenerAttached = true
       navigator.mediaDevices.addEventListener('devicechange', () => {
-        void enumerateAndStoreDevices()
+        void refreshAudioDevices()
       })
     }
 
-    void enumerateAndStoreDevices()
+    void refreshAudioDevices()
   }, [])
 }
 
@@ -83,7 +92,11 @@ export function useAudioDevices() {
   const setOutputDevice = useAudioStore((s) => s.setOutputDevice)
 
   const refresh = useCallback(async () => {
-    await enumerateAndStoreDevices()
+    await refreshAudioDevices()
+  }, [])
+
+  const refreshWithPermission = useCallback(async () => {
+    await refreshAudioDevices({ requestPermission: true })
   }, [])
 
   const inputDevices = devices.filter((d) => d.kind === 'audioinput')
@@ -99,5 +112,6 @@ export function useAudioDevices() {
     isLoading: enumerationInFlight !== null,
     error: sharedError,
     refresh,
+    refreshWithPermission,
   }
 }

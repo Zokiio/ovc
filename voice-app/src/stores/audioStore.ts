@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import { persist } from 'zustand/middleware'
-import type { AudioDiagnostics, AudioSettings, VADSettings, AudioDevice } from '../lib/types'
+import type { AudioDiagnostics, AudioSettings, VADSettings, AudioDevice, MicPermissionStatus } from '../lib/types'
 
 export interface ProximityRadarContact {
   userId: string
@@ -23,6 +23,8 @@ interface AudioStore {
   isSpeaking: boolean
   isAudioInitialized: boolean
   isTestingMic: boolean
+  micPermissionStatus: MicPermissionStatus
+  micPermissionMessage: string | null
   
   // Per-user audio state
   localMutes: Map<string, boolean>
@@ -59,6 +61,7 @@ interface AudioStore {
   setSpeaking: (speaking: boolean) => void
   setAudioInitialized: (initialized: boolean) => void
   setTestingMic: (testing: boolean) => void
+  setMicPermissionState: (status: MicPermissionStatus, message?: string | null) => void
   
   // Actions - Per-user
   setLocalMute: (userId: string, muted: boolean) => void
@@ -108,6 +111,8 @@ export const useAudioStore = create<AudioStore>()(
       isSpeaking: false,
       isAudioInitialized: false,
       isTestingMic: false,
+      micPermissionStatus: 'unknown',
+      micPermissionMessage: null,
       localMutes: new Map<string, boolean>(),
       userVolumes: new Map<string, number>(),
       audioDiagnostics: new Map<string, AudioDiagnostics>(),
@@ -236,6 +241,12 @@ export const useAudioStore = create<AudioStore>()(
       setTestingMic: (testing) =>
         set((state) => {
           state.isTestingMic = testing
+        }),
+
+      setMicPermissionState: (status, message = null) =>
+        set((state) => {
+          state.micPermissionStatus = status
+          state.micPermissionMessage = message
         }),
 
       // Per-user audio actions

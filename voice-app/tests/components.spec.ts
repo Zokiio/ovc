@@ -61,6 +61,37 @@ test.describe('Voice Client - Component Rendering', () => {
     const focusedElement = page.locator(':focus');
     await expect(focusedElement).toBeVisible();
   });
+
+  test('shows dashboard mic retry button only when permission is blocked', async ({ page }) => {
+    await page.addInitScript(() => {
+      const mediaDevices = navigator.mediaDevices as unknown as {
+        getUserMedia?: () => Promise<MediaStream>
+      }
+      mediaDevices.getUserMedia = async () => {
+        throw new DOMException('Permission denied', 'NotAllowedError')
+      }
+    })
+
+    await page.goto('/')
+    await page.getByPlaceholder(/server/i).fill('ws://localhost:8080')
+    await page.getByPlaceholder(/username|name/i).fill('RetryUser')
+
+    await page.evaluate(async () => {
+      const { useAudioStore } = await import('/src/stores/audioStore.ts')
+      const { useConnectionStore } = await import('/src/stores/connectionStore.ts')
+      useAudioStore.getState().setMicPermissionState('denied', 'Microphone blocked')
+      useConnectionStore.getState().setStatus('connected')
+    })
+
+    await expect(page.getByRole('button', { name: /retry microphone access/i })).toBeVisible()
+
+    await page.evaluate(async () => {
+      const { useAudioStore } = await import('/src/stores/audioStore.ts')
+      useAudioStore.getState().setMicPermissionState('granted', null)
+    })
+
+    await expect(page.getByRole('button', { name: /retry microphone access/i })).toHaveCount(0)
+  })
 });
 
 test.describe('Voice Client - Responsive Design', () => {
