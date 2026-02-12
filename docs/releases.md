@@ -7,8 +7,8 @@ Pre-releases are supported with standard SemVer suffixes (for example `v0.4.0-al
 
 Each tagged release publishes:
 
-- Plugin JAR(s) from `hytale-plugin/build/libs/`
-- Website bundle archive from `voice-app/dist/` as `voice-app-<version>.tar.gz`
+- Plugin artifact as `ovc-plugin-<version>.jar`
+- Website bundle archive from `voice-app/dist/` as `ovc-webapp-<version>.tar.gz`
 - SHA-256 checksum files for each JAR and archive
 
 ## Release checklist

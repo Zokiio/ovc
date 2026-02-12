@@ -48,8 +48,12 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p release-assets
-          cp hytale-plugin/build/libs/*.jar release-assets/
-          tar -C voice-app -czf "release-assets/voice-app-${VERSION}.tar.gz" dist
+
+          PLUGIN_SRC="$(ls hytale-plugin/build/libs/*.jar | head -n 1)"
+          cp "$PLUGIN_SRC" "release-assets/ovc-plugin-${VERSION}.jar"
+
+          tar -C voice-app -czf "release-assets/ovc-webapp-${VERSION}.tar.gz" dist
+
           for file in release-assets/*; do
             if [ ! -f "$file" ] || [[ "$file" == *.sha256 ]]; then
               continue
