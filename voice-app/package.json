@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ci": "CI=1 playwright test tests/components.spec.ts tests/group-autojoin-regression.spec.ts tests/login.spec.ts tests/save-connection.spec.ts tests/settings.spec.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

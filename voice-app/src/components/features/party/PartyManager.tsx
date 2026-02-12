@@ -25,7 +25,7 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [joinPassword, setJoinPassword] = useState('');
   const [pendingJoinGroupId, setPendingJoinGroupId] = useState<string | null>(null);
-  const [passwordError, setPasswordError] = useState('');
+  const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
 
   // Use individual selectors for proper reactivity
   const groups = useGroupStore((s) => s.groups);
@@ -34,24 +34,36 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
   const isAdmin = useConnectionStore((s) => s.isAdmin);
   const warnings = useConnectionStore((s) => s.warnings);
 
-  // Auto-close password modal when successfully joined the pending group
+  const isPasswordModalOpen =
+    showPasswordModal &&
+    pendingJoinGroupId !== null &&
+    currentGroupId !== pendingJoinGroupId;
+  const latestWarning = warnings[0];
+  const passwordError =
+    isPasswordModalOpen &&
+    hasSubmittedPassword &&
+    latestWarning?.message === 'Incorrect password'
+      ? 'Incorrect password'
+      : '';
+
+  const closePasswordModal = () => {
+    setShowPasswordModal(false);
+    setPendingJoinGroupId(null);
+    setJoinPassword('');
+    setHasSubmittedPassword(false);
+  };
+
+  // Auto-close and reset password modal state when successfully joined the pending group
   useEffect(() => {
     if (pendingJoinGroupId && currentGroupId === pendingJoinGroupId) {
+      /* eslint-disable react-hooks/set-state-in-effect -- Legitimate cleanup: resetting modal state after successful join */
       setShowPasswordModal(false);
       setPendingJoinGroupId(null);
       setJoinPassword('');
-      setPasswordError('');
+      setHasSubmittedPassword(false);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [currentGroupId, pendingJoinGroupId]);
-
-  // Show error in password modal when incorrect password warning arrives
-  useEffect(() => {
-    if (!showPasswordModal || warnings.length === 0) return;
-    const latest = warnings[0];
-    if (latest?.message === 'Incorrect password') {
-      setPasswordError('Incorrect password');
-    }
-  }, [warnings, showPasswordModal]);
 
   const filteredGroups = groups.filter(g => 
      g.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -80,6 +92,7 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
       // Show password prompt
       setPendingJoinGroupId(groupId);
       setJoinPassword('');
+      setHasSubmittedPassword(false);
       setShowPasswordModal(true);
     } else {
       joinGroup(groupId);
@@ -88,7 +101,7 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
 
   const handlePasswordJoin = () => {
     if (pendingJoinGroupId) {
-      setPasswordError('');
+      setHasSubmittedPassword(true);
       joinGroup(pendingJoinGroupId, joinPassword);
     }
   };
@@ -284,13 +297,8 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
 
       {/* Password Join Modal */}
       <Modal
-        isOpen={showPasswordModal}
-        onClose={() => {
-          setShowPasswordModal(false);
-          setPendingJoinGroupId(null);
-          setJoinPassword('');
-          setPasswordError('');
-        }}
+        isOpen={isPasswordModalOpen}
+        onClose={closePasswordModal}
         title="Enter Password"
       >
         <div className="space-y-4 p-1">
@@ -322,12 +330,7 @@ export const PartyManager = ({ createGroup, joinGroup, leaveGroup }: PartyManage
             </Button>
             <Button
               variant="ghost"
-              onClick={() => {
-                setShowPasswordModal(false);
-                setPendingJoinGroupId(null);
-                setJoinPassword('');
-                setPasswordError('');
-              }}
+              onClick={closePasswordModal}
             >
               Cancel
             </Button>

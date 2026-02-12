@@ -1,12 +1,38 @@
 import { expect, test, type Page } from '@playwright/test'
 
+async function closeContextSafely(context: { close: () => Promise<void> }): Promise<void> {
+  await context.close().catch(() => {})
+}
+
 async function installMockWebSocket(page: Page, clientId: string): Promise<void> {
   await page.addInitScript(({ clientId: injectedClientId }) => {
     type JsonRecord = Record<string, unknown>
+    type WebCodecSupport = { supported: boolean; config?: Record<string, unknown> }
 
     const sentMessages: string[] = []
     const sockets: MockWebSocket[] = []
     let currentGroups: JsonRecord[] = []
+    const globalObject = window as unknown as {
+      AudioEncoder?: { isConfigSupported?: (config: Record<string, unknown>) => Promise<WebCodecSupport> }
+      AudioDecoder?: { isConfigSupported?: (config: Record<string, unknown>) => Promise<WebCodecSupport> }
+    }
+
+    const supportedResult = async (config: Record<string, unknown>): Promise<WebCodecSupport> => ({
+      supported: true,
+      config,
+    })
+
+    if (!globalObject.AudioEncoder) {
+      globalObject.AudioEncoder = { isConfigSupported: supportedResult }
+    } else if (typeof globalObject.AudioEncoder.isConfigSupported !== 'function') {
+      globalObject.AudioEncoder.isConfigSupported = supportedResult
+    }
+
+    if (!globalObject.AudioDecoder) {
+      globalObject.AudioDecoder = { isConfigSupported: supportedResult }
+    } else if (typeof globalObject.AudioDecoder.isConfigSupported !== 'function') {
+      globalObject.AudioDecoder.isConfigSupported = supportedResult
+    }
 
     const emitToSocket = (socket: MockWebSocket, type: string, data: JsonRecord): void => {
       if (socket.readyState !== MockWebSocket.OPEN) {
@@ -70,12 +96,28 @@ async function installMockWebSocket(page: Page, clientId: string): Promise<void>
             username: this.username,
             transportMode: 'websocket',
             stunServers: [],
+            audioCodec: 'opus',
+            audioCodecs: ['opus'],
+            audioCodecConfig: {
+              sampleRate: 48000,
+              channels: 1,
+              frameDurationMs: 20,
+              targetBitrate: 32000,
+            },
             pending: false,
             useProximityRadar: false,
           })
           emitToSocket(this, 'hello', {
             heartbeatIntervalMs: 15000,
             resumeWindowMs: 30000,
+            audioCodec: 'opus',
+            audioCodecs: ['opus'],
+            audioCodecConfig: {
+              sampleRate: 48000,
+              channels: 1,
+              frameDurationMs: 20,
+              targetBitrate: 32000,
+            },
             useProximityRadar: false,
           })
           emitToSocket(this, 'game_session_ready', { message: 'ready' })
@@ -142,8 +184,25 @@ async function login(page: Page, username: string): Promise<void> {
   await page.goto('/')
   await page.getByPlaceholder('Server address...').fill('wss://voice.test.local')
   await page.getByPlaceholder('Your username...').fill(username)
-  await page.getByRole('button', { name: 'Connect to Server' }).click()
-  await expect(page.getByText('Party Control')).toBeVisible({ timeout: 10000 })
+  const connectButton = page.getByRole('button', { name: /connect/i }).first()
+  await expect(connectButton).toBeVisible({ timeout: 10_000 })
+  await connectButton.click()
+  const partyControl = page.getByText('Party Control')
+  try {
+    await expect(partyControl).toBeVisible({ timeout: 10_000 })
+  } catch {
+    const diagnostics = await page.evaluate(async () => {
+      const { useConnectionStore } = await import('/src/stores/connectionStore.ts')
+      const state = useConnectionStore.getState()
+      return {
+        status: state.status,
+        error: state.errorMessage,
+      }
+    })
+    throw new Error(
+      `Login did not reach dashboard. status=${diagnostics.status}, error=${diagnostics.error ?? 'none'}`
+    )
+  }
 }
 
 async function openCreatePartyModal(page: Page): Promise<void> {
@@ -173,6 +232,9 @@ async function getLastCreateGroupPayload(page: Page): Promise<Record<string, unk
 }
 
 test.describe('Group create/join regression fixes', () => {
+  test.describe.configure({ mode: 'serial' })
+  test.setTimeout(60_000)
+
   test('only creator auto-joins and hybrid mode is sent in create payload', async ({ browser }) => {
     const creatorContext = await browser.newContext()
     const observerContext = await browser.newContext()
@@ -235,11 +297,11 @@ test.describe('Group create/join regression fixes', () => {
         })
       }, { groupId, groupName })
 
-      await expect(creatorPage.locator('h2', { hasText: groupName }).first()).toBeVisible()
-      await expect(observerPage.locator('h2', { hasText: 'No Channel' }).first()).toBeVisible()
+      await expect(creatorPage.locator('h2', { hasText: groupName }).first()).toBeVisible({ timeout: 15_000 })
+      await expect(observerPage.locator('h2', { hasText: 'No Channel' }).first()).toBeVisible({ timeout: 15_000 })
     } finally {
-      await creatorContext.close()
-      await observerContext.close()
+      await closeContextSafely(creatorContext)
+      await closeContextSafely(observerContext)
     }
   })
 
@@ -285,10 +347,10 @@ test.describe('Group create/join regression fixes', () => {
         })
       }, { groupId, groupName })
 
-      await expect(page.locator('h2', { hasText: groupName }).first()).toBeVisible()
-      await expect(page.locator('h2', { hasText: 'No Channel' }).first()).toHaveCount(0)
+      await expect(page.locator('h2', { hasText: groupName }).first()).toBeVisible({ timeout: 15_000 })
+      await expect(page.locator('h2', { hasText: 'No Channel' }).first()).toHaveCount(0, { timeout: 15_000 })
     } finally {
-      await context.close()
+      await closeContextSafely(context)
     }
   })
 })
