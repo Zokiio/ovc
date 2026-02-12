@@ -11,7 +11,7 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   }, [theme])
 
   const toggleTheme = () => {
-    setThemeState(theme === 'industrial' ? 'hytale' : 'industrial')
+    setThemeState(theme === 'hytale' ? 'industrial' : 'hytale')
   }
 
   const setTheme = (value: Theme) => setThemeState(value)
