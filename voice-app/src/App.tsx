@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { LoginView } from './components/features/auth/LoginView';
 import { MainApp } from './components/MainApp';
 import { ThemeProvider } from './context/ThemeContext';
@@ -60,9 +61,13 @@ function AppContent() {
 }
 
 function App() {
+  const isAnalyticsEnabled =
+    import.meta.env.VITE_ENABLE_VERCEL_ANALYTICS === 'true';
+
   return (
     <ThemeProvider>
       <AppContent />
+      {isAnalyticsEnabled && <Analytics />}
     </ThemeProvider>
   );
 }

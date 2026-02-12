@@ -57,3 +57,22 @@ The test captures connection logs and screenshots in `test-results/`.
 - If microphone permission is denied, the client can still connect in listen-only mode and exposes retry actions in `Audio Config` and the dashboard footer.
 - Login form supports URL prefill: `?username=...&code=...&server=...` (also accepts `token`/`authCode` aliases).
 - `eslint` and `@eslint/js` are pinned to major v9 because `eslint-plugin-react-hooks@7.0.1` currently supports ESLint up to v9; remove this pin once the plugin adds ESLint 10 support.
+
+## Vercel Web Analytics (Optional)
+
+This project includes optional Vercel Web Analytics integration. Analytics tracking is **disabled by default** to support self-hosted and non-Vercel deployments.
+
+### Enabling Analytics
+
+To enable analytics tracking:
+
+1. Set the environment variable:
+   ```bash
+   VITE_ENABLE_VERCEL_ANALYTICS=true
+   ```
+
+2. Deploy to Vercel and enable Web Analytics in your project dashboard
+
+3. Verify tracking is working by checking for `/_vercel/insights/*` requests in the browser Network tab
+
+**Note:** Analytics only works when deployed on Vercel. On non-Vercel hosts, the requests will fail silently. Keep the environment variable unset or set to `false` for self-hosted deployments to avoid unnecessary network requests.
