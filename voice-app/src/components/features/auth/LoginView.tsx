@@ -22,7 +22,33 @@ interface LoginViewProps {
   connectionError: string | null;
 }
 
+function readPrefillParam(params: URLSearchParams, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = params.get(key);
+    if (value && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+interface LoginPrefill {
+  username: string | null;
+  code: string | null;
+  server: string | null;
+}
+
+function readLoginPrefillFromUrl(): LoginPrefill {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    username: readPrefillParam(params, ['username', 'user']),
+    code: readPrefillParam(params, ['code', 'authCode', 'token', 'authToken']),
+    server: readPrefillParam(params, ['server', 'relay', 'serverUrl']),
+  };
+}
+
 export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, connectionError }: LoginViewProps) => {
+  const urlPrefill = useMemo(() => readLoginPrefillFromUrl(), []);
   
   // Saved servers from store
   const savedServers = useSettingsStore((s) => s.savedServers);
@@ -44,10 +70,10 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
     return savedServers.find((savedServer) => normalizeUrl(savedServer.url) === normalizedLastServerUrl) ?? null;
   }, [lastServerUrl, savedServers]);
 
-  const [username, setUsername] = useState<string | null>(null);
-  const [server, setServer] = useState<string | null>(null);
-  const [password, setPassword] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
+  const [username, setUsername] = useState<string | null>(urlPrefill.username);
+  const [server, setServer] = useState<string | null>(urlPrefill.server);
+  const [authCode, setAuthCode] = useState<string | null>(urlPrefill.code);
+  const [showAuthCode, setShowAuthCode] = useState(false);
   const [showAudioSettings, setShowAudioSettings] = useState(false);
   const [isPreparingAudio, setIsPreparingAudio] = useState(false);
   
@@ -62,7 +88,14 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
   const isConnecting = connectionStatus === 'connecting';
   const usernameValue = username ?? lastSavedServer?.username ?? '';
   const serverValue = server ?? lastSavedServer?.url ?? '';
-  const passwordValue = password ?? lastSavedServer?.authToken ?? '';
+  const authCodeValue = authCode ?? lastSavedServer?.authToken ?? '';
+
+  useEffect(() => {
+    if (urlPrefill.username || urlPrefill.code || urlPrefill.server) {
+      const sanitizedUrl = `${window.location.pathname}${window.location.hash}`;
+      window.history.replaceState({}, document.title, sanitizedUrl);
+    }
+  }, [urlPrefill.username, urlPrefill.code, urlPrefill.server]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,7 +112,7 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
     const finalServer = normalizeUrl(normalizedServer);
     setUsername(normalizedUsername);
     setServer(finalServer);
-    await connect(finalServer, normalizedUsername, passwordValue);
+    await connect(finalServer, normalizedUsername, authCodeValue);
   };
   
   // Watch for successful connection
@@ -96,7 +129,7 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
       // Pre-fill fields with the saved server's data
       setServer(serverToEdit.url);
       setUsername(serverToEdit.username || '');
-      setPassword(serverToEdit.authToken || '');
+      setAuthCode(serverToEdit.authToken || '');
     } else {
       setEditingServerId(null);
       setNickname('');
@@ -113,10 +146,10 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
             url: normalizedServer,
             name: nickname,
             username: usernameValue,
-            authToken: passwordValue
+            authToken: authCodeValue
          });
       } else {
-         addSavedServer(normalizedServer, nickname, usernameValue, passwordValue);
+         addSavedServer(normalizedServer, nickname, usernameValue, authCodeValue);
       }
     }
     setShowSaveModal(false);
@@ -127,7 +160,7 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
   const handleSelectServer = (savedServer: SavedServer) => {
     setServer(savedServer.url);
     if (savedServer.username) setUsername(savedServer.username);
-    if (savedServer.authToken) setPassword(savedServer.authToken);
+    if (savedServer.authToken) setAuthCode(savedServer.authToken);
   };
   
   const handleDeleteServer = (id: string) => {
@@ -305,17 +338,17 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
                            <label className="text-[10px] font-extrabold text-[var(--text-secondary)] uppercase font-[family-name:var(--font-heading)]">Access Token (Optional)</label>
                            <button 
                               type="button"
-                              onClick={() => setShowPassword(!showPassword)}
+                              onClick={() => setShowAuthCode(!showAuthCode)}
                               className="text-[10px] font-extrabold uppercase flex items-center gap-1.5 text-[var(--text-secondary)] hover:text-white transition-colors"
                            >
-                              {showPassword ? <><EyeOff className="w-3 h-3" /> Hide</> : <><Eye className="w-3 h-3" /> Show</>}
+                              {showAuthCode ? <><EyeOff className="w-3 h-3" /> Hide</> : <><Eye className="w-3 h-3" /> Show</>}
                            </button>
                         </div>
                         <Input
-                           type={showPassword ? "text" : "password"}
+                           type={showAuthCode ? "text" : "password"}
                            placeholder="••••••••••••"
-                           value={passwordValue}
-                           onChange={(e) => setPassword(e.target.value)}
+                           value={authCodeValue}
+                           onChange={(e) => setAuthCode(e.target.value)}
                            autoComplete="current-password"
                         />
                         <p className="text-[9px] text-[var(--text-secondary)] italic px-1">
@@ -399,8 +432,8 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
                   label="Access Token" 
                   type="password"
                   placeholder="Optional" 
-                  value={passwordValue}
-                  onChange={(e) => setPassword(e.target.value)}
+                  value={authCodeValue}
+                  onChange={(e) => setAuthCode(e.target.value)}
                />
             </div>
 

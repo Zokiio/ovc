@@ -71,7 +71,11 @@ public class NetworkConfig {
     private static String sslKeyPath = "/etc/letsencrypt/live/example.com/privkey.pem";
     
     // CORS allowed origins
-    private static String allowedOrigins = "https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173";
+    private static String allowedOrigins = "https://ovc.zottik.com";
+
+    // Optional web client deep-link targets for /vc login
+    private static String voiceClientUrl = "https://ovc.zottik.com";
+    private static String voiceSignalingUrl = "wss://ovc.zottik.com";
     
     // Voice chat proximity settings - initialized from constants
     private static double defaultProximityDistance = DEFAULT_PROXIMITY_DISTANCE;
@@ -122,6 +126,8 @@ public class NetworkConfig {
             sslCertPath = com.zottik.ovc.common.config.VoiceConfig.getString("SSLCertPath", sslCertPath);
             sslKeyPath = com.zottik.ovc.common.config.VoiceConfig.getString("SSLKeyPath", sslKeyPath);
             allowedOrigins = com.zottik.ovc.common.config.VoiceConfig.getString("AllowedOrigins", allowedOrigins);
+            voiceClientUrl = com.zottik.ovc.common.config.VoiceConfig.getString("VoiceClientUrl", voiceClientUrl);
+            voiceSignalingUrl = com.zottik.ovc.common.config.VoiceConfig.getString("VoiceSignalingUrl", voiceSignalingUrl);
             defaultProximityDistance = com.zottik.ovc.common.config.VoiceConfig.getDouble("DefaultProximityRange", defaultProximityDistance);
             proximityFadeStart = com.zottik.ovc.common.config.VoiceConfig.getDouble("ProximityFadeStart", proximityFadeStart);
             proximityRolloffFactor = com.zottik.ovc.common.config.VoiceConfig.getDouble("ProximityRolloffFactor", proximityRolloffFactor);
@@ -154,6 +160,8 @@ public class NetworkConfig {
             sslCertPath = com.zottik.ovc.common.config.VoiceConfig.getString("voice.ssl.cert", sslCertPath);
             sslKeyPath = com.zottik.ovc.common.config.VoiceConfig.getString("voice.ssl.key", sslKeyPath);
             allowedOrigins = com.zottik.ovc.common.config.VoiceConfig.getString("voice.allowed.origins", allowedOrigins);
+            voiceClientUrl = com.zottik.ovc.common.config.VoiceConfig.getString("voice.client.url", voiceClientUrl);
+            voiceSignalingUrl = com.zottik.ovc.common.config.VoiceConfig.getString("voice.client.signaling.url", voiceSignalingUrl);
             defaultProximityDistance = com.zottik.ovc.common.config.VoiceConfig.getDouble("voice.proximity.default", defaultProximityDistance);
             proximityFadeStart = com.zottik.ovc.common.config.VoiceConfig.getDouble("voice.proximity.fade.start", proximityFadeStart);
             proximityRolloffFactor = com.zottik.ovc.common.config.VoiceConfig.getDouble("voice.proximity.rolloff", proximityRolloffFactor);
@@ -230,6 +238,20 @@ public class NetworkConfig {
     
     public static String getAllowedOrigins() {
         return allowedOrigins;
+    }
+
+    /**
+     * Optional public voice web app URL used for /vc login deep links.
+     */
+    public static String getVoiceClientUrl() {
+        return voiceClientUrl;
+    }
+
+    /**
+     * Optional signaling endpoint prefilled in the web app from /vc login links.
+     */
+    public static String getVoiceSignalingUrl() {
+        return voiceSignalingUrl;
     }
     
     /**

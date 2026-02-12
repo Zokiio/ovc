@@ -20,6 +20,10 @@ import com.zottik.ovc.plugin.GroupManager;
 import com.zottik.ovc.plugin.OVCPlugin;
 import com.zottik.ovc.plugin.gui.VoiceChatPage;
 
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
@@ -29,6 +33,85 @@ import java.util.concurrent.CompletableFuture;
  */
 public class VoiceGroupCommand extends AbstractCommandCollection {
     private static final HytaleLogger logger = HytaleLogger.forEnclosingClass();
+
+    private static String encodeQueryParam(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private static boolean isHttpUrl(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+
+        try {
+            URI uri = URI.create(value.trim());
+            String scheme = uri.getScheme();
+            if (scheme == null) {
+                return false;
+            }
+            String normalizedScheme = scheme.toLowerCase(Locale.ROOT);
+            return ("http".equals(normalizedScheme) || "https".equals(normalizedScheme))
+                && uri.getHost() != null
+                && !uri.getHost().isBlank();
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static String appendQueryParam(String url, String key, String value) {
+        int fragmentIndex = url.indexOf('#');
+        String fragment = fragmentIndex >= 0 ? url.substring(fragmentIndex) : "";
+        String base = fragmentIndex >= 0 ? url.substring(0, fragmentIndex) : url;
+
+        String separator;
+        if (base.endsWith("?") || base.endsWith("&")) {
+            separator = "";
+        } else if (base.contains("?")) {
+            separator = "&";
+        } else {
+            separator = "?";
+        }
+
+        return base + separator + key + "=" + encodeQueryParam(value) + fragment;
+    }
+
+    private static String buildPrefilledClientUrl(String clientBaseUrl, String username, String code, String signalingUrl) {
+        String loginUrl = appendQueryParam(clientBaseUrl, "username", username);
+        loginUrl = appendQueryParam(loginUrl, "code", code);
+        if (signalingUrl != null && !signalingUrl.isBlank()) {
+            loginUrl = appendQueryParam(loginUrl, "server", signalingUrl.trim());
+        }
+        return loginUrl;
+    }
+
+    private static void sendLoginCodeMessage(CommandContext context, String username, String code) {
+        context.sendMessage(Message.raw("=== Voice Chat Login ==="));
+        context.sendMessage(Message.raw("Your login code: " + code));
+
+        String voiceClientUrl = NetworkConfig.getVoiceClientUrl();
+        if (voiceClientUrl == null || voiceClientUrl.isBlank()) {
+            context.sendMessage(Message.raw("Use this code with your username in the web UI."));
+            context.sendMessage(Message.raw("Tip: set VoiceClientUrl in ovc.conf to get a clickable prefilled link."));
+            return;
+        }
+        if (!isHttpUrl(voiceClientUrl)) {
+            logger.atWarning().log("Invalid VoiceClientUrl in config: " + voiceClientUrl);
+            context.sendMessage(Message.raw("Use this code with your username in the web UI."));
+            context.sendMessage(Message.raw("VoiceClientUrl is misconfigured; ask an admin to set a valid http(s) URL."));
+            return;
+        }
+
+        String finalUrl = buildPrefilledClientUrl(
+            voiceClientUrl.trim(),
+            username,
+            code,
+            NetworkConfig.getVoiceSignalingUrl()
+        );
+
+        context.sendMessage(Message.raw("Click here to open voice chat with your token preloaded.").link(finalUrl));
+        context.sendMessage(Message.raw(finalUrl).link(finalUrl));
+    }
+
     public VoiceGroupCommand(GroupManager groupManager, OVCPlugin plugin) {
         super("voicechat", "Manage voice chat");
         addAliases("vc");
@@ -477,9 +560,7 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
             // Get existing code or create a new one
             String code = plugin.getAuthCodeStore().getOrCreateCode(username, playerId);
             
-            context.sendMessage(Message.raw("=== Voice Chat Login ==="));
-            context.sendMessage(Message.raw("Your login code: " + code));
-            context.sendMessage(Message.raw("Use this code with your username in the web UI."));
+            sendLoginCodeMessage(context, username, code);
             context.sendMessage(Message.raw("Use /vc resetcode to generate a new code."));
             logger.atInfo().log("Player " + username + " retrieved login code");
         }
@@ -513,8 +594,7 @@ public class VoiceGroupCommand extends AbstractCommandCollection {
             // Generate new code (invalidates old one)
             String newCode = plugin.getAuthCodeStore().resetCode(username, playerId);
             
-            context.sendMessage(Message.raw("=== Voice Chat Login ==="));
-            context.sendMessage(Message.raw("Your new login code: " + newCode));
+            sendLoginCodeMessage(context, username, newCode);
             context.sendMessage(Message.raw("Your old code is no longer valid."));
             logger.atInfo().log("Player " + username + " reset their login code");
         }
