@@ -22,7 +22,33 @@ interface LoginViewProps {
   connectionError: string | null;
 }
 
+function readPrefillParam(params: URLSearchParams, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = params.get(key);
+    if (value && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+interface LoginPrefill {
+  username: string | null;
+  code: string | null;
+  server: string | null;
+}
+
+function readLoginPrefillFromUrl(): LoginPrefill {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    username: readPrefillParam(params, ['username', 'user']),
+    code: readPrefillParam(params, ['code', 'authCode', 'token', 'authToken']),
+    server: readPrefillParam(params, ['server', 'relay', 'serverUrl']),
+  };
+}
+
 export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, connectionError }: LoginViewProps) => {
+  const urlPrefill = useMemo(() => readLoginPrefillFromUrl(), []);
   
   // Saved servers from store
   const savedServers = useSettingsStore((s) => s.savedServers);
@@ -44,9 +70,9 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
     return savedServers.find((savedServer) => normalizeUrl(savedServer.url) === normalizedLastServerUrl) ?? null;
   }, [lastServerUrl, savedServers]);
 
-  const [username, setUsername] = useState<string | null>(null);
-  const [server, setServer] = useState<string | null>(null);
-  const [password, setPassword] = useState<string | null>(null);
+  const [username, setUsername] = useState<string | null>(urlPrefill.username);
+  const [server, setServer] = useState<string | null>(urlPrefill.server);
+  const [password, setPassword] = useState<string | null>(urlPrefill.code);
   const [showPassword, setShowPassword] = useState(false);
   const [showAudioSettings, setShowAudioSettings] = useState(false);
   const [isPreparingAudio, setIsPreparingAudio] = useState(false);
@@ -63,6 +89,13 @@ export const LoginView = ({ onConnect, connect, prepareAudio, connectionStatus, 
   const usernameValue = username ?? lastSavedServer?.username ?? '';
   const serverValue = server ?? lastSavedServer?.url ?? '';
   const passwordValue = password ?? lastSavedServer?.authToken ?? '';
+
+  useEffect(() => {
+    if (urlPrefill.username || urlPrefill.code || urlPrefill.server) {
+      const sanitizedUrl = `${window.location.pathname}${window.location.hash}`;
+      window.history.replaceState({}, document.title, sanitizedUrl);
+    }
+  }, [urlPrefill.username, urlPrefill.code, urlPrefill.server]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

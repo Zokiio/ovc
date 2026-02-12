@@ -21,7 +21,9 @@ Custom path:
 ```hocon
 SignalingPort = 24455
 EnableSSL = false
-AllowedOrigins = "https://voice.example.com,https://example.com"
+AllowedOrigins = "https://ovc.zottik.com"
+VoiceClientUrl = "https://ovc.zottik.com"
+VoiceSignalingUrl = "wss://ovc.zottik.com"
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000
@@ -38,7 +40,9 @@ IcePortMax = 51000
 | `EnableSSL` | Boolean | `false` | `false` | Keep `false` when using reverse proxy TLS termination. |
 | `SSLCertPath` | String | `"/etc/letsencrypt/live/example.com/fullchain.pem"` | Same path string | Used when `EnableSSL = true`. |
 | `SSLKeyPath` | String | `"/etc/letsencrypt/live/example.com/privkey.pem"` | Same path string | Used when `EnableSSL = true`. |
-| `AllowedOrigins` | String | `"https://example.com,https://voice.example.com,http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173"` | Same list | Comma-separated exact origins. |
+| `AllowedOrigins` | String | `"https://ovc.zottik.com"` | `"https://ovc.zottik.com"` | Comma-separated exact origins. |
+| `VoiceClientUrl` | String | `"https://ovc.zottik.com"` | `"https://ovc.zottik.com"` | Optional public web client URL used for `/vc login` clickable deep links. |
+| `VoiceSignalingUrl` | String | `""` | Empty | Optional signaling endpoint (`ws://` or `wss://`) prefilled from `/vc login` links. |
 | `GameQuitGraceSeconds` | Integer | `10` | `10` | Grace period before disconnecting web client after game quit. |
 | `PendingGameJoinTimeoutSeconds` | Integer | `60` | `60` | Timeout while waiting for in-game session after auth. |
 | `StunServers` | String | `"stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"` | Same list | Comma-separated STUN servers. |
@@ -76,7 +80,9 @@ IcePortMax = 51000
 ```hocon
 SignalingPort = 24455
 EnableSSL = false
-AllowedOrigins = "https://voice.example.com,https://example.com"
+AllowedOrigins = "https://ovc.zottik.com"
+VoiceClientUrl = "https://ovc.zottik.com"
+VoiceSignalingUrl = "wss://ovc.zottik.com"
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000
