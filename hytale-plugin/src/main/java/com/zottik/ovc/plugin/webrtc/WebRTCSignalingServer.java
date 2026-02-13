@@ -1,10 +1,8 @@
 package com.zottik.ovc.plugin.webrtc;
 
 import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.zottik.ovc.common.model.Group;
-import com.zottik.ovc.common.model.GroupSettings;
 import com.zottik.ovc.common.model.PlayerPosition;
 import com.zottik.ovc.common.network.NetworkConfig;
 import com.zottik.ovc.common.signaling.SignalingMessage;
@@ -15,7 +13,6 @@ import com.hypixel.hytale.component.Ref;
 import com.hypixel.hytale.component.Store;
 import com.hypixel.hytale.logger.HytaleLogger;
 import com.hypixel.hytale.server.core.entity.entities.Player;
-import com.hypixel.hytale.server.core.permissions.PermissionsModule;
 import com.hypixel.hytale.server.core.universe.world.storage.EntityStore;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
@@ -504,15 +501,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
         // Broadcast updated member list to remaining group members
         if (!groupDeleted) {
-            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
-            JsonObject broadcastData = SignalingPayloadFactory.buildGroupMembersUpdateData(
-                groupId,
-                group.getName(),
-                membersArray
-            );
-
-            SignalingMessage membersMsg = new SignalingMessage("group_members_updated", broadcastData);
-            groupStateManager.broadcastToGroupAll(groupId, membersMsg);
+            broadcastGroupMembersUpdate(groupId);
         }
         
         // Also refresh full group list for all clients
@@ -571,6 +560,27 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
         SignalingMessage message = new SignalingMessage("player_list", data);
         broadcastToAll(message);
+    }
+
+    private void broadcastGroupMembersUpdate(UUID groupId) {
+        if (groupManager == null || groupStateManager == null) {
+            return;
+        }
+
+        Group group = groupManager.getGroup(groupId);
+        if (group == null) {
+            return;
+        }
+
+        JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
+        JsonObject broadcastData = SignalingPayloadFactory.buildGroupMembersUpdateData(
+            groupId,
+            group.getName(),
+            membersArray
+        );
+
+        SignalingMessage broadcastMsg = new SignalingMessage("group_members_updated", broadcastData);
+        groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
     }
 
     private boolean shouldRemoveFromPositionTracker(UUID clientId) {
@@ -648,18 +658,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
         // Broadcast updated player list to all remaining clients
         broadcastPlayerList();
-    }
-
-    private void sendPendingStatus(ChannelHandlerContext ctx, WebRTCClient client) {
-        JsonObject data = new JsonObject();
-        int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
-        String messageText = timeoutSeconds > 0
-                ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
-                : "Waiting for game session...";
-        data.addProperty("message", messageText);
-        data.addProperty("timeoutSeconds", timeoutSeconds);
-        SignalingMessage message = new SignalingMessage("pending_game_session", data);
-        ctx.channel().writeAndFlush(new TextWebSocketFrame(message.toJson()));
     }
 
     private void sendErrorToClient(WebRTCClient client, String error) {
@@ -867,11 +865,42 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     private class WebSocketServerHandler extends SimpleChannelInboundHandler<Object> {
         private WebSocketServerHandshaker handshaker;
         private final SignalingClientSessionService clientSessionService =
-                new SignalingClientSessionService(CLIENT_ATTR, this::sendMessage);
+                new SignalingClientSessionService(
+                        CLIENT_ATTR,
+                        () -> plugin,
+                        () -> positionTracker,
+                        () -> groupManager,
+                        () -> groupStateManager,
+                        () -> clientListener,
+                        clients,
+                        resumableSessions,
+                        clientIdMapper,
+                        this::sendMessage,
+                        this::sendError,
+                        WebRTCSignalingServer.this::cleanupClient,
+                        WebRTCSignalingServer.this::schedulePendingAuthDisconnect,
+                        WebRTCSignalingServer.this::cancelPendingAuthDisconnect,
+                        WebRTCSignalingServer.this::broadcastPlayerList,
+                        WebRTCSignalingServer.this::broadcastGroupMembersUpdate,
+                        WebRTCSignalingServer.this::generateSessionId,
+                        WebRTCSignalingServer.this::generateResumeToken,
+                        HEARTBEAT_INTERVAL_MS,
+                        RESUME_WINDOW_MS
+                );
         private final SignalingWebRtcService webRtcService =
                 new SignalingWebRtcService(CLIENT_ATTR, () -> peerManager, this::sendMessage, this::sendError);
         private final SignalingGroupService groupService =
-                new SignalingGroupService(() -> groupManager, () -> groupStateManager, clients, clientIdMapper, this::sendMessage, this::sendError);
+                new SignalingGroupService(
+                        CLIENT_ATTR,
+                        () -> groupManager,
+                        () -> groupStateManager,
+                        clients,
+                        clientIdMapper,
+                        this::sendMessage,
+                        this::sendError,
+                        WebRTCSignalingServer.this::broadcastGroupList,
+                        WebRTCSignalingServer.this::broadcastGroupMembersUpdate
+                );
         
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
@@ -916,7 +945,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         private void handleWebSocketFrame(ChannelHandlerContext ctx, WebSocketFrame frame) {
             if (frame instanceof CloseWebSocketFrame) {
                 handshaker.close(ctx.channel(), (CloseWebSocketFrame) frame.retain());
-                handleDisconnect(ctx);
+                clientSessionService.handleDisconnect(ctx);
                 return;
             }
             
@@ -939,33 +968,25 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 SignalingMessage message = SignalingMessage.fromJson(json);
                 logger.atFine().log("Received signaling message: " + message.getType());
 
-                if (!SignalingMessage.TYPE_AUTHENTICATE.equals(message.getType())) {
-                    WebRTCClient pendingClient = ctx.channel().attr(CLIENT_ATTR).get();
-                    if (pendingClient != null && pendingClient.isPendingGameSession()) {
-                        if (!SignalingMessage.TYPE_DISCONNECT.equals(message.getType())
-                                && !"ping".equals(message.getType())
-                                && !SignalingMessage.TYPE_HEARTBEAT.equals(message.getType())) {
-                            sendPendingStatus(ctx, pendingClient);
-                            return;
-                        }
-                    }
+                if (clientSessionService.shouldBlockPendingMessage(ctx, message.getType())) {
+                    return;
                 }
                 
                 switch (message.getType()) {
                     case SignalingMessage.TYPE_AUTHENTICATE:
-                        handleAuthenticate(ctx, message);
+                        clientSessionService.handleAuthenticate(ctx, message);
                         break;
                     case SignalingMessage.TYPE_RESUME:
-                        handleResume(ctx, message);
+                        clientSessionService.handleResume(ctx, message);
                         break;
                     case "create_group":
-                        handleCreateGroup(ctx, message);
+                        groupService.handleCreateGroup(ctx, message);
                         break;
                     case "join_group":
-                        handleJoinGroup(ctx, message);
+                        groupService.handleJoinGroup(ctx, message);
                         break;
                     case "leave_group":
-                        handleLeaveGroup(ctx, message);
+                        groupService.handleLeaveGroup(ctx, message);
                         break;
                     case "list_groups":
                         groupService.handleListGroups(ctx);
@@ -977,10 +998,10 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         groupService.handleGetGroupMembers(ctx, message);
                         break;
                     case "update_group_password":
-                        handleUpdateGroupPassword(ctx, message);
+                        groupService.handleUpdateGroupPassword(ctx, message);
                         break;
                     case "set_group_permanent":
-                        handleSetGroupPermanent(ctx, message);
+                        groupService.handleSetGroupPermanent(ctx, message);
                         break;
                     case "user_speaking":
                         handleUserSpeakingStatus(ctx, message);
@@ -1001,7 +1022,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         webRtcService.handleStartDataChannel(ctx);
                         break;
                     case SignalingMessage.TYPE_DISCONNECT:
-                        handleDisconnect(ctx);
+                        clientSessionService.handleDisconnect(ctx);
                         break;
                     case SignalingMessage.TYPE_OFFER:
                         webRtcService.handleOffer(ctx, message);
@@ -1016,605 +1037,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 logger.atSevere().log("Error handling signaling message", e);
                 sendError(ctx, "Invalid message format");
             }
-        }
-
-        private void sendHello(ChannelHandlerContext ctx) {
-            clientSessionService.sendHello(
-                ctx,
-                HEARTBEAT_INTERVAL_MS,
-                RESUME_WINDOW_MS,
-                NetworkConfig.isProximityRadarEnabled(),
-                NetworkConfig.isProximityRadarSpeakingOnlyEnabled(),
-                NetworkConfig.isGroupSpatialAudio(),
-                NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM
-            );
-        }
-        
-        private void handleAuthenticate(ChannelHandlerContext ctx, SignalingMessage message) {
-            JsonObject data = message.getData();
-            
-            // Extract username and auth code
-            if (!data.has("username")) {
-                sendError(ctx, "Missing username");
-                return;
-            }
-            String username = data.get("username").getAsString();
-            
-            // Validate auth code if plugin is available
-            if (plugin != null) {
-                if (!data.has("authCode")) {
-                    sendError(ctx, "Missing auth code. Use /vc login in-game to get your code.");
-                    return;
-                }
-                String authCode = data.get("authCode").getAsString();
-                
-                if (!plugin.getAuthCodeStore().validateCode(username, authCode)) {
-                    sendError(ctx, "Invalid auth code. Use /vc login in-game to get the correct code.");
-                    logger.atWarning().log("Auth failed for username " + username + " - invalid code");
-                    return;
-                }
-            }
-            
-            // Get player UUID from auth store or position tracker
-            UUID clientId = null;
-            if (plugin != null) {
-                clientId = plugin.getAuthCodeStore().getPlayerUUID(username);
-            }
-            if (clientId == null && positionTracker != null) {
-                clientId = positionTracker.getPlayerUUIDByUsername(username);
-            }
-            if (clientId == null) {
-                // Reject if we can't find the player
-                sendError(ctx, "Player not found. Please log in to the game first.");
-                return;
-            }
-
-            String negotiatedCodec = SignalingCodecNegotiator.negotiateAudioCodec(data);
-            if (negotiatedCodec == null) {
-                sendError(ctx, "Client does not support required audio codec: opus", "codec_unsupported");
-                return;
-            }
-
-            logger.atInfo().log("WebRTC auth validated for " + username + " (UUID: " + clientId + ")");
-            
-            WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
-            client.setSessionId(generateSessionId());
-            client.setResumeToken(generateResumeToken());
-            client.setLastHeartbeatAt(System.currentTimeMillis());
-            client.setNegotiatedAudioCodec(negotiatedCodec);
-            boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
-            client.setPendingGameSession(!playerOnline);
-            clients.put(clientId, client);
-            ctx.channel().attr(CLIENT_ATTR).set(client);
-            
-            if (playerOnline && positionTracker != null) {
-                // Add to position tracker with default position (0, 0, 0)
-                // Position will be updated when player joins the game
-                PlayerPosition position = new PlayerPosition(clientId, username, 0, 0, 0, 0, 0, "overworld");
-                positionTracker.addPlayer(position);
-                logger.atInfo().log("Added WebRTC client to position tracker: " + username);
-            } else if (!playerOnline) {
-                schedulePendingAuthDisconnect(clientId);
-            }
-            
-            // Notify listener of client connection
-            if (clientListener != null) {
-                clientListener.onClientConnected(clientId, username);
-            }
-
-            if (playerOnline) {
-                syncClientGroupState(ctx, client, null);
-            }
-            
-            // Send success response with obfuscated client ID
-            JsonObject responseData = SignalingPayloadFactory.buildSessionResponseData(
-                client,
-                playerOnline,
-                clientIdMapper,
-                PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin"),
-                NetworkConfig.getStunServers(),
-                NetworkConfig.getWebRtcTransportMode(),
-                HEARTBEAT_INTERVAL_MS,
-                RESUME_WINDOW_MS,
-                NetworkConfig.isProximityRadarEnabled(),
-                NetworkConfig.isProximityRadarSpeakingOnlyEnabled(),
-                NetworkConfig.isGroupSpatialAudio()
-            );
-            
-            SignalingMessage response = new SignalingMessage(
-                    SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
-            sendMessage(ctx, response);
-            sendHello(ctx);
-            
-            // Broadcast updated player list to all clients only when player is online
-            if (playerOnline) {
-                broadcastPlayerList();
-            }
-            
-            logger.atInfo().log("WebRTC client authenticated: " + username + " (obfuscated: " + responseData.get("clientId").getAsString() + ")");
-        }
-
-        private void handleResume(ChannelHandlerContext ctx, SignalingMessage message) {
-            if (ctx.channel().attr(CLIENT_ATTR).get() != null) {
-                sendResumeFailed(ctx, "Session already authenticated");
-                return;
-            }
-
-            JsonObject data = message.getData();
-            String sessionId = data.has("sessionId") ? data.get("sessionId").getAsString() : null;
-            String resumeToken = data.has("resumeToken") ? data.get("resumeToken").getAsString() : null;
-            if (sessionId == null || sessionId.isEmpty() || resumeToken == null || resumeToken.isEmpty()) {
-                sendResumeFailed(ctx, "Missing resume data");
-                return;
-            }
-
-            ResumableSession session = resumableSessions.get(resumeToken);
-            if (session == null || !session.sessionId.equals(sessionId)) {
-                sendResumeFailed(ctx, "Resume session not found");
-                return;
-            }
-            if (session.expiresAt < System.currentTimeMillis()) {
-                resumableSessions.remove(resumeToken);
-                clientIdMapper.removeMapping(session.clientId);
-                sendResumeFailed(ctx, "Resume window expired");
-                return;
-            }
-            resumableSessions.remove(resumeToken);
-            if (clients.containsKey(session.clientId)) {
-                sendResumeFailed(ctx, "Session already active");
-                return;
-            }
-
-            UUID clientId = session.clientId;
-            String username = session.username;
-            String negotiatedCodec = (session.negotiatedAudioCodec == null || session.negotiatedAudioCodec.isEmpty())
-                ? (NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM)
-                : session.negotiatedAudioCodec;
-            if (!SignalingCodecNegotiator.clientSupportsCodec(data, negotiatedCodec)) {
-                sendError(ctx, "Client does not support required audio codec: " + negotiatedCodec, "codec_unsupported");
-                return;
-            }
-
-            WebRTCClient client = new WebRTCClient(clientId, username, ctx.channel());
-            client.setSessionId(session.sessionId);
-            client.setResumeToken(generateResumeToken());
-            client.setLastHeartbeatAt(System.currentTimeMillis());
-            client.setNegotiatedAudioCodec(negotiatedCodec);
-
-            boolean playerOnline = plugin == null || plugin.isPlayerOnline(clientId);
-            client.setPendingGameSession(!playerOnline);
-            clients.put(clientId, client);
-            ctx.channel().attr(CLIENT_ATTR).set(client);
-
-            if (playerOnline && positionTracker != null) {
-                PlayerPosition position = new PlayerPosition(clientId, username, 0, 0, 0, 0, 0, "overworld");
-                positionTracker.addPlayer(position);
-                logger.atInfo().log("Added WebRTC client to position tracker: " + username);
-            } else if (!playerOnline) {
-                schedulePendingAuthDisconnect(clientId);
-            }
-
-            if (clientListener != null) {
-                clientListener.onClientConnected(clientId, username);
-            }
-
-            if (playerOnline && groupStateManager != null) {
-                syncClientGroupState(ctx, client, session.lastGroupId);
-            }
-
-            JsonObject responseData = SignalingPayloadFactory.buildSessionResponseData(
-                client,
-                playerOnline,
-                clientIdMapper,
-                PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin"),
-                NetworkConfig.getStunServers(),
-                NetworkConfig.getWebRtcTransportMode(),
-                HEARTBEAT_INTERVAL_MS,
-                RESUME_WINDOW_MS,
-                NetworkConfig.isProximityRadarEnabled(),
-                NetworkConfig.isProximityRadarSpeakingOnlyEnabled(),
-                NetworkConfig.isGroupSpatialAudio()
-            );
-            SignalingMessage response = new SignalingMessage(SignalingMessage.TYPE_RESUMED, responseData);
-            sendMessage(ctx, response);
-            sendHello(ctx);
-
-            if (playerOnline) {
-                broadcastPlayerList();
-            }
-
-            logger.atInfo().log("WebRTC client resumed: " + username + " (obfuscated: " + responseData.get("clientId").getAsString() + ")");
-        }
-
-        private void syncClientGroupState(ChannelHandlerContext ctx, WebRTCClient client, UUID fallbackGroupId) {
-            if (client == null || groupManager == null || groupStateManager == null) {
-                return;
-            }
-
-            UUID groupId = null;
-            Group group = groupManager.getPlayerGroup(client.getClientId());
-            if (group == null && fallbackGroupId != null) {
-                group = groupManager.getGroup(fallbackGroupId);
-            }
-            if (group != null) {
-                groupId = group.getGroupId();
-            }
-            if (groupId == null) {
-                return;
-            }
-
-            groupStateManager.addClientToGroup(client.getClientId(), client, groupId);
-
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("groupId", groupId.toString());
-            responseData.addProperty("groupName", group.getName());
-            SignalingMessage response = new SignalingMessage("group_joined", responseData);
-            sendMessage(ctx, response);
-
-            broadcastGroupMembersUpdate(groupId);
-        }
-
-        private void sendResumeFailed(ChannelHandlerContext ctx, String reason) {
-            JsonObject errorData = new JsonObject();
-            errorData.addProperty("message", reason);
-            errorData.addProperty("code", "resume_failed");
-            SignalingMessage errorMessage = new SignalingMessage(SignalingMessage.TYPE_ERROR, errorData);
-            sendMessage(ctx, errorMessage);
-        }
-        
-        private void handleDisconnect(ChannelHandlerContext ctx) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client != null) {
-                boolean removeFromPositionTracker = shouldRemoveFromPositionTracker(client.getClientId());
-                cleanupClient(client, removeFromPositionTracker);
-            }
-        }
-        
-        
-        private void handleCreateGroup(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (groupManager == null) {
-                sendError(ctx, "Group manager not available");
-                return;
-            }
-
-            JsonObject data = message.getData();
-            String groupName = data.has("groupName") ? data.get("groupName").getAsString() : null;
-            
-            if (groupName == null || groupName.isEmpty()) {
-                sendError(ctx, "Invalid group name");
-                return;
-            }
-
-            // Extract settings from message if provided
-            GroupSettings settings = new GroupSettings();
-            boolean isIsolated = NetworkConfig.DEFAULT_GROUP_IS_ISOLATED;
-            if (data.has("settings")) {
-                JsonObject settingsObj = data.getAsJsonObject("settings");
-                int defaultVolume = settingsObj.has("defaultVolume") ? settingsObj.get("defaultVolume").getAsInt() : GroupSettings.DEFAULT_VOLUME;
-                double proximityRange = settingsObj.has("proximityRange") ? settingsObj.get("proximityRange").getAsDouble() : GroupSettings.DEFAULT_PROXIMITY_RANGE;
-                boolean allowInvites = settingsObj.has("allowInvites") ? settingsObj.get("allowInvites").getAsBoolean() : GroupSettings.DEFAULT_ALLOW_INVITES;
-                int maxMembers = settingsObj.has("maxMembers") ? settingsObj.get("maxMembers").getAsInt() : GroupSettings.DEFAULT_MAX_MEMBERS;
-                isIsolated = settingsObj.has("isIsolated")
-                        ? settingsObj.get("isIsolated").getAsBoolean()
-                        : NetworkConfig.DEFAULT_GROUP_IS_ISOLATED;
-                settings = new GroupSettings(defaultVolume, proximityRange, allowInvites, maxMembers);
-            }
-
-            // Extract password (any group creator can set password)
-            String password = null;
-            if (data.has("password")) {
-                JsonElement passwordElement = data.get("password");
-                if (!passwordElement.isJsonNull()) {
-                    try {
-                        password = passwordElement.getAsString();
-                    } catch (ClassCastException | IllegalStateException e) {
-                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type: " + e.getMessage());
-                        sendError(ctx, "Invalid password value");
-                        return;
-                    }
-                }
-            }
-
-            // isPermanent is only allowed for admins
-            boolean isPermanent = false;
-            if (data.has("isPermanent")) {
-                JsonElement isPermanentElement = data.get("isPermanent");
-                if (!isPermanentElement.isJsonNull()) {
-                    try {
-                        if (isPermanentElement.getAsBoolean()) {
-                            if (PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin")) {
-                                isPermanent = true;
-                            } else {
-                                logger.atWarning().log("Non-admin " + client.getUsername() + " attempted to create permanent group");
-                            }
-                        }
-                    } catch (ClassCastException | IllegalStateException e) {
-                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type: " + e.getMessage());
-                        sendError(ctx, "Invalid isPermanent value");
-                        return;
-                    }
-                }
-            }
-
-            var group = groupManager.createGroup(groupName, isPermanent, client.getClientId(), settings, isIsolated);
-            if (group == null) {
-                sendError(ctx, "Failed to create group (name may already exist)");
-                return;
-            }
-
-            // Set password if provided
-            if (password != null && !password.isEmpty()) {
-                group.setPassword(password);
-            }
-
-            // Auto-join creator
-            groupManager.joinGroup(client.getClientId(), group.getGroupId());
-            groupStateManager.addClientToGroup(client.getClientId(), client, group.getGroupId());
-
-            // Send success response
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("groupId", group.getGroupId().toString());
-            responseData.addProperty("groupName", group.getName());
-            responseData.addProperty("memberCount", group.getMemberCount());
-            responseData.addProperty("membersCount", group.getMemberCount());
-            responseData.addProperty("isIsolated", group.isIsolated());
-            responseData.addProperty("isPermanent", group.isPermanent());
-            responseData.addProperty("hasPassword", group.hasPassword());
-            responseData.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(client.getClientId()));
-            
-            SignalingMessage response = new SignalingMessage("group_created", responseData);
-            sendMessage(ctx, response);
-            
-            logger.atFine().log("Group created by " + client.getUsername() + ": " + groupName);
-        }
-
-        private void handleJoinGroup(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (groupManager == null) {
-                sendError(ctx, "Group manager not available");
-                return;
-            }
-
-            JsonObject data = message.getData();
-            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
-            
-            if (groupIdStr == null) {
-                sendError(ctx, "Invalid group ID");
-                return;
-            }
-
-            UUID groupId;
-            try {
-                groupId = UUID.fromString(groupIdStr);
-            } catch (IllegalArgumentException e) {
-                sendError(ctx, "Invalid group ID format");
-                return;
-            }
-
-            var group = groupManager.getGroup(groupId);
-            if (group == null) {
-                sendError(ctx, "Group not found", "group_not_found");
-                return;
-            }
-
-            // Validate password if group has one
-            if (group.hasPassword()) {
-                String password = null;
-                if (data.has("password")) {
-                    JsonElement passwordElement = data.get("password");
-                    if (!passwordElement.isJsonNull()) {
-                        try {
-                            password = passwordElement.getAsString();
-                        } catch (ClassCastException | IllegalStateException e) {
-                            // Treat invalid password type as incorrect password
-                            logger.atWarning().log("Client " + client.getUsername() + " sent invalid password type for group join: " + e.getMessage());
-                            sendError(ctx, "Incorrect password", "incorrect_password");
-                            return;
-                        }
-                    }
-                }
-                if (!group.checkPassword(password)) {
-                    sendError(ctx, "Incorrect password", "incorrect_password");
-                    return;
-                }
-            }
-
-            // Check capacity
-            if (group.getSettings().isAtCapacity(group.getMemberCount())) {
-                sendError(ctx, "Group is at capacity", "group_full");
-                return;
-            }
-
-            boolean joined = groupManager.joinGroup(client.getClientId(), groupId);
-            if (!joined) {
-                sendError(ctx, "Failed to join group");
-                return;
-            }
-
-            groupStateManager.addClientToGroup(client.getClientId(), client, groupId);
-
-            // Send success response
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("groupId", groupId.toString());
-            responseData.addProperty("groupName", group.getName());
-            
-            SignalingMessage response = new SignalingMessage("group_joined", responseData);
-            sendMessage(ctx, response);
-
-            // Broadcast member list update to all group members
-            broadcastGroupMembersUpdate(groupId);
-            
-            logger.atFine().log("Client " + client.getUsername() + " joined group: " + group.getName());
-        }
-
-        private void handleLeaveGroup(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (groupManager == null) {
-                sendError(ctx, "Group manager not available");
-                return;
-            }
-
-            UUID groupId = groupStateManager.getClientGroup(client.getClientId());
-            if (groupId == null) {
-                sendError(ctx, "Not in any group");
-                return;
-            }
-
-            groupManager.leaveGroup(client.getClientId());
-            groupStateManager.removeClientFromAllGroups(client.getClientId());
-
-            // Calculate remaining member count
-            int memberCount = groupManager.getGroupMembers(groupId).size();
-
-            // Send success response with updated member count
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("groupId", groupId.toString());
-            responseData.addProperty("memberCount", memberCount);
-            SignalingMessage response = new SignalingMessage("group_left", responseData);
-            sendMessage(ctx, response);
-
-            // Broadcast member list update
-            broadcastGroupMembersUpdate(groupId);
-            
-            logger.atFine().log("Client " + client.getUsername() + " left group: " + groupId);
-        }
-
-        private void handleUpdateGroupPassword(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (groupManager == null) {
-                sendError(ctx, "Group manager not available");
-                return;
-            }
-
-            JsonObject data = message.getData();
-            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
-            if (groupIdStr == null) {
-                sendError(ctx, "Invalid group ID");
-                return;
-            }
-
-            UUID groupId;
-            try {
-                groupId = UUID.fromString(groupIdStr);
-            } catch (IllegalArgumentException e) {
-                sendError(ctx, "Invalid group ID format");
-                return;
-            }
-
-            var group = groupManager.getGroup(groupId);
-            if (group == null) {
-                sendError(ctx, "Group not found");
-                return;
-            }
-
-            // Only the group creator can change the password
-            if (!group.isCreator(client.getClientId())) {
-                sendError(ctx, "Only the group creator can change the password");
-                return;
-            }
-
-            // password=null or empty string removes the password
-            String password = data.has("password") && !data.get("password").isJsonNull()
-                    ? data.get("password").getAsString()
-                    : null;
-            group.setPassword(password);
-
-            // Send confirmation
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("groupId", groupId.toString());
-            responseData.addProperty("hasPassword", group.hasPassword());
-            SignalingMessage response = new SignalingMessage("group_password_updated", responseData);
-            sendMessage(ctx, response);
-
-            // Broadcast updated group list so all clients see the password status change
-            broadcastGroupList();
-
-            logger.atInfo().log("Group " + group.getName() + " password " +
-                    (group.hasPassword() ? "set" : "removed") + " by " + client.getUsername());
-        }
-
-        private void handleSetGroupPermanent(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (groupManager == null) {
-                sendError(ctx, "Group manager not available");
-                return;
-            }
-
-            // Only admins can toggle permanent (uses Hytale's built-in permission system)
-            if (!PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin")) {
-                sendError(ctx, "Only server admins can mark groups as permanent");
-                return;
-            }
-
-            JsonObject data = message.getData();
-            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
-            boolean isPermanent = false;
-            if (data.has("isPermanent")) {
-                JsonElement isPermanentElement = data.get("isPermanent");
-                if (!isPermanentElement.isJsonNull()) {
-                    try {
-                        isPermanent = isPermanentElement.getAsBoolean();
-                    } catch (ClassCastException | IllegalStateException e) {
-                        logger.atWarning().log("Client " + client.getUsername() + " sent invalid isPermanent type for setPermanent: " + e.getMessage());
-                        sendError(ctx, "Invalid isPermanent value");
-                        return;
-                    }
-                }
-            }
-
-            if (groupIdStr == null) {
-                sendError(ctx, "Invalid group ID");
-                return;
-            }
-
-            UUID groupId;
-            try {
-                groupId = UUID.fromString(groupIdStr);
-            } catch (IllegalArgumentException e) {
-                sendError(ctx, "Invalid group ID format");
-                return;
-            }
-
-            var group = groupManager.getGroup(groupId);
-            if (group == null) {
-                sendError(ctx, "Group not found");
-                return;
-            }
-
-            group.setPermanent(isPermanent);
-
-            // Send confirmation
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("groupId", groupId.toString());
-            responseData.addProperty("isPermanent", group.isPermanent());
-            SignalingMessage response = new SignalingMessage("group_permanent_updated", responseData);
-            sendMessage(ctx, response);
-
-            // Broadcast updated group list
-            broadcastGroupList();
-
-            logger.atInfo().log("Group " + group.getName() + " permanent=" + isPermanent + " set by admin " + client.getUsername());
         }
 
         private void handleUserSpeakingStatus(ChannelHandlerContext ctx, SignalingMessage message) {
@@ -1666,27 +1088,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             sendMessage(ctx, response);
         }
 
-        private void broadcastGroupMembersUpdate(UUID groupId) {
-            if (groupManager == null) {
-                return;
-            }
-
-            var group = groupManager.getGroup(groupId);
-            if (group == null) {
-                return;
-            }
-
-            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
-            JsonObject broadcastData = SignalingPayloadFactory.buildGroupMembersUpdateData(
-                groupId,
-                group.getName(),
-                membersArray
-            );
-
-            SignalingMessage broadcastMsg = new SignalingMessage("group_members_updated", broadcastData);
-            groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
-        }
-        
         private void sendMessage(ChannelHandlerContext ctx, SignalingMessage message) {
             ctx.channel().writeAndFlush(new TextWebSocketFrame(message.toJson()));
         }
@@ -1717,11 +1118,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client != null) {
-                boolean removeFromPositionTracker = shouldRemoveFromPositionTracker(client.getClientId());
-                cleanupClient(client, removeFromPositionTracker);
-            }
+            clientSessionService.handleDisconnect(ctx);
             ctx.fireChannelInactive();
         }
         
@@ -1744,7 +1141,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         
     }
 
-    private static class ResumableSession {
+    static final class ResumableSession {
         private final UUID clientId;
         private final String username;
         private final String sessionId;
@@ -1753,7 +1150,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         private final String negotiatedAudioCodec;
         private final long expiresAt;
 
-        private ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, UUID lastGroupId, String negotiatedAudioCodec, long expiresAt) {
+        ResumableSession(UUID clientId, String username, String sessionId, String resumeToken, UUID lastGroupId, String negotiatedAudioCodec, long expiresAt) {
             this.clientId = clientId;
             this.username = username;
             this.sessionId = sessionId;
@@ -1761,6 +1158,34 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             this.lastGroupId = lastGroupId;
             this.negotiatedAudioCodec = negotiatedAudioCodec;
             this.expiresAt = expiresAt;
+        }
+
+        UUID getClientId() {
+            return clientId;
+        }
+
+        String getUsername() {
+            return username;
+        }
+
+        String getSessionId() {
+            return sessionId;
+        }
+
+        String getResumeToken() {
+            return resumeToken;
+        }
+
+        UUID getLastGroupId() {
+            return lastGroupId;
+        }
+
+        String getNegotiatedAudioCodec() {
+            return negotiatedAudioCodec;
+        }
+
+        long getExpiresAt() {
+            return expiresAt;
         }
     }
 }

@@ -28,15 +28,13 @@ final class SignalingWebRtcService {
     }
 
     void handleOffer(ChannelHandlerContext ctx, SignalingMessage message) {
-        WebRTCClient client = ctx.channel().attr(clientAttr).get();
+        WebRTCClient client = requireAuthenticatedClient(ctx);
         if (client == null) {
-            sendError.send(ctx, "Not authenticated", null);
             return;
         }
 
-        WebRTCPeerManager peerManager = peerManagerSupplier.get();
+        WebRTCPeerManager peerManager = requirePeerManager(ctx);
         if (peerManager == null) {
-            sendError.send(ctx, "WebRTC peer manager not available", null);
             return;
         }
 
@@ -55,15 +53,13 @@ final class SignalingWebRtcService {
     }
 
     void handleIceCandidate(ChannelHandlerContext ctx, SignalingMessage message) {
-        WebRTCClient client = ctx.channel().attr(clientAttr).get();
+        WebRTCClient client = requireAuthenticatedClient(ctx);
         if (client == null) {
-            sendError.send(ctx, "Not authenticated", null);
             return;
         }
 
-        WebRTCPeerManager peerManager = peerManagerSupplier.get();
+        WebRTCPeerManager peerManager = requirePeerManager(ctx);
         if (peerManager == null) {
-            sendError.send(ctx, "WebRTC peer manager not available", null);
             return;
         }
 
@@ -88,19 +84,33 @@ final class SignalingWebRtcService {
     }
 
     void handleStartDataChannel(ChannelHandlerContext ctx) {
-        WebRTCClient client = ctx.channel().attr(clientAttr).get();
+        WebRTCClient client = requireAuthenticatedClient(ctx);
         if (client == null) {
-            sendError.send(ctx, "Not authenticated", null);
             return;
         }
 
-        WebRTCPeerManager peerManager = peerManagerSupplier.get();
+        WebRTCPeerManager peerManager = requirePeerManager(ctx);
         if (peerManager == null) {
-            sendError.send(ctx, "WebRTC peer manager not available", null);
             return;
         }
 
         UUID clientId = client.getClientId();
         peerManager.startDataChannelTransport(clientId);
+    }
+
+    private WebRTCClient requireAuthenticatedClient(ChannelHandlerContext ctx) {
+        WebRTCClient client = ctx.channel().attr(clientAttr).get();
+        if (client == null) {
+            sendError.send(ctx, "Not authenticated", null);
+        }
+        return client;
+    }
+
+    private WebRTCPeerManager requirePeerManager(ChannelHandlerContext ctx) {
+        WebRTCPeerManager peerManager = peerManagerSupplier.get();
+        if (peerManager == null) {
+            sendError.send(ctx, "WebRTC peer manager not available", null);
+        }
+        return peerManager;
     }
 }
