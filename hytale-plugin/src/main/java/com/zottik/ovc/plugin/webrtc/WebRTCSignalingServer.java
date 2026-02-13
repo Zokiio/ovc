@@ -505,12 +505,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         // Broadcast updated member list to remaining group members
         if (!groupDeleted) {
             com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
-            JsonObject broadcastData = new JsonObject();
-            broadcastData.addProperty("groupId", groupId.toString());
-            broadcastData.addProperty("groupName", group.getName());
-            broadcastData.addProperty("memberCount", membersArray.size());
-            broadcastData.add("members", membersArray);
-            
+            JsonObject broadcastData = SignalingPayloadFactory.buildGroupMembersUpdateData(
+                groupId,
+                group.getName(),
+                membersArray
+            );
+
             SignalingMessage membersMsg = new SignalingMessage("group_members_updated", broadcastData);
             groupStateManager.broadcastToGroupAll(groupId, membersMsg);
         }
@@ -547,34 +547,13 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
         if (groupManager == null) {
             return;
         }
-
-        com.google.gson.JsonArray groupsArray = new com.google.gson.JsonArray();
-        for (Group group : groupManager.listGroups()) {
-            JsonObject groupObj = new JsonObject();
-            groupObj.addProperty("id", group.getGroupId().toString());
-            groupObj.addProperty("name", group.getName());
-            groupObj.addProperty("memberCount", group.getMemberCount());
-            groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
-            groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
-            groupObj.addProperty("isIsolated", group.isIsolated());
-            groupObj.addProperty("isPermanent", group.isPermanent());
-            groupObj.addProperty("hasPassword", group.hasPassword());
-            
-            // Include creator client ID (obfuscated)
-            UUID creatorUuid = group.getCreatorUuid();
-            if (creatorUuid != null) {
-                groupObj.addProperty("creatorClientId", clientIdMapper.getObfuscatedId(creatorUuid));
-            }
-            
-            // Include members list so clients can verify membership
-            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
-            groupObj.add("members", membersArray);
-            
-            groupsArray.add(groupObj);
-        }
-
-        JsonObject data = new JsonObject();
-        data.add("groups", groupsArray);
+        JsonObject data = SignalingPayloadFactory.buildGroupListData(
+            groupManager.listGroups(),
+            groupStateManager,
+            clients,
+            clientIdMapper,
+            SignalingPayloadFactory.GroupListMode.BROADCAST
+        );
 
         SignalingMessage message = new SignalingMessage("group_list", data);
         broadcastToAll(message);
@@ -584,29 +563,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
      * Broadcast current player list to all connected web clients
      */
     private void broadcastPlayerList() {
-        com.google.gson.JsonArray playersArray = new com.google.gson.JsonArray();
-        
-        for (WebRTCClient client : clients.values()) {
-            if (client != null && client.isConnected() && !client.isPendingGameSession()) {
-                JsonObject playerObj = new JsonObject();
-                playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
-                playerObj.addProperty("username", client.getUsername());
-                playerObj.addProperty("isSpeaking", client.isSpeaking());
-                playerObj.addProperty("isMuted", client.isMuted());
-                
-                // Include group info if player is in a group
-                java.util.UUID groupId = groupStateManager.getClientGroup(client.getClientId());
-                if (groupId != null) {
-                    playerObj.addProperty("groupId", groupId.toString());
-                }
-                
-                playersArray.add(playerObj);
-            }
-        }
-        
-        JsonObject data = new JsonObject();
-        data.add("players", playersArray);
-        
+        JsonObject data = SignalingPayloadFactory.buildPlayerListData(
+            clients.values(),
+            groupStateManager,
+            clientIdMapper
+        );
+
         SignalingMessage message = new SignalingMessage("player_list", data);
         broadcastToAll(message);
     }
@@ -904,6 +866,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
     
     private class WebSocketServerHandler extends SimpleChannelInboundHandler<Object> {
         private WebSocketServerHandshaker handshaker;
+        private final SignalingClientSessionService clientSessionService =
+                new SignalingClientSessionService(CLIENT_ATTR, this::sendMessage);
+        private final SignalingWebRtcService webRtcService =
+                new SignalingWebRtcService(CLIENT_ATTR, () -> peerManager, this::sendMessage, this::sendError);
+        private final SignalingGroupService groupService =
+                new SignalingGroupService(() -> groupManager, () -> groupStateManager, clients, clientIdMapper, this::sendMessage, this::sendError);
         
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, Object msg) {
@@ -1000,13 +968,13 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         handleLeaveGroup(ctx, message);
                         break;
                     case "list_groups":
-                        handleListGroups(ctx, message);
+                        groupService.handleListGroups(ctx);
                         break;
                     case "list_players":
-                        handleListPlayers(ctx, message);
+                        groupService.handleListPlayers(ctx);
                         break;
                     case "get_group_members":
-                        handleGetGroupMembers(ctx, message);
+                        groupService.handleGetGroupMembers(ctx, message);
                         break;
                     case "update_group_password":
                         handleUpdateGroupPassword(ctx, message);
@@ -1024,22 +992,22 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                         handlePing(ctx, message);
                         break;
                     case SignalingMessage.TYPE_HEARTBEAT:
-                        handleHeartbeat(ctx, message);
+                        clientSessionService.handleHeartbeat(ctx, message);
                         break;
                     case "audio":
                         sendError(ctx, "WebSocket audio transport is no longer supported; use WebRTC DataChannel");
                         break;
                     case "start_datachannel":
-                        handleStartDataChannel(ctx);
+                        webRtcService.handleStartDataChannel(ctx);
                         break;
                     case SignalingMessage.TYPE_DISCONNECT:
                         handleDisconnect(ctx);
                         break;
                     case SignalingMessage.TYPE_OFFER:
-                        handleOffer(ctx, message);
+                        webRtcService.handleOffer(ctx, message);
                         break;
                     case SignalingMessage.TYPE_ICE_CANDIDATE:
-                        handleIceCandidate(ctx, message);
+                        webRtcService.handleIceCandidate(ctx, message);
                         break;
                     default:
                         logger.atWarning().log("Unknown signaling message type: " + message.getType());
@@ -1050,113 +1018,16 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
         }
 
-        private JsonArray buildSupportedAudioCodecs() {
-            JsonArray codecs = new JsonArray();
-            if (NetworkConfig.isOpusDataChannelEnabled()) {
-                codecs.add(WebRTCClient.AUDIO_CODEC_OPUS);
-            } else {
-                codecs.add(WebRTCClient.AUDIO_CODEC_PCM);
-            }
-            return codecs;
-        }
-
-        private JsonObject buildAudioCodecConfig() {
-            JsonObject config = new JsonObject();
-            config.addProperty("sampleRate", NetworkConfig.getOpusSampleRate());
-            config.addProperty("channels", NetworkConfig.getOpusChannels());
-            config.addProperty("frameDurationMs", NetworkConfig.getOpusFrameDurationMs());
-            config.addProperty("targetBitrate", NetworkConfig.getOpusTargetBitrate());
-            return config;
-        }
-
-        private boolean clientSupportsCodec(JsonObject data, String codec) {
-            if (codec == null || codec.isEmpty()) {
-                return false;
-            }
-
-            String normalizedCodec = codec.toLowerCase();
-            String preferredCodec = data.has("preferredAudioCodec") ? data.get("preferredAudioCodec").getAsString() : "";
-            if (normalizedCodec.equals(preferredCodec == null ? "" : preferredCodec.trim().toLowerCase())) {
-                return true;
-            }
-
-            if (!data.has("audioCodecs") || !data.get("audioCodecs").isJsonArray()) {
-                return false;
-            }
-
-            for (JsonElement codecElement : data.getAsJsonArray("audioCodecs")) {
-                if (codecElement == null || !codecElement.isJsonPrimitive()) {
-                    continue;
-                }
-                String candidate = codecElement.getAsString();
-                if (candidate != null && normalizedCodec.equals(candidate.trim().toLowerCase())) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        private String negotiateAudioCodec(JsonObject data) {
-            if (!NetworkConfig.isOpusDataChannelEnabled()) {
-                return WebRTCClient.AUDIO_CODEC_PCM;
-            }
-
-            if (!clientSupportsCodec(data, WebRTCClient.AUDIO_CODEC_OPUS)) {
-                return null;
-            }
-
-            return WebRTCClient.AUDIO_CODEC_OPUS;
-        }
-
-        private JsonObject buildSessionResponseData(WebRTCClient client, boolean playerOnline) {
-            String obfuscatedId = clientIdMapper.getObfuscatedId(client.getClientId());
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("clientId", obfuscatedId);
-            responseData.addProperty("username", client.getUsername());
-            responseData.addProperty("pending", !playerOnline);
-            responseData.addProperty("transportMode", NetworkConfig.getWebRtcTransportMode());
-
-            JsonArray stunServers = new JsonArray();
-            for (String server : NetworkConfig.getStunServers()) {
-                stunServers.add(server);
-            }
-            responseData.add("stunServers", stunServers);
-            responseData.addProperty("sessionId", client.getSessionId());
-            responseData.addProperty("resumeToken", client.getResumeToken());
-            responseData.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
-            responseData.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
-            responseData.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
-            responseData.addProperty("useProximityRadarSpeakingOnly", NetworkConfig.isProximityRadarSpeakingOnlyEnabled());
-            responseData.addProperty("groupSpatialAudio", NetworkConfig.isGroupSpatialAudio());
-            responseData.addProperty("audioCodec", client.getNegotiatedAudioCodec());
-            responseData.add("audioCodecs", buildSupportedAudioCodecs());
-            responseData.add("audioCodecConfig", buildAudioCodecConfig());
-            responseData.addProperty("isAdmin", PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin"));
-
-            if (!playerOnline) {
-                int timeoutSeconds = NetworkConfig.getPendingGameJoinTimeoutSeconds();
-                String messageText = timeoutSeconds > 0
-                        ? "Waiting for game session... disconnecting in " + timeoutSeconds + "s."
-                        : "Waiting for game session...";
-                responseData.addProperty("pendingMessage", messageText);
-                responseData.addProperty("pendingTimeoutSeconds", timeoutSeconds);
-            }
-
-            return responseData;
-        }
-
         private void sendHello(ChannelHandlerContext ctx) {
-            JsonObject data = new JsonObject();
-            data.addProperty("heartbeatIntervalMs", HEARTBEAT_INTERVAL_MS);
-            data.addProperty("resumeWindowMs", RESUME_WINDOW_MS);
-            data.addProperty("useProximityRadar", NetworkConfig.isProximityRadarEnabled());
-            data.addProperty("useProximityRadarSpeakingOnly", NetworkConfig.isProximityRadarSpeakingOnlyEnabled());
-            data.addProperty("groupSpatialAudio", NetworkConfig.isGroupSpatialAudio());
-            data.addProperty("audioCodec", NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM);
-            data.add("audioCodecs", buildSupportedAudioCodecs());
-            data.add("audioCodecConfig", buildAudioCodecConfig());
-            SignalingMessage hello = new SignalingMessage(SignalingMessage.TYPE_HELLO, data);
-            sendMessage(ctx, hello);
+            clientSessionService.sendHello(
+                ctx,
+                HEARTBEAT_INTERVAL_MS,
+                RESUME_WINDOW_MS,
+                NetworkConfig.isProximityRadarEnabled(),
+                NetworkConfig.isProximityRadarSpeakingOnlyEnabled(),
+                NetworkConfig.isGroupSpatialAudio(),
+                NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM
+            );
         }
         
         private void handleAuthenticate(ChannelHandlerContext ctx, SignalingMessage message) {
@@ -1198,7 +1069,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 return;
             }
 
-            String negotiatedCodec = negotiateAudioCodec(data);
+            String negotiatedCodec = SignalingCodecNegotiator.negotiateAudioCodec(data);
             if (negotiatedCodec == null) {
                 sendError(ctx, "Client does not support required audio codec: opus", "codec_unsupported");
                 return;
@@ -1236,7 +1107,19 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
             
             // Send success response with obfuscated client ID
-            JsonObject responseData = buildSessionResponseData(client, playerOnline);
+            JsonObject responseData = SignalingPayloadFactory.buildSessionResponseData(
+                client,
+                playerOnline,
+                clientIdMapper,
+                PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin"),
+                NetworkConfig.getStunServers(),
+                NetworkConfig.getWebRtcTransportMode(),
+                HEARTBEAT_INTERVAL_MS,
+                RESUME_WINDOW_MS,
+                NetworkConfig.isProximityRadarEnabled(),
+                NetworkConfig.isProximityRadarSpeakingOnlyEnabled(),
+                NetworkConfig.isGroupSpatialAudio()
+            );
             
             SignalingMessage response = new SignalingMessage(
                     SignalingMessage.TYPE_AUTH_SUCCESS, responseData);
@@ -1287,7 +1170,7 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             String negotiatedCodec = (session.negotiatedAudioCodec == null || session.negotiatedAudioCodec.isEmpty())
                 ? (NetworkConfig.isOpusDataChannelEnabled() ? WebRTCClient.AUDIO_CODEC_OPUS : WebRTCClient.AUDIO_CODEC_PCM)
                 : session.negotiatedAudioCodec;
-            if (!clientSupportsCodec(data, negotiatedCodec)) {
+            if (!SignalingCodecNegotiator.clientSupportsCodec(data, negotiatedCodec)) {
                 sendError(ctx, "Client does not support required audio codec: " + negotiatedCodec, "codec_unsupported");
                 return;
             }
@@ -1319,7 +1202,19 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
                 syncClientGroupState(ctx, client, session.lastGroupId);
             }
 
-            JsonObject responseData = buildSessionResponseData(client, playerOnline);
+            JsonObject responseData = SignalingPayloadFactory.buildSessionResponseData(
+                client,
+                playerOnline,
+                clientIdMapper,
+                PermissionsModule.get().hasPermission(client.getClientId(), "ovc.admin"),
+                NetworkConfig.getStunServers(),
+                NetworkConfig.getWebRtcTransportMode(),
+                HEARTBEAT_INTERVAL_MS,
+                RESUME_WINDOW_MS,
+                NetworkConfig.isProximityRadarEnabled(),
+                NetworkConfig.isProximityRadarSpeakingOnlyEnabled(),
+                NetworkConfig.isGroupSpatialAudio()
+            );
             SignalingMessage response = new SignalingMessage(SignalingMessage.TYPE_RESUMED, responseData);
             sendMessage(ctx, response);
             sendHello(ctx);
@@ -1359,99 +1254,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             broadcastGroupMembersUpdate(groupId);
         }
 
-        private void handleHeartbeat(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                return;
-            }
-
-            client.setLastHeartbeatAt(System.currentTimeMillis());
-
-            JsonObject data = message.getData();
-            long timestamp = data.has("timestamp") ? data.get("timestamp").getAsLong() : System.currentTimeMillis();
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("timestamp", timestamp);
-            SignalingMessage response = new SignalingMessage(SignalingMessage.TYPE_HEARTBEAT_ACK, responseData);
-            sendMessage(ctx, response);
-        }
-
         private void sendResumeFailed(ChannelHandlerContext ctx, String reason) {
             JsonObject errorData = new JsonObject();
             errorData.addProperty("message", reason);
             errorData.addProperty("code", "resume_failed");
             SignalingMessage errorMessage = new SignalingMessage(SignalingMessage.TYPE_ERROR, errorData);
             sendMessage(ctx, errorMessage);
-        }
-        
-        private void handleOffer(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (peerManager == null) {
-                sendError(ctx, "WebRTC peer manager not available");
-                return;
-            }
-
-            JsonObject data = message.getData();
-            if (!data.has("sdp")) {
-                sendError(ctx, "Missing SDP offer");
-                return;
-            }
-
-            String offerSdp = data.get("sdp").getAsString();
-            String answerSdp = peerManager.createPeerConnection(client.getClientId(), offerSdp);
-
-            JsonObject responseData = new JsonObject();
-            responseData.addProperty("sdp", answerSdp);
-            SignalingMessage response = new SignalingMessage(SignalingMessage.TYPE_ANSWER, responseData);
-            sendMessage(ctx, response);
-        }
-
-        private void handleIceCandidate(ChannelHandlerContext ctx, SignalingMessage message) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (peerManager == null) {
-                sendError(ctx, "WebRTC peer manager not available");
-                return;
-            }
-
-            JsonObject data = message.getData();
-            if (data.has("complete") && data.get("complete").getAsBoolean()) {
-                peerManager.handleIceCandidateComplete(client.getClientId());
-                return;
-            }
-            if (!data.has("candidate")) {
-                sendError(ctx, "Missing ICE candidate");
-                return;
-            }
-
-            String candidate = data.get("candidate").getAsString();
-            if (candidate == null || candidate.isEmpty()) {
-                return;
-            }
-            String sdpMid = data.has("sdpMid") ? data.get("sdpMid").getAsString() : null;
-            int sdpMLineIndex = data.has("sdpMLineIndex") ? data.get("sdpMLineIndex").getAsInt() : -1;
-
-            peerManager.handleIceCandidate(client.getClientId(), candidate, sdpMid, sdpMLineIndex);
-        }
-
-        private void handleStartDataChannel(ChannelHandlerContext ctx) {
-            WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
-            if (client == null) {
-                sendError(ctx, "Not authenticated");
-                return;
-            }
-            if (peerManager == null) {
-                sendError(ctx, "WebRTC peer manager not available");
-                return;
-            }
-
-            peerManager.startDataChannelTransport(client.getClientId());
         }
         
         private void handleDisconnect(ChannelHandlerContext ctx) {
@@ -1809,92 +1617,6 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             logger.atInfo().log("Group " + group.getName() + " permanent=" + isPermanent + " set by admin " + client.getUsername());
         }
 
-        private void handleListGroups(ChannelHandlerContext ctx, SignalingMessage message) {
-            if (groupManager == null) {
-                sendError(ctx, "Group manager not available");
-                return;
-            }
-
-            var groups = groupManager.listGroups();
-            com.google.gson.JsonArray groupsArray = new com.google.gson.JsonArray();
-            
-            for (var group : groups) {
-                JsonObject groupObj = new JsonObject();
-                groupObj.addProperty("id", group.getGroupId().toString());
-                groupObj.addProperty("name", group.getName());
-                groupObj.addProperty("memberCount", group.getMemberCount());
-                groupObj.addProperty("maxMembers", group.getSettings().getMaxMembers());
-                groupObj.addProperty("proximityRange", group.getSettings().getProximityRange());
-                groupObj.addProperty("isIsolated", group.isIsolated());
-                
-                // Include members list
-                com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(group.getGroupId(), clients, clientIdMapper);
-                groupObj.add("members", membersArray);
-                
-                groupsArray.add(groupObj);
-            }
-
-            JsonObject responseData = new JsonObject();
-            responseData.add("groups", groupsArray);
-            SignalingMessage response = new SignalingMessage("group_list", responseData);
-            sendMessage(ctx, response);
-        }
-
-        private void handleListPlayers(ChannelHandlerContext ctx, SignalingMessage message) {
-            // Return all connected web clients as players
-            com.google.gson.JsonArray playersArray = new com.google.gson.JsonArray();
-            
-            for (WebRTCClient client : clients.values()) {
-                if (client != null && client.isConnected() && !client.isPendingGameSession()) {
-                    JsonObject playerObj = new JsonObject();
-                    playerObj.addProperty("id", clientIdMapper.getObfuscatedId(client.getClientId()));
-                    playerObj.addProperty("username", client.getUsername());
-                    playerObj.addProperty("isSpeaking", client.isSpeaking());
-                    // Note: "isMuted" represents microphone mute status (not speaker/output mute)
-                    // Clients map this to "isMicMuted" to distinguish from local speaker mute
-                    playerObj.addProperty("isMuted", client.isMuted());
-                    
-                    // Include group info if player is in a group
-                    UUID groupId = groupStateManager.getClientGroup(client.getClientId());
-                    if (groupId != null) {
-                        playerObj.addProperty("groupId", groupId.toString());
-                    }
-                    
-                    playersArray.add(playerObj);
-                }
-            }
-            
-            JsonObject responseData = new JsonObject();
-            responseData.add("players", playersArray);
-            SignalingMessage response = new SignalingMessage("player_list", responseData);
-            sendMessage(ctx, response);
-        }
-
-        private void handleGetGroupMembers(ChannelHandlerContext ctx, SignalingMessage message) {
-            JsonObject data = message.getData();
-            String groupIdStr = data.has("groupId") ? data.get("groupId").getAsString() : null;
-            
-            if (groupIdStr == null) {
-                sendError(ctx, "Invalid group ID");
-                return;
-            }
-
-            UUID groupId;
-            try {
-                groupId = UUID.fromString(groupIdStr);
-            } catch (IllegalArgumentException e) {
-                sendError(ctx, "Invalid group ID format");
-                return;
-            }
-
-            com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
-            
-            JsonObject responseData = new JsonObject();
-            responseData.add("members", membersArray);
-            SignalingMessage response = new SignalingMessage("group_members_list", responseData);
-            sendMessage(ctx, response);
-        }
-
         private void handleUserSpeakingStatus(ChannelHandlerContext ctx, SignalingMessage message) {
             WebRTCClient client = ctx.channel().attr(CLIENT_ATTR).get();
             if (client == null) {
@@ -1955,12 +1677,12 @@ public class WebRTCSignalingServer implements GroupManager.GroupEventListener {
             }
 
             com.google.gson.JsonArray membersArray = groupStateManager.getGroupMembersJson(groupId, clients, clientIdMapper);
-            JsonObject broadcastData = new JsonObject();
-            broadcastData.addProperty("groupId", groupId.toString());
-            broadcastData.addProperty("groupName", group.getName());
-            broadcastData.addProperty("memberCount", membersArray.size());
-            broadcastData.add("members", membersArray);
-            
+            JsonObject broadcastData = SignalingPayloadFactory.buildGroupMembersUpdateData(
+                groupId,
+                group.getName(),
+                membersArray
+            );
+
             SignalingMessage broadcastMsg = new SignalingMessage("group_members_updated", broadcastData);
             groupStateManager.broadcastToGroupAll(groupId, broadcastMsg);
         }
