@@ -27,6 +27,8 @@ public class WebRTCAudioBridge {
     private DataChannelAudioHandler dataChannelAudioHandler;
     private ClientIdMapper clientIdMapper;
     private final AudioGainProcessor gainProcessor;
+    private volatile AudioRoutingEngine routingEngine;
+    private volatile AudioPayloadEncoder payloadEncoder;
     
     // Audio buffering and routing
     private final BlockingQueue<AudioFrame> audioQueue;
@@ -45,18 +47,23 @@ public class WebRTCAudioBridge {
         // Load settings from config
         this.proximityDistance = NetworkConfig.getDefaultProximityDistance();
         this.gainProcessor = new AudioGainProcessor(NetworkConfig.getProximityRolloffFactor());
+        this.payloadEncoder = new AudioPayloadEncoder(dataChannelAudioHandler);
+        rebuildRoutingEngine();
     }
     
     public void setGroupStateManager(GroupStateManager stateManager) {
         this.groupStateManager = stateManager;
+        rebuildRoutingEngine();
     }
     
     public void setGroupManager(GroupManager groupManager) {
         this.groupManager = groupManager;
+        rebuildRoutingEngine();
     }
 
     public void setDataChannelAudioHandler(DataChannelAudioHandler handler) {
         this.dataChannelAudioHandler = handler;
+        this.payloadEncoder = new AudioPayloadEncoder(handler);
     }
 
     public void setClientIdMapper(ClientIdMapper mapper) {
@@ -181,13 +188,14 @@ public class WebRTCAudioBridge {
      */
     private void routeAudioToNearbyWebRTC(PlayerPosition senderPosition, AudioFrame frame) {
         UUID senderId = senderPosition.getPlayerId();
-        AudioRoutingEngine routingEngine = new AudioRoutingEngine(
-            positionTracker,
-            clients,
-            groupStateManager,
-            groupManager,
-            proximityDistance
-        );
+        AudioRoutingEngine localRoutingEngine = routingEngine;
+        if (localRoutingEngine == null) {
+            rebuildRoutingEngine();
+            localRoutingEngine = routingEngine;
+            if (localRoutingEngine == null) {
+                return;
+            }
+        }
         
         // Check if sender is in a group
         if (groupStateManager != null && groupManager != null) {
@@ -196,7 +204,7 @@ public class WebRTCAudioBridge {
                 var group = groupManager.getGroup(groupId);
                 if (group == null) {
                     routeProximityTargets(
-                        routingEngine.computeProximityTargets(senderId, senderPosition, Collections.emptySet()),
+                        localRoutingEngine.computeProximityTargets(senderId, senderPosition, Collections.emptySet()),
                         senderId,
                         frame.audioData,
                         frame.codec
@@ -205,7 +213,7 @@ public class WebRTCAudioBridge {
                 }
 
                 // Always route within the sender's group.
-                List<AudioRoutingTarget> groupTargets = routingEngine.computeGroupTargets(groupId, senderId, senderPosition);
+                List<AudioRoutingTarget> groupTargets = localRoutingEngine.computeGroupTargets(groupId, senderId, senderPosition);
                 for (AudioRoutingTarget target : groupTargets) {
                     switch (target.mode()) {
                         case FULL_VOLUME -> routeAudioToWebRTCFullVolume(
@@ -237,9 +245,9 @@ public class WebRTCAudioBridge {
 
                 // Hybrid mode: also route to nearby non-group clients.
                 if (!group.isIsolated()) {
-                    Set<UUID> excludedRecipients = routingEngine.buildGroupExclusionSet(senderId, groupId);
+                    Set<UUID> excludedRecipients = localRoutingEngine.buildGroupExclusionSet(senderId, groupId);
                     routeProximityTargets(
-                        routingEngine.computeProximityTargets(senderId, senderPosition, excludedRecipients),
+                        localRoutingEngine.computeProximityTargets(senderId, senderPosition, excludedRecipients),
                         senderId,
                         frame.audioData,
                         frame.codec
@@ -251,7 +259,7 @@ public class WebRTCAudioBridge {
         
         // Fallback: proximity-based routing
         routeProximityTargets(
-            routingEngine.computeProximityTargets(senderId, senderPosition, Collections.emptySet()),
+            localRoutingEngine.computeProximityTargets(senderId, senderPosition, Collections.emptySet()),
             senderId,
             frame.audioData,
             frame.codec
@@ -384,9 +392,13 @@ public class WebRTCAudioBridge {
             AudioGainMetadata gainMetadata
     ) {
         String senderToken = clientIdMapper != null ? clientIdMapper.getObfuscatedId(senderId) : senderId.toString();
-        AudioPayloadEncoder payloadEncoder = new AudioPayloadEncoder(dataChannelAudioHandler);
+        AudioPayloadEncoder localPayloadEncoder = payloadEncoder;
+        if (localPayloadEncoder == null) {
+            localPayloadEncoder = new AudioPayloadEncoder(dataChannelAudioHandler);
+            payloadEncoder = localPayloadEncoder;
+        }
         AudioCodecType recipientCodec = resolveSenderCodec(recipientId);
-        boolean sent = payloadEncoder.sendAudio(
+        boolean sent = localPayloadEncoder.sendAudio(
             recipientId,
             senderToken,
             audioData,
@@ -405,6 +417,7 @@ public class WebRTCAudioBridge {
      */
     public void setProximityDistance(double distance) {
         this.proximityDistance = distance;
+        rebuildRoutingEngine();
         logger.atInfo().log("Proximity distance set to: " + distance + " blocks");
     }
     
@@ -420,6 +433,16 @@ public class WebRTCAudioBridge {
      */
     public boolean isRunning() {
         return running;
+    }
+
+    private void rebuildRoutingEngine() {
+        this.routingEngine = new AudioRoutingEngine(
+            positionTracker,
+            clients,
+            groupStateManager,
+            groupManager,
+            proximityDistance
+        );
     }
     
     

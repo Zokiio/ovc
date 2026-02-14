@@ -55,17 +55,17 @@ class WebRTCPeerSession {
     private final boolean hasApplicationMLine;
     private final X509Certificate dtlsCertificate;
     private final String dtlsFingerprint;
-    private PrivateKey dtlsPrivateKey;
+    private final PrivateKey dtlsPrivateKey;
     private final AtomicReference<Short> audioStreamId = new AtomicReference<>(null);
     private final AtomicBoolean dataChannelTransportStarting = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private DtlsTransport dtlsTransport;
     private SctpTransport sctpTransport;
     private DataChannelManager dataChannelManager;
-    private String audioMid;
-    private String datachannelMid;
-    private int audioMLineIndex = -1;
-    private int dataMLineIndex = -1;
+    private final String audioMid;
+    private final String datachannelMid;
+    private final int audioMLineIndex;
+    private final int dataMLineIndex;
 
     WebRTCPeerSession(UUID clientId, String offerSdp, List<String> stunServers, DataChannelAudioHandler audioHandler, WebRTCPeerManager.IceCandidateListener iceCandidateListener) {
         this.stunServers = stunServers;
@@ -157,7 +157,9 @@ class WebRTCPeerSession {
             
             // Generate DTLS certificate and fingerprint for this session
             try {
-                this.dtlsCertificate = generateSelfSignedCertificate();
+                DtlsIdentity dtlsIdentity = generateSelfSignedIdentity();
+                this.dtlsCertificate = dtlsIdentity.certificate();
+                this.dtlsPrivateKey = dtlsIdentity.privateKey();
                 this.dtlsFingerprint = generateDtlsFingerprint(dtlsCertificate);
                 logger.atInfo().log("Generated DTLS certificate with fingerprint for client " + clientId);
             } catch (Exception e) {
@@ -738,14 +740,14 @@ class WebRTCPeerSession {
     /**
      * Generate a self-signed DTLS certificate for this peer session.
      */
-    private X509Certificate generateSelfSignedCertificate() 
+    private DtlsIdentity generateSelfSignedIdentity()
             throws NoSuchAlgorithmException, NoSuchProviderException, OperatorCreationException, 
                    java.security.cert.CertificateException {
         // Generate RSA key pair
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA", "BC");
         keyGen.initialize(2048);
         KeyPair keyPair = keyGen.generateKeyPair();
-        this.dtlsPrivateKey = keyPair.getPrivate();
+        PrivateKey privateKey = keyPair.getPrivate();
         
         // Generate self-signed certificate
         X500Name issuer = new X500Name("CN=hytale-voice-server");
@@ -760,11 +762,12 @@ class WebRTCPeerSession {
         
         ContentSigner signer = new JcaContentSignerBuilder("SHA256WithRSAEncryption")
                 .setProvider("BC")
-                .build(keyPair.getPrivate());
-        
-        return new JcaX509CertificateConverter()
+                .build(privateKey);
+
+        X509Certificate certificate = new JcaX509CertificateConverter()
                 .setProvider("BC")
                 .getCertificate(builder.build(signer));
+        return new DtlsIdentity(certificate, privateKey);
     }
     
     /**
@@ -787,5 +790,8 @@ class WebRTCPeerSession {
         }
         
         return fingerprint.toString();
+    }
+
+    private record DtlsIdentity(X509Certificate certificate, PrivateKey privateKey) {
     }
 }

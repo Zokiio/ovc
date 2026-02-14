@@ -13,6 +13,9 @@ final class SignalingCodecNegotiator {
         return buildSupportedAudioCodecs(NetworkConfig.isOpusDataChannelEnabled());
     }
 
+    /**
+     * Package-private for deterministic unit tests and explicit non-config call sites.
+     */
     static JsonArray buildSupportedAudioCodecs(boolean opusEnabled) {
         JsonArray codecs = new JsonArray();
         if (opusEnabled) {
