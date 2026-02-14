@@ -52,7 +52,7 @@ Key docs:
 
 Recommended: use the hosted client at `https://ovc.zottik.com`.
 
-If you want a custom deployment, self-host the client (build and serve `voice-app/dist/`) using the steps in [Host quickstart](docs/operations/host-quickstart.md).
+For custom deployments, self-host the client (build and serve `voice-app/dist/`) using the steps in [Host quickstart](docs/operations/host-quickstart.md).
 
 ## Quick start for contributors
 

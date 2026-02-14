@@ -25,7 +25,7 @@ Why this path: release assets are the fastest and most predictable install path 
 
 ## Path B: Build from source (fallback)
 
-Use this when you need an unreleased commit or custom local build.
+Use this path for unreleased commits or custom local builds.
 
 ```bash
 cd hytale-plugin
@@ -55,7 +55,7 @@ Use the full key reference for defaults, constraints, and all optional keys:
 
 ### ICE port range sizing (important)
 
-You do not need to open `50000-51000` unless you expect very high concurrency.
+Size the ICE UDP range to expected peak concurrent voice users plus headroom.
 
 Current OVC web client sessions are DataChannel-first, so capacity is typically close to one UDP port per connected web client.
 
@@ -73,11 +73,11 @@ Recommended presets (starting at `50000`):
 | 50 | 64 | `IcePortMin = 50000`, `IcePortMax = 50063` |
 | 100 | 128 | `IcePortMin = 50000`, `IcePortMax = 50127` |
 
-If the configured ICE range is too small, the plugin can fall back to ephemeral ports. Keep enough headroom so your forwarded firewall range remains authoritative.
+If the configured ICE range is too small, the plugin can fall back to ephemeral ports. Leave headroom so the forwarded firewall range remains authoritative.
 
 ## Choose web-client path
 
-You can use the hosted OVC client at `https://ovc.zottik.com` without running your own web client.
+The hosted OVC client path (`https://ovc.zottik.com`) does not require a self-hosted web client.
 
 ### Option 1 (recommended): Hosted OVC client
 
@@ -89,7 +89,7 @@ Set:
 
 ### Option 2 (optional): Self-hosted web client
 
-If you need a custom client deployment, build and host your own:
+For custom client deployments, build and host the web client:
 
 ```bash
 cd voice-app
