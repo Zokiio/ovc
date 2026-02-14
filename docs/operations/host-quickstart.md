@@ -6,9 +6,11 @@ Practical setup guide for running Obsolete Voice Chat (OVC) as a server operator
 
 This guide is for server hosts and operators who need to deploy and validate OVC for players.
 
-Baseline prerequisites:
+Baseline prerequisites (plugin):
 
 - Java 25
+
+Optional tooling (only if you plan to build from source or self-host the web voice client):
 - Node.js 22.x LTS
 - npm 10+
 
