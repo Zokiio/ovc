@@ -61,6 +61,7 @@ server {
 - Do not expose plugin signaling port externally when using localhost binding.
 - Expose only HTTPS (`443/tcp`) publicly.
 - If using fixed ICE ports, open/forward your configured UDP range (`IcePortMin..IcePortMax`).
+- The ICE UDP range does not need to be huge; size it to expected peak concurrent voice users plus headroom.
 
 ## Validation Steps
 

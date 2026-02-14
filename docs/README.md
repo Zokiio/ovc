@@ -4,6 +4,7 @@ This repository uses a structured, operator-first documentation layout.
 
 ## Operator Guides
 
+- [Host quickstart](operations/host-quickstart.md): Server-host onboarding from install to first live validation.
 - [Configuration reference](operations/configuration.md): Full `ovc.conf` key reference and defaults.
 - [Reverse proxy deployment (recommended)](operations/reverse-proxy.md): Production setup with SSL termination.
 - [Direct SSL deployment (advanced)](operations/direct-ssl.md): Plugin-managed TLS.
