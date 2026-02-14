@@ -15,6 +15,8 @@ interface ResumeSessionInfo {
 type EventCallback<T = unknown> = (data: T) => void
 
 const HEARTBEAT_FALLBACK_INTERVAL_MS = 5000
+const MIN_HEARTBEAT_INTERVAL_MS = 1000
+const MAX_HEARTBEAT_INTERVAL_MS = 60000
 const RESUME_STORAGE_PREFIX = 'voice_app_resume_v1'
 const SUPPORTED_AUDIO_CODECS: AudioCodec[] = ['opus']
 const PREFERRED_AUDIO_CODEC: AudioCodec = 'opus'
@@ -293,7 +295,7 @@ export class SignalingClient {
     this.sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
     this.resumeToken = typeof data.resumeToken === 'string' ? data.resumeToken : ''
 
-    const heartbeatIntervalMs = this.readNumber(data.heartbeatIntervalMs)
+    const heartbeatIntervalMs = this.readIntervalMs(data.heartbeatIntervalMs)
     const resumeWindowMs = this.readNumber(data.resumeWindowMs)
     if (heartbeatIntervalMs > 0) {
       this.heartbeatIntervalMs = heartbeatIntervalMs
@@ -330,7 +332,7 @@ export class SignalingClient {
   }
 
   private handleHello(data: Record<string, unknown>): void {
-    const heartbeatIntervalMs = this.readNumber(data.heartbeatIntervalMs)
+    const heartbeatIntervalMs = this.readIntervalMs(data.heartbeatIntervalMs)
     const resumeWindowMs = this.readNumber(data.resumeWindowMs)
     const audioCodec = this.parseAudioCodec(data.audioCodec)
     const audioCodecs = this.parseAudioCodecs(data.audioCodecs)
@@ -474,6 +476,18 @@ export class SignalingClient {
       return Number.isFinite(parsed) ? parsed : 0
     }
     return 0
+  }
+
+  /**
+   * Reads a heartbeat interval from untrusted input and clamps it to a safe range.
+   */
+  private readIntervalMs(value: unknown): number {
+    const numeric = this.readNumber(value)
+    if (numeric < MIN_HEARTBEAT_INTERVAL_MS) {
+      return 0
+    }
+    const max = MAX_HEARTBEAT_INTERVAL_MS
+    return numeric > max ? max : numeric
   }
 
   private readBoolean(value: unknown): boolean {
