@@ -27,6 +27,8 @@ Proximity-based voice chat for Hytale using a Java SFU plugin and a browser clie
 
 ## Quick start for operators
 
+For full server-host onboarding, see [Host quickstart](docs/operations/host-quickstart.md).
+
 ### 1) Build the plugin
 
 ```bash
@@ -46,15 +48,11 @@ Key docs:
 - [Reverse proxy deployment (recommended)](docs/operations/reverse-proxy.md)
 - [Direct SSL deployment (advanced)](docs/operations/direct-ssl.md)
 
-### 3) Run the web client
+### 3) Use the web client
 
-```bash
-cd voice-app
-npm ci
-npm run dev
-```
+Recommended: use the hosted client at `https://ovc.zottik.com`.
 
-Open the local URL printed by Vite (usually `http://localhost:5173`).
+For custom deployments, self-host the client (build and serve `voice-app/dist/`) using the steps in [Host quickstart](docs/operations/host-quickstart.md).
 
 ## Quick start for contributors
 
@@ -69,6 +67,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution workflow.
 ## Documentation
 
 - [Documentation hub](docs/README.md)
+- [Host quickstart](docs/operations/host-quickstart.md)
 - [Configuration reference](docs/operations/configuration.md)
 - [Troubleshooting](docs/operations/troubleshooting.md)
 - [Support policy](docs/operations/support.md)

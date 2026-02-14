@@ -27,8 +27,10 @@ VoiceSignalingUrl = ""
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000
-IcePortMax = 51000
+IcePortMax = 50063
 ```
+
+Port range sizing: `50000-51000` is not mandatory. Size the UDP range to expected peak concurrency with headroom (for example, `peak_clients * 1.25`, rounded up).
 
 ## Key Reference
 
@@ -47,8 +49,8 @@ IcePortMax = 51000
 | `PendingGameJoinTimeoutSeconds` | Integer | `60` | `60` | Timeout while waiting for in-game session after auth. |
 | `StunServers` | String | `"stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"` | Same list | Comma-separated STUN servers. |
 | `TurnServers` | String | `""` | Empty | Comma-separated TURN servers. |
-| `IcePortMin` | Integer | `50000` | `0` | Min ICE host UDP port. `0` means ephemeral. |
-| `IcePortMax` | Integer | `51000` | `0` | Max ICE host UDP port. Must be `>= IcePortMin`. |
+| `IcePortMin` | Integer | `50000` | `0` | Min ICE host UDP port. `0` means ephemeral. Use a fixed range behind NAT/firewalls. |
+| `IcePortMax` | Integer | `51000` | `0` | Max ICE host UDP port. Must be `>= IcePortMin`. Range size should match expected concurrent clients plus headroom. |
 | `DefaultProximityRange` | Double | `50.0` | `50.0` | Default hearing range outside groups. |
 | `ProximityFadeStart` | Double | `35.0` | `20.0` constant in code | Kept for compatibility; fade behavior is ratio-based in runtime comments. |
 | `ProximityRolloffFactor` | Double | `1.5` | `1.5` | Larger value fades faster with distance. |
@@ -86,7 +88,7 @@ VoiceSignalingUrl = ""
 StunServers = "stun:stun.cloudflare.com:3478,stun:stun.cloudflare.com:53"
 TurnServers = ""
 IcePortMin = 50000
-IcePortMax = 51000
+IcePortMax = 50063
 DefaultProximityRange = 50.0
 USE_PROXIMITY_RADAR = false
 GroupGlobalVoice = true
