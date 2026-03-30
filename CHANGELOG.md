@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0-alpha.2] - 2026-02-17
+
+### Changed
+
+- Updated Hytale server API compatibility to version 2026.02.17-255364b8e.
+- Plugin manifest now correctly targets the latest Hytale server version.
+
 ## [0.4.0-alpha.1] - 2026-02-12
 
 ### Added

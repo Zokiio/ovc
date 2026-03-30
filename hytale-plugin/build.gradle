@@ -19,7 +19,7 @@ if (localPropertiesFile.exists()) {
 }
 
 group = 'com.zottik.ovc'
-version = '0.4.0-alpha.1'
+version = '0.4.0-alpha.2'
 
 allprojects {
     // Load local properties for all projects

@@ -2,71 +2,29 @@
 
 # Obsolete Voice Chat (OVC)
 
-Proximity-based voice chat for Hytale using a Java SFU plugin and a browser client over WebRTC.
+> Archived: this project is obsolete for its original purpose.
+
+Hytale now ships with built-in in-game voice chat, which removes the main reason this repository existed.
+
+This repository is being kept as a historical reference only. It is no longer the active direction for voice features around Hytale, and no further development is planned here.
+
+The in-game system appears to cover proximity voice chat. If future work happens around non-proximity communication such as party, guild, raid, or other grouped voice channels, that should be built as a separate project with a narrower scope instead of continuing this repository.
 
 > Trademark notice: Hytale and Hypixel are trademarks of their respective owners. OVC is an unofficial community project and is not affiliated with or endorsed by Hypixel Studios.
 
-## Supported components
+## Status
+
+- Archived / obsolete for the original use case
+- Kept for historical and technical reference only
+- No active feature development or support planned in this repository
+
+## Legacy repository contents
 
 - `hytale-plugin/`: Java plugin with signaling, routing, and game integration
 - `voice-app/`: React + TypeScript web client
-- `docs/`: canonical operator and contributor documentation
+- `docs/`: operator and contributor documentation for the archived implementation
 
-## Architecture
-
-1. Web client authenticates to plugin signaling over WebSocket.
-2. Plugin establishes WebRTC peer/data-channel transport.
-3. Plugin routes audio using proximity/group rules.
-4. Optional proximity metadata (`distance`, `maxRange`) is included when `USE_PROXIMITY_RADAR = true`.
-
-## Prerequisites
-
-- Java 25 (required for `hytale-plugin`)
-- Node.js 22.x LTS
-- npm 10+
-
-## Quick start for operators
-
-### 1) Build the plugin
-
-```bash
-cd hytale-plugin
-./gradlew build
-```
-
-Copy the generated JAR from `hytale-plugin/build/libs/` into your Hytale server `mods/` folder.
-
-### 2) Configure the plugin
-
-Create `ovc.conf` from `hytale-plugin/src/main/resources/ovc.conf.example` and update values for your environment.
-
-Key docs:
-
-- [Configuration reference](docs/operations/configuration.md)
-- [Reverse proxy deployment (recommended)](docs/operations/reverse-proxy.md)
-- [Direct SSL deployment (advanced)](docs/operations/direct-ssl.md)
-
-### 3) Run the web client
-
-```bash
-cd voice-app
-npm ci
-npm run dev
-```
-
-Open the local URL printed by Vite (usually `http://localhost:5173`).
-
-## Quick start for contributors
-
-```bash
-bash scripts/docs/check-docs.sh
-cd hytale-plugin && ./gradlew build test
-cd ../voice-app && npm ci && npm run lint && npm run build && npm run test:e2e:ci
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution workflow.
-
-## Documentation
+## Legacy documentation
 
 - [Documentation hub](docs/README.md)
 - [Configuration reference](docs/operations/configuration.md)
@@ -75,16 +33,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full contribution workflow.
 - [Release process](docs/releases.md)
 - [Voice app README](voice-app/README.md)
 
-## Releases
-
-- Versioning model: Semantic Versioning (`vX.Y.Z` and pre-release tags like `vX.Y.Z-alpha.1`)
-- Release artifacts: plugin JAR, website bundle archive, and SHA-256 checksums
-- Process: [docs/releases.md](docs/releases.md)
-
 ## Support and security
 
-- Support channel: [GitHub Issues](https://github.com/Zokiio/hytale-voicechat/issues)
-- Security reporting: [GitHub Security Advisories](https://github.com/Zokiio/hytale-voicechat/security/advisories/new)
+This repository is archived, so support and security work should not be expected beyond what is already documented in the repository history.
 
 ## License
 
