@@ -74,6 +74,7 @@ subprojects {
     
     test {
         useJUnitPlatform()
+        systemProperty 'java.util.logging.manager', 'com.hypixel.hytale.logger.backend.HytaleLogManager'
     }
 }
 
@@ -106,6 +107,7 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     
     // Test dependencies for WebRTC classes
+    testRuntimeOnly "com.hypixel.hytale:Server:${hytale_server_version}"
     testImplementation 'org.jitsi:ice4j:3.2-12-gc2cbf61'
     testImplementation 'org.bouncycastle:bcprov-jdk18on:1.83'
     testImplementation 'org.bouncycastle:bctls-jdk18on:1.83'
@@ -118,6 +120,7 @@ dependencies {
 // Configure test framework for root project
 test {
     useJUnitPlatform()
+    systemProperty 'java.util.logging.manager', 'com.hypixel.hytale.logger.backend.HytaleLogManager'
 }
 
 // Configure JAR to include dependencies (fat JAR)
